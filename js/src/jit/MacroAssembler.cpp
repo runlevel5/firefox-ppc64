@@ -6128,7 +6128,7 @@ static void MoveDataBlock(MacroAssembler& masm, Register base, int32_t from,
   static constexpr Register scratch = ABINonArgReg0;
   masm.push(scratch);
 #elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
-    defined(JS_CODEGEN_RISCV64)
+    defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
   UseScratchRegisterScope temps(masm);
   Register scratch = temps.Acquire();
 #elif !defined(JS_CODEGEN_NONE)
@@ -6314,6 +6314,12 @@ static void CollapseWasmFrameFast(MacroAssembler& masm,
 
 #ifdef JS_USE_LINK_REGISTER
   // RA is already in its place, just move stack.
+#  ifdef JS_CODEGEN_PPC64
+  // PPC64's LR is not a GPR, so WasmTailCallRAScratchReg is a normal GPR
+  // (r14). We must explicitly move it to LR so the callee's prologue
+  // (pushReturnAddress) saves the correct return address.
+  masm.xs_mtlr(tempForRA);
+#  endif
   masm.addToStackPtr(Imm32(framePushedAtStart + newArgDest));
 #else
   // Push RA to new frame: store RA, restore temp, and move stack.
@@ -6462,6 +6468,12 @@ static void CollapseWasmFrameSlow(MacroAssembler& masm,
 #ifdef JS_USE_LINK_REGISTER
   masm.freeStack(reserved);
   // RA is already in its place, just move stack.
+#  ifdef JS_CODEGEN_PPC64
+  // PPC64's LR is not a GPR, so WasmTailCallRAScratchReg is a normal GPR
+  // (r14). We must explicitly move the trampoline address to LR so the
+  // callee returns to the trampoline.
+  masm.xs_mtlr(tempForRA);
+#  endif
   masm.addToStackPtr(Imm32(framePushedAtStart + newArgDest));
 #else
   // Push RA to new frame: store RA, restore temp, and move stack.
@@ -8525,7 +8537,7 @@ void MacroAssembler::debugAssertCanonicalInt32(Register r) {
     breakpoint();
     bind(&ok);
 #    elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
-        defined(JS_CODEGEN_RISCV64)
+        defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
     Label ok;
     UseScratchRegisterScope temps(*this);
     Register scratch = temps.Acquire();
@@ -10569,6 +10581,15 @@ void MacroAssembler::orderedHashTableLookup(Register setOrMapObj,
   Label notFound;
   unboxInt32(Address(setOrMapObj, TableObject::offsetOfLiveCount()), temp1);
   branchTest32(Assembler::Zero, temp1, temp1, &notFound);
+
+#if defined(JS_CODEGEN_PPC64)
+  // If this was preceded by a MoveGroup instruction, the hash may have been
+  // loaded algebraically since it's an Int32 (and thus sign-extended); the
+  // operation doesn't know to keep the upper bits clear, failing the assert.
+  if (isBigInt == IsBigInt::No) {
+    as_rldicl(hash, hash, 0, 32);
+  }
+#endif
 
 #ifdef DEBUG
   PushRegsInMask(LiveRegisterSet(RegisterSet::Volatile()));

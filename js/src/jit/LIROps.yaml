@@ -2204,7 +2204,7 @@
     oldval: WordSized
     newval: WordSized
   # Needs additional temps on LL/SC platforms to extract/insert bits of word.
-#if defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64)
+#if defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
   num_temps: 4
 #else
   num_temps: 1
@@ -2218,7 +2218,7 @@
     index: WordSized
     value: WordSized
   # Needs additional temps on LL/SC platforms to extract/insert bits of word.
-#if defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64)
+#if defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
   num_temps: 4
 #else
   num_temps: 1
@@ -2232,7 +2232,7 @@
     index: WordSized
     value: WordSized
   # Needs additional temps on LL/SC platforms to extract/insert bits of word.
-#if defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64)
+#if defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
   num_temps: 4
 #else
   num_temps: 2
@@ -2249,7 +2249,7 @@
   # Needs additional temps on LL/SC platforms to extract/insert bits of word.
 #if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_ARM64)
   num_temps: 1
-#elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64)
+#elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
   num_temps: 3
 #endif
   mir_op: AtomicTypedArrayElementBinop
@@ -3060,7 +3060,7 @@
   operands:
     ptr: WordSized
     memoryBase: WordSized
-#if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64)
+#if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_PPC64)
   num_temps: 1
 #endif
   mir_op: true
@@ -3072,7 +3072,7 @@
     memoryBase: WordSized
 #ifdef JS_CODEGEN_ARM
   num_temps: 2
-#elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64)
+#elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_PPC64)
   num_temps: 1
 #endif
   mir_op: WasmLoad
@@ -3082,7 +3082,7 @@
     ptr: WordSized
     value: WordSized
     memoryBase: WordSized
-#if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64)
+#if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_PPC64)
   num_temps: 1
 #endif
   mir_op: true
@@ -3092,7 +3092,7 @@
     ptr: WordSized
     value: Int64
     memoryBase: WordSized
-#if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64)
+#if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_PPC64)
   num_temps: 1
 #endif
   mir_op: WasmStore
@@ -3122,7 +3122,7 @@
     memoryBase: WordSized
 #ifdef JS_CODEGEN_X86
   num_temps: 1
-#elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64)
+#elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
   # Temp that may be used on LL/SC platforms for extract/insert bits of word.
   num_temps: 3
 #endif
@@ -3136,7 +3136,7 @@
     memoryBase: WordSized
 #ifdef JS_CODEGEN_X86
   num_temps: 1
-#elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64)
+#elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
   # Temp that may be used on LL/SC platforms for extract/insert bits of word.
   num_temps: 3
 #endif
@@ -3148,7 +3148,7 @@
     ptr: WordSized
     value: WordSized
     memoryBase: WordSized
-#if defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64)
+#if defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
   # Temp that may be used on LL/SC platforms for extract/insert bits of word.
   num_temps: 3
 #elifdef JS_CODEGEN_X86
@@ -3165,7 +3165,7 @@
     ptr: WordSized
     value: WordSized
     memoryBase: WordSized
-#if defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64)
+#if defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
   # Temp that may be used on LL/SC platforms for extract/insert bits of word.
   num_temps: 3
 #elif defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_ARM64)
@@ -4361,6 +4361,64 @@
 #endif
 
 #ifdef JS_CODEGEN_LOONG64
+- name: DivOrModI64
+  gen_boilerplate: false
+
+- name: UDivOrMod
+  gen_boilerplate: false
+
+- name: UDivOrModI64
+  gen_boilerplate: false
+
+- name: ModMaskI
+  result_type: WordSized
+  operands:
+    input: WordSized
+  arguments:
+    shift: int32_t
+  num_temps: 2
+  mir_op: Mod
+
+- name: WasmTruncateToInt64
+  result_type: Int64
+  operands:
+    input: WordSized
+  mir_op: true
+
+- name: Int64ToFloatingPoint
+  result_type: WordSized
+  operands:
+    input: Int64
+  mir_op: true
+
+- name: WasmCompareExchangeI64
+  result_type: Int64
+  operands:
+    ptr: WordSized
+    oldValue: Int64
+    newValue: Int64
+    memoryBase: WordSized
+  mir_op: WasmCompareExchangeHeap
+
+- name: WasmAtomicBinopI64
+  result_type: Int64
+  operands:
+    ptr: WordSized
+    value: Int64
+    memoryBase: WordSized
+  num_temps64: 1
+  mir_op: WasmAtomicBinopHeap
+
+- name: WasmAtomicExchangeI64
+  result_type: Int64
+  operands:
+    ptr: WordSized
+    value: Int64
+    memoryBase: WordSized
+  mir_op: WasmAtomicExchangeHeap
+#endif
+
+#ifdef JS_CODEGEN_PPC64
 - name: DivOrModI64
   gen_boilerplate: false
 

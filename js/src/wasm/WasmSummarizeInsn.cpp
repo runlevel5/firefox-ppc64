@@ -1731,6 +1731,169 @@ Maybe<TrapMachineInsn> SummarizeTrapInstruction(const uint8_t* insnAddr) {
   return Nothing();
 }
 
+// ================================================================== ppc64 ====
+
+#  elif defined(JS_CODEGEN_PPC64)
+
+Maybe<TrapMachineInsn> SummarizeTrapInstruction(const uint8_t* insnAddr) {
+  MOZ_ASSERT(0 == (uintptr_t(insnAddr) & 3));
+
+  const uint32_t insn = *(uint32_t*)insnAddr;
+  const uint32_t majorOp = insn >> 26;
+  // X-form secondary opcode: bits 10..1.
+  const uint32_t xo = (insn >> 1) & 0x3FF;
+
+  // PPC_trap = 0x7FE00008 = tw 31,0,0.
+  if (insn == 0x7FE00008) {
+    return Some(TrapMachineInsn::OfficialUD);
+  }
+
+  // D-form / DS-form loads.
+  switch (majorOp) {
+    case 34:  // lbz
+      return Some(TrapMachineInsn::Load8);
+    case 40:  // lhz
+    case 42:  // lha
+      return Some(TrapMachineInsn::Load16);
+    case 32:  // lwz
+      return Some(TrapMachineInsn::Load32);
+    case 58:  // ld (DS=0) / lwa (DS=2)
+      if ((insn & 3) == 2) {
+        return Some(TrapMachineInsn::Load32);  // lwa
+      }
+      return Some(TrapMachineInsn::Load64);  // ld
+    case 48:                                 // lfs
+      return Some(TrapMachineInsn::Load32);
+    case 50:  // lfd
+      return Some(TrapMachineInsn::Load64);
+    default:
+      break;
+  }
+
+  // D-form / DS-form stores.
+  switch (majorOp) {
+    case 38:  // stb
+      return Some(TrapMachineInsn::Store8);
+    case 44:  // sth
+      return Some(TrapMachineInsn::Store16);
+    case 36:  // stw
+    case 37:  // stwu
+      return Some(TrapMachineInsn::Store32);
+    case 52:  // stfs
+      return Some(TrapMachineInsn::Store32);
+    case 62:  // std (DS=0) / stdu (DS=1)
+      return Some(TrapMachineInsn::Store64);
+    case 54:  // stfd
+    case 55:  // stfdu
+      return Some(TrapMachineInsn::Store64);
+    default:
+      break;
+  }
+
+  // X-form instructions (major opcode 31).
+  if (majorOp == 31) {
+    switch (xo) {
+      // Indexed loads.
+      case 87:  // lbzx
+        return Some(TrapMachineInsn::Load8);
+      case 279:  // lhzx
+      case 343:  // lhax
+        return Some(TrapMachineInsn::Load16);
+      case 23:  // lwzx
+        return Some(TrapMachineInsn::Load32);
+      case 21:  // ldx
+        return Some(TrapMachineInsn::Load64);
+      case 535:  // lfsx
+      case 855:  // lfiwax
+      case 887:  // lfiwzx
+        return Some(TrapMachineInsn::Load32);
+      case 599:  // lfdx
+        return Some(TrapMachineInsn::Load64);
+      case 790:  // lhbrx (byte-reverse halfword)
+        return Some(TrapMachineInsn::Load16);
+      case 534:  // lwbrx (byte-reverse word)
+        return Some(TrapMachineInsn::Load32);
+
+      // Indexed stores.
+      case 215:  // stbx
+        return Some(TrapMachineInsn::Store8);
+      case 407:  // sthx
+        return Some(TrapMachineInsn::Store16);
+      case 151:  // stwx
+        return Some(TrapMachineInsn::Store32);
+      case 149:  // stdx
+        return Some(TrapMachineInsn::Store64);
+      case 663:  // stfsx
+        return Some(TrapMachineInsn::Store32);
+      case 727:  // stfdx
+        return Some(TrapMachineInsn::Store64);
+      case 918:  // sthbrx (byte-reverse halfword store)
+        return Some(TrapMachineInsn::Store16);
+      case 662:  // stwbrx (byte-reverse word store)
+        return Some(TrapMachineInsn::Store32);
+
+      // VSX SIMD indexed load/store (XX1-form, same major opcode 31).
+      case 268:  // lxvx (POWER9)
+      case 844:  // lxvd2x (POWER8)
+        return Some(TrapMachineInsn::Load128);
+      case 396:  // stxvx (POWER9)
+      case 972:  // stxvd2x (POWER8)
+        return Some(TrapMachineInsn::Store128);
+
+      // Atomic (load-reserve / store-conditional).
+      case 20:   // lwarx
+      case 52:   // lbarx (POWER7+)
+      case 84:   // ldarx
+      case 116:  // lharx (POWER7+)
+        return Some(TrapMachineInsn::Atomic);
+      default:
+        break;
+    }
+    // stwcx. (XO=150, Rc=1), stdcx. (XO=214, Rc=1), stbcx. (XO=694, Rc=1)
+    // and sthcx. (XO=726, Rc=1) have bit 0 set. Note xo above already
+    // discards bit 0, so we need a separate low-11-bit match.
+    const uint32_t xoRc = insn & 0x7FF;  // bits 10..0
+    if (xoRc == ((150 << 1) | 1) || xoRc == ((214 << 1) | 1) ||
+        xoRc == ((694 << 1) | 1) || xoRc == ((726 << 1) | 1)) {
+      return Some(TrapMachineInsn::Atomic);
+    }
+  }
+
+  // POWER10 prefixed loads/stores (major opcode 1). The trap-site PC
+  // points at the prefix word; the actual load/store kind is encoded in
+  // the suffix word at insnAddr + 4. The 64-byte-boundary rule
+  // (ensurePrefixedAlignment) guarantees the suffix is in the same block.
+  if (majorOp == 1) {
+    const uint32_t suffix = *(uint32_t*)(insnAddr + 4);
+    const uint32_t suffixOp6 = suffix >> 26;          // 6-bit suffix op
+    const uint32_t suffixOp5 = suffix >> 27;          // 5-bit suffix op (plxv/pstxv)
+    switch (suffixOp6) {
+      case 57:  // pld
+        return Some(TrapMachineInsn::Load64);
+      case 50:  // plfd
+        return Some(TrapMachineInsn::Load64);
+      case 48:  // plfs
+        return Some(TrapMachineInsn::Load32);
+      case 61:  // pstd
+        return Some(TrapMachineInsn::Store64);
+      case 54:  // pstfd
+        return Some(TrapMachineInsn::Store64);
+      case 52:  // pstfs
+        return Some(TrapMachineInsn::Store32);
+      default:
+        break;
+    }
+    if (suffixOp5 == 25) {  // plxv
+      return Some(TrapMachineInsn::Load128);
+    }
+    if (suffixOp5 == 27) {  // pstxv
+      return Some(TrapMachineInsn::Store128);
+    }
+  }
+
+  return Nothing();
+}
+
 // ================================================================== none ====
 
 #  elif defined(JS_CODEGEN_NONE)
