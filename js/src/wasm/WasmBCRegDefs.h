@@ -118,6 +118,13 @@ static constexpr Register RabaldrScratchI32 = CallTempReg2;
 static constexpr Register RabaldrScratchI32 = CallTempReg2;
 #endif
 
+#ifdef JS_CODEGEN_PPC64
+#  define RABALDR_SCRATCH_I32
+// Use r25 (callee-saved, non-arg, not used by any wasm infrastructure)
+// instead of CallTempReg2 (r10) which is IntArgReg7.
+static constexpr Register RabaldrScratchI32 = r25;
+#endif
+
 #ifdef RABALDR_SCRATCH_F32_ALIASES_F64
 #  if !defined(RABALDR_SCRATCH_F32) || !defined(RABALDR_SCRATCH_F64)
 #    error "Bad configuration"
@@ -386,8 +393,9 @@ struct SpecificRegs {
 
   SpecificRegs() : abiReturnRegI64(ReturnReg64) {}
 };
-#elif defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS64) || \
-    defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64)
+#elif defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS64) ||  \
+    defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64) || \
+    defined(JS_CODEGEN_PPC64)
 struct SpecificRegs {
   // Required by gcc.
   SpecificRegs() {}
