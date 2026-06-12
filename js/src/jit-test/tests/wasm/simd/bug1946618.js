@@ -48,7 +48,12 @@ for (let op of ["f32x4.relaxed_min", "f32x4.relaxed_max",
     // baseline.
     let result1 = i.exports.variant1();
     let result2 = i.exports.variant2();
-    if (getBuildConfiguration("arm64")) {
+    if (getBuildConfiguration("ppc64")) {
+      // PPC64: xvminsp/xvmaxsp always returns the non-NaN operand,
+      // regardless of operand order. Both variants give zero (non-NaN).
+      assertEq(result1, 0);
+      assertEq(result2, 0);
+    } else if (getBuildConfiguration("arm64")) {
       // The relaxed_min/max operation appears to propagate NaNs symmetrically
       // from either arg
       assertEq(result1, 65535);

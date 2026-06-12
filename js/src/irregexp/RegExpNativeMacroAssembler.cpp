@@ -479,6 +479,10 @@ void SMRegExpMacroAssembler::EmitSkipUntilBitInTableSimd(
   masm_.branchTestPtr(Assembler::Zero, temp1_, temp1_, &advanceVector);
   masm_.ctz64(js::jit::Register64(temp1_), js::jit::Register64(temp0_));
   masm_.rshiftPtr(Imm32(2), temp0_);
+#  elif defined(JS_CODEGEN_PPC64)
+  masm_.bitmaskInt8x16(result, temp1_, /*temp=*/bitmask);
+  masm_.branchTest32(Assembler::Zero, temp1_, temp1_, &advanceVector);
+  masm_.ctz32(temp1_, temp0_, /*knownNotZero=*/true);
 #  elif defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64) || \
       defined(JS_CODEGEN_LOONG64)
   masm_.bitmaskInt8x16(result, temp1_);
@@ -1088,7 +1092,20 @@ void SMRegExpMacroAssembler::CheckBacktrackStackLimit() {
         backtrack_stack_pointer_, &no_stack_overflow);
   }
 
+#ifdef JS_CODEGEN_PPC64
+  // LR on PowerPC isn't a GPR, so we have to explicitly save it before
+  // calling or the regexp's return address will be clobbered.
+  masm_.xs_mflr(temp1_);
+  masm_.as_stdu(temp1_, masm_.getStackPointer(), -8);
+#endif
+
   masm_.call(&stack_overflow_label_);
+
+#ifdef JS_CODEGEN_PPC64
+  masm_.as_ld(temp1_, masm_.getStackPointer(), 0);
+  masm_.xs_mtlr(temp1_);
+  masm_.as_addi(masm_.getStackPointer(), masm_.getStackPointer(), 8);
+#endif
 
   // Exit with an exception if the call failed
   masm_.branchTest32(Assembler::Zero, temp0_, temp0_,
@@ -1176,6 +1193,13 @@ void SMRegExpMacroAssembler::createStackFrame() {
 
   // Initialize the PSP from the SP.
   masm_.initPseudoStackPtr();
+#endif
+
+#ifdef JS_CODEGEN_PPC64
+  // PPC64's link register is an SPR, not a GPR, so it cannot be included in
+  // SavedNonVolatileRegisters. Save it explicitly before the frame pointer
+  // so that abiret()'s blr can return to the caller after we restore it.
+  masm_.pushReturnAddress();
 #endif
 
   masm_.Push(js::jit::FramePointer);
@@ -1442,6 +1466,9 @@ void SMRegExpMacroAssembler::exitHandler() {
   // Perform a plain Ret(), as abiret() will move SP <- PSP and that is wrong.
   masm_.Ret(vixl::lr);
 #else
+#  ifdef JS_CODEGEN_PPC64
+  masm_.popReturnAddress();
+#  endif
   masm_.abiret();
 #endif
 
@@ -1570,6 +1597,11 @@ void SMRegExpMacroAssembler::stackOverflowHandler() {
 
   // Adjust for the return address on the stack.
   size_t frameOffset = sizeof(void*);
+#ifdef JS_CODEGEN_PPC64
+  // CheckBacktrackStackLimit pushes LR before calling us, so there's a
+  // second return address on the stack.
+  frameOffset += sizeof(void*);
+#endif
   Address bsbAddress(masm_.getStackPointer(),
                      offsetof(FrameData, backtrackStackBase) + frameOffset);
   LoadBacktrackStackFromMemory(bsbAddress);

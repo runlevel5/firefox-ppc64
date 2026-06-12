@@ -306,13 +306,19 @@ void ExecutableAllocator::poisonCode(JSRuntime* rt,
     }
   }
 
-  // Make the pools executable again and drop references. We don't flush the
-  // ICache here to not add extra overhead.
+  // Make the pools executable again and drop references. On architectures with
+  // incoherent ICache (PPC64), we must flush to prevent stale instruction
+  // execution when code regions are reused after sweeping.
   for (size_t i = 0; i < ranges.length(); i++) {
     ExecutablePool* pool = ranges[i].pool;
     if (pool->isMarked()) {
+#ifdef JS_CODEGEN_PPC64
+      reprotectPool(rt, pool, ProtectionSetting::Executable,
+                    MustFlushICache::Yes);
+#else
       reprotectPool(rt, pool, ProtectionSetting::Executable,
                     MustFlushICache::No);
+#endif
       pool->unmark();
     }
     pool->release();
