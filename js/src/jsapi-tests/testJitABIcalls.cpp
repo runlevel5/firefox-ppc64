@@ -718,6 +718,9 @@ class JitABICall final : public jsapitest::RuntimeTest,
 #elif defined(JS_CODEGEN_RISCV64)
     Register base = t0;
     regs.take(base);
+#elif defined(JS_CODEGEN_PPC64)
+    Register base = r11;
+    regs.take(base);
 #else
 #  error "Unknown architecture!"
 #endif
