@@ -20,7 +20,13 @@ var info = os.waitpid(kidpid, true);
 assertEq(info.hasOwnProperty("pid"), false);
 assertEq(info.hasOwnProperty("exitStatus"), false);
 
-os.kill(kidpid);
+// Use SIGKILL (9) instead of the default SIGINT: under heavy parallel test
+// load, SIGINT delivery can race with the child's signal-handler setup and
+// the kernel's reaping path, leading to waitpid below blocking until the
+// `sleep 60` exits normally. SIGKILL is uncatchable and forces immediate
+// termination, so the assertion below ("killed process should not have
+// exitStatus") is reliable.
+os.kill(kidpid, 9);
 
 info = os.waitpid(kidpid);
 assertEq(info.hasOwnProperty("pid"), true, "waiting on dead process should return pid");
