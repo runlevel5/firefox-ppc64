@@ -103,7 +103,8 @@
 //
 //   Write out the pool header which follows the guard branch.
 //
-// void Asm::PatchConstantPoolLoad(void* loadAddr, void* constPoolAddr)
+// void Asm::PatchConstantPoolLoad(void* loadAddr, void* constPoolAddr,
+//                                 size_t loadOffset)
 //
 //   Re-encode a load of a constant pool entry after the location of the
 //   constant pool is known.
@@ -1010,7 +1011,8 @@ struct AssemblerBufferWithConstantPools : public AssemblerBuffer<Inst> {
       // amount of math here, since the pool that we've made does not
       // actually reside there in memory.
       JitSpew(JitSpew_Pools, "Fixing entry %d offset to %zu", idx, codeOffset);
-      Asm::PatchConstantPoolLoad(inst, (uint8_t*)inst + codeOffset);
+      Asm::PatchConstantPoolLoad(inst, (uint8_t*)inst + codeOffset,
+                                 size_t(iter->getOffset()));
     }
 
     // Reset everything to the state that it was in when we started.
@@ -1025,6 +1027,10 @@ struct AssemblerBufferWithConstantPools : public AssemblerBuffer<Inst> {
     JitSpew(JitSpew_Pools, "Requesting a pool flush");
     finishPool(SIZE_MAX);
   }
+
+  // Whether the buffer is inside an enterNoPool region, where allocEntry with
+  // pool data is forbidden. Lets emitters choose a poolless fallback sequence.
+  bool poolsInhibited() const { return inhibitPools_ > 0; }
 
   void enterNoPool(size_t maxInst, size_t maxNewDeadlines = 0) {
     // Calling this with a zero arg is pointless.

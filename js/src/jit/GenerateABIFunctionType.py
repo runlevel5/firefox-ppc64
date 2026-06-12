@@ -538,6 +538,102 @@ def riscv64_simulator_dispatch(func_types):
     return contents
 
 
+# PPC64 ELFv2 ABI: 8 int arg regs (r3-r10), 13 FP arg regs (f1-f13).
+# Each floating-point argument consumes BOTH a float-arg slot AND a
+# general-purpose-register shadow slot (capped at 8 GPR slots), matching
+# what GCC and the JIT's ABIArgGenerator do for ELFv2 PPC64LE. Without
+# the shadow, integer args following a float go to the wrong register
+# at the call boundary, producing a use-after-free / wrong-pointer crash
+# in the C callee. (Verified empirically by disassembling
+# NumberBigIntCompare(double, BigInt*) on real PPC64: BigInt* is read
+# from r4, not r3.)
+def ppc64_args(func_type):
+    contents = ""
+    numIntArgRegs = 8
+    numFloatArgRegs = 13
+    intRegIndex = 0
+    floatRegIndex = 0
+    stackOffset = 0
+    for i, arg in enumerate(func_type["args"]):
+        if i != 0:
+            contents += ", "
+
+        if arg == "General":
+            if intRegIndex == numIntArgRegs:
+                contents += f"sp_[{stackOffset}]"
+                stackOffset += 1
+            else:
+                contents += f"a{intRegIndex}_"
+                intRegIndex += 1
+        elif arg == "Int32":
+            if intRegIndex == numIntArgRegs:
+                contents += f"I32(sp_[{stackOffset}])"
+                stackOffset += 1
+            else:
+                contents += f"I32(a{intRegIndex}_)"
+                intRegIndex += 1
+        elif arg == "Int64":
+            if intRegIndex == numIntArgRegs:
+                contents += f"sp_[{stackOffset}]"
+                stackOffset += 1
+            else:
+                contents += f"a{intRegIndex}_"
+                intRegIndex += 1
+        elif arg == "Float32":
+            if floatRegIndex == numFloatArgRegs:
+                contents += f"*mozilla::BitwiseCast<float*>(sp_[{stackOffset}])"
+                stackOffset += 1
+            else:
+                contents += f"f{floatRegIndex}_s"
+                floatRegIndex += 1
+            # ELFv2: FP arg also consumes a GPR shadow slot.
+            if intRegIndex < numIntArgRegs:
+                intRegIndex += 1
+        elif arg == "Float64":
+            if floatRegIndex == numFloatArgRegs:
+                contents += f"mozilla::BitwiseCast<double>(sp_[{stackOffset}])"
+                stackOffset += 1
+            else:
+                contents += f"f{floatRegIndex}_d"
+                floatRegIndex += 1
+            # ELFv2: FP arg also consumes a GPR shadow slot.
+            if intRegIndex < numIntArgRegs:
+                intRegIndex += 1
+    assert intRegIndex <= numIntArgRegs
+    assert floatRegIndex <= numFloatArgRegs
+    return contents
+
+
+def ppc64_simulator_dispatch(func_types):
+    contents = ""
+    for func_type in func_types:
+        args = ppc64_args(func_type)
+        contents += f"case js::jit::Args_{func_type_name(func_type)}: {{\\\n"
+        contents += f"  auto target = reinterpret_cast<Prototype_{func_type_name(func_type)}>(nativeFn);\\\n"
+        ret = func_type["ret"]
+        if ret == "Void":
+            contents += f"  target({args});\\\n"
+        else:
+            contents += f"  auto ret = target({args});\\\n"
+        if ret == "Void":
+            pass
+        elif ret == "General":
+            contents += "  setCallResult(ret);\\\n"
+        elif ret == "Int32":
+            contents += "  setCallResult(I64(ret));\\\n"
+        elif ret == "Int64":
+            contents += "  setCallResult(ret);\\\n"
+        elif ret == "Float32":
+            contents += "  setCallResultFloat(ret);\\\n"
+        elif ret == "Float64":
+            contents += "  setCallResultDouble(ret);\\\n"
+        else:
+            raise ValueError(f"Unknown ret type: {ret}")
+        contents += "  break;\\\n"
+        contents += "}\\\n"
+    return contents
+
+
 def main(c_out, yaml_path):
     func_types = load_yaml(yaml_path)
 
@@ -579,6 +675,10 @@ def main(c_out, yaml_path):
 
     contents += "#define ABI_FUNCTION_TYPE_RISCV64_SIM_DISPATCH \\\n"
     contents += riscv64_simulator_dispatch(func_types)
+    contents += "\n"
+
+    contents += "#define ABI_FUNCTION_TYPE_PPC64_SIM_DISPATCH \\\n"
+    contents += ppc64_simulator_dispatch(func_types)
     contents += "\n"
 
     generate_header(c_out, "jit_ABIFunctionTypeGenerated_h", contents)
