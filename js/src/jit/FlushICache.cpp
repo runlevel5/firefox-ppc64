@@ -13,7 +13,8 @@
 #  include "jit/arm64/vixl/Simulator-vixl.h"
 #endif
 
-#if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_ARM64)
+#if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_ARM64) || \
+    defined(JS_CODEGEN_PPC64)
 
 #  ifdef __linux__
 #    include <linux/version.h>

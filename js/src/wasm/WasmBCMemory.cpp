@@ -372,7 +372,7 @@ void BaseCompiler::boundsCheckBelow4GBAccess(uint32_t memoryIndex,
 // Make sure the ptr could be used as an index register.
 static inline void ToValidIndex(MacroAssembler& masm, RegI32 ptr) {
 #if defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
-    defined(JS_CODEGEN_RISCV64)
+    defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
   // When ptr is used as an index, it will be added to a 64-bit register.
   // So we should explicitly promote ptr to 64-bit. Since now ptr holds a
   // unsigned 32-bit value, we zero-extend it to 64-bit here.
@@ -702,6 +702,18 @@ void BaseCompiler::executeLoad(MemoryAccessDesc* access, RegPtr instance,
     fcr = masm.wasmLoad(*access, memoryBase, ptr, dest.any(), zeroExtend);
   }
   MaybeAddDebugStackMapForTrapOOB(this, fcr);
+#elif defined(JS_CODEGEN_PPC64)
+  MOZ_ASSERT(temp.isInvalid());
+  if (zeroExtend == ZeroExtendIndex::Yes) {
+    ToValidIndex(masm, ptr);
+  }
+  FaultingCodeRange fcr;
+  if (dest.tag == AnyReg::I64) {
+    fcr = masm.wasmLoadI64(*access, memoryBase, ptr, ptr, dest.i64());
+  } else {
+    fcr = masm.wasmLoad(*access, memoryBase, ptr, ptr, dest.any());
+  }
+  MaybeAddDebugStackMapForTrapOOB(this, fcr);
 #else
   MOZ_CRASH("BaseCompiler platform hook: load");
 #endif
@@ -859,6 +871,18 @@ void BaseCompiler::executeStore(MemoryAccessDesc* access, RegPtr instance,
     fcr = masm.wasmStoreI64(*access, src.i64(), memoryBase, ptr, zeroExtend);
   } else {
     fcr = masm.wasmStore(*access, src.any(), memoryBase, ptr, zeroExtend);
+  }
+  MaybeAddDebugStackMapForTrapOOB(this, fcr);
+#elif defined(JS_CODEGEN_PPC64)
+  MOZ_ASSERT(temp.isInvalid());
+  if (zeroExtend == ZeroExtendIndex::Yes) {
+    ToValidIndex(masm, ptr);
+  }
+  FaultingCodeRange fcr;
+  if (access->type() == Scalar::Int64) {
+    fcr = masm.wasmStoreI64(*access, src.i64(), memoryBase, ptr, ptr);
+  } else {
+    fcr = masm.wasmStore(*access, src.any(), memoryBase, ptr, ptr);
   }
   MaybeAddDebugStackMapForTrapOOB(this, fcr);
 #else
@@ -1373,7 +1397,7 @@ static void Deallocate(BaseCompiler* bc, RegI32 rv, const Temps& temps) {
   bc->freeI32(temps.t0);
 }
 
-#elif defined(JS_CODEGEN_LOONG64)
+#elif defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_PPC64)
 
 struct Temps {
   RegI32 t0, t1, t2;
@@ -1387,9 +1411,13 @@ static void PopAndAllocate(BaseCompiler* bc, ValType type,
     // Architecture-specific i64-to-i32.
     bc->masm.move64To32(Register64(*rv), *rv);
   }
+#ifdef JS_CODEGEN_LOONG64
   const bool needsLlScLoop = Scalar::byteSize(viewType) < 4 &&
                              !(LOONG64Flags::HasLamBhExtension() &&
                                (op == AtomicOp::Add || op == AtomicOp::Sub));
+#else
+  const bool needsLlScLoop = Scalar::byteSize(viewType) < 4;
+#endif
   if (needsLlScLoop) {
     temps->t0 = bc->needI32();
     temps->t1 = bc->needI32();
@@ -1629,7 +1657,8 @@ static void Deallocate(BaseCompiler* bc, AtomicOp op, RegI64 rv, RegI64 temp) {
   bc->freeI64(temp);
 }
 
-#elif defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS64)
+#elif defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS64) || \
+    defined(JS_CODEGEN_PPC64)
 
 static void PopAndAllocate(BaseCompiler* bc, AtomicOp op, RegI64* rd,
                            RegI64* rv, RegI64* temp) {
@@ -1838,7 +1867,7 @@ static void Deallocate(BaseCompiler* bc, RegI32 rv, const Temps&) {
   bc->freeI32(rv);
 }
 
-#elif defined(JS_CODEGEN_LOONG64)
+#elif defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_PPC64)
 
 struct Temps {
   RegI32 t0, t1, t2;
@@ -1852,8 +1881,12 @@ static void PopAndAllocate(BaseCompiler* bc, ValType type,
     // Architecture-specific i64-to-i32.
     bc->masm.move64To32(Register64(*rv), *rv);
   }
+#ifdef JS_CODEGEN_LOONG64
   const bool needsLlScLoop =
       Scalar::byteSize(viewType) < 4 && !LOONG64Flags::HasLamBhExtension();
+#else
+  const bool needsLlScLoop = Scalar::byteSize(viewType) < 4;
+#endif
   if (needsLlScLoop) {
     temps->t0 = bc->needI32();
     temps->t1 = bc->needI32();
@@ -2044,7 +2077,7 @@ static void Deallocate(BaseCompiler* bc, RegI64 rd, RegI64 rv) {
 }
 
 #elif defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS64) || \
-    defined(JS_CODEGEN_LOONG64)
+    defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_PPC64)
 
 static void PopAndAllocate(BaseCompiler* bc, RegI64* rd, RegI64* rv) {
   *rv = bc->popI64();
@@ -2269,7 +2302,7 @@ static void Deallocate(BaseCompiler* bc, RegI32 rexpect, RegI32 rnew,
   bc->maybeFree(temps.t2);
 }
 
-#elif defined(JS_CODEGEN_MIPS64)
+#elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_PPC64)
 
 struct Temps {
   RegI32 t0, t1, t2;
@@ -2551,7 +2584,7 @@ static void Deallocate(BaseCompiler* bc, RegI64 rexpect, RegI64 rnew) {
 }
 
 #elif defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS64) || \
-    defined(JS_CODEGEN_LOONG64)
+    defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_PPC64)
 
 template <typename RegAddressType>
 static void PopAndAllocate(BaseCompiler* bc, RegI64* rexpect, RegI64* rnew,
@@ -3153,6 +3186,11 @@ void BaseCompiler::loadExtend(MemoryAccessDesc* access, Scalar::Type viewType) {
   RegI64 rs = popI64();
   RegV128 rd = needV128();
   masm.moveGPR64ToDouble(rs, rd);
+#ifdef JS_CODEGEN_PPC64
+  // mtvsrd places value in BE dw0 (= LE dw1). widenLow* operates on LE dw0.
+  // Swap dwords to move loaded data to the correct half.
+  masm.as_xxpermdi(rd, rd, rd, 2);
+#endif
   switch (viewType) {
     case Scalar::Int8:
       masm.widenLowInt8x16(rd, rd);
