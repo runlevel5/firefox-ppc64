@@ -517,6 +517,104 @@ static void blit_row_s32_opaque(SkPMColor* dst,
         }
     }
 
+#elif defined(SK_CPU_PPC) && defined(__VSX__)
+    #include <altivec.h>
+
+    // dst + (((src - dst) * src_scale) >> 8), splayed into 16-bit lanes; the
+    // vec_* transcription of SkPMLerp_SSE2.
+    static inline __vector unsigned char SkPMLerp_VSX(__vector unsigned char src,
+                                                      __vector unsigned char dst,
+                                                      unsigned src_scale) {
+        const __vector unsigned int mask = vec_splats(0x00FF00FFu);
+        const __vector unsigned short eight = vec_splats((unsigned short)8);
+        __vector unsigned short src_rb = (__vector unsigned short)vec_and((__vector unsigned int)src, mask);
+        __vector unsigned short src_ag = vec_sr((__vector unsigned short)src, eight);
+        __vector unsigned short dst_rb = (__vector unsigned short)vec_and((__vector unsigned int)dst, mask);
+        __vector unsigned short dst_ag = vec_sr((__vector unsigned short)dst, eight);
+        __vector unsigned short s = vec_splats((unsigned short)src_scale);
+        __vector unsigned short diff_rb = vec_mul(vec_sub(src_rb, dst_rb), s);
+        __vector unsigned short diff_ag = vec_mul(vec_sub(src_ag, dst_ag), s);
+        diff_rb = vec_sr(diff_rb, eight);
+        __vector unsigned int diff = vec_or((__vector unsigned int)diff_rb,
+                                            vec_andc((__vector unsigned int)diff_ag, mask));
+        return vec_add(dst, (__vector unsigned char)diff);
+    }
+
+    static void blit_row_s32_blend(SkPMColor* dst, const SkPMColor* src, int count, U8CPU alpha) {
+        SkASSERT(alpha <= 255);
+        unsigned src_scale = SkAlpha255To256(alpha);
+        while (count >= 4) {
+            __vector unsigned char s = vec_xl(0, (const unsigned char*)src);
+            __vector unsigned char d = vec_xl(0, (const unsigned char*)dst);
+            vec_xst(SkPMLerp_VSX(s, d, src_scale), 0, (unsigned char*)dst);
+            src += 4; dst += 4; count -= 4;
+        }
+        while (count --> 0) {
+            *dst = SkPMLerp(*src, *dst, src_scale);
+            src++;
+            dst++;
+        }
+    }
+
+    // The vec_* transcription of SkBlendARGB32_SSE2: scale src by aa and dst by
+    // SkAlphaMulInv256(srcA, aa), then add the splayed halves.
+    static inline __vector unsigned char SkBlendARGB32_VSX(__vector unsigned char src,
+                                                           __vector unsigned char dst,
+                                                           unsigned aa) {
+        unsigned alpha = SkAlpha255To256(aa);
+        __vector unsigned short src_scale = vec_splats((unsigned short)alpha);
+        const __vector unsigned int mask = vec_splats(0x00FF00FFu);
+        const __vector unsigned short eight = vec_splats((unsigned short)8);
+
+        // dst_scale = SkAlphaMulInv256(SkGetPackedA32(src), alpha), per 32-bit lane.
+        __vector unsigned int srcA = vec_sr((__vector unsigned int)src, vec_splats(24u));
+        __vector unsigned int ds = (__vector unsigned int)vec_mul((__vector unsigned short)srcA, src_scale);
+        ds = vec_sub(vec_splats((unsigned int)0xFFFF), ds);
+        ds = vec_add(ds, vec_sr(ds, vec_splats(8u)));
+        ds = vec_sr(ds, vec_splats(8u));
+        // Duplicate the low 16-bit word of each 32-bit lane into both halves
+        // (the SSE shufflelo/shufflehi _MM_SHUFFLE(2,2,0,0)).
+        const __vector unsigned char dup = (__vector unsigned char){
+            0,1,0,1, 4,5,4,5, 8,9,8,9, 12,13,12,13
+        };
+        __vector unsigned short dst_scale =
+            (__vector unsigned short)vec_perm((__vector unsigned char)ds,
+                                              (__vector unsigned char)ds, dup);
+
+        __vector unsigned short src_rb = (__vector unsigned short)vec_and((__vector unsigned int)src, mask);
+        __vector unsigned short src_ag = vec_sr((__vector unsigned short)src, eight);
+        __vector unsigned short dst_rb = (__vector unsigned short)vec_and((__vector unsigned int)dst, mask);
+        __vector unsigned short dst_ag = vec_sr((__vector unsigned short)dst, eight);
+
+        src_rb = vec_mul(src_rb, src_scale);
+        src_ag = vec_mul(src_ag, src_scale);
+        dst_rb = vec_mul(dst_rb, dst_scale);
+        dst_ag = vec_mul(dst_ag, dst_scale);
+
+        dst_rb = vec_add(src_rb, dst_rb);
+        dst_ag = vec_add(src_ag, dst_ag);
+
+        dst_rb = vec_sr(dst_rb, eight);
+        __vector unsigned int out = vec_or((__vector unsigned int)dst_rb,
+                                           vec_andc((__vector unsigned int)dst_ag, mask));
+        return (__vector unsigned char)out;
+    }
+
+    static void blit_row_s32a_blend(SkPMColor* dst, const SkPMColor* src, int count, U8CPU alpha) {
+        SkASSERT(alpha <= 255);
+        while (count >= 4) {
+            __vector unsigned char s = vec_xl(0, (const unsigned char*)src);
+            __vector unsigned char d = vec_xl(0, (const unsigned char*)dst);
+            vec_xst(SkBlendARGB32_VSX(s, d, alpha), 0, (unsigned char*)dst);
+            src += 4; dst += 4; count -= 4;
+        }
+        while (count --> 0) {
+            *dst = SkBlendARGB32(*src, *dst, alpha);
+            src++;
+            dst++;
+        }
+    }
+
 #else
     static void blit_row_s32_blend(SkPMColor* dst, const SkPMColor* src, int count, U8CPU alpha) {
         SkASSERT(alpha <= 255);
