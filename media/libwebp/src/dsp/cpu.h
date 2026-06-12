@@ -155,6 +155,17 @@
 #endif
 
 //------------------------------------------------------------------------------
+// PPC64 / Power VSX (ISA 2.07 / POWER8 baseline).
+
+#if defined(__powerpc64__) && defined(__VSX__)
+#define WEBP_USE_VSX
+#endif
+
+#if defined(WEBP_USE_VSX) && !defined(WEBP_HAVE_VSX)
+#define WEBP_HAVE_VSX
+#endif
+
+//------------------------------------------------------------------------------
 
 #ifndef WEBP_DSP_OMIT_C_CODE
 #define WEBP_DSP_OMIT_C_CODE 1
@@ -308,7 +319,8 @@ typedef enum {
   kNEON,
   kMIPS32,
   kMIPSdspR2,
-  kMSA
+  kMSA,
+  kVSX
 } CPUFeature;
 
 // returns true if the CPU supports the feature.
