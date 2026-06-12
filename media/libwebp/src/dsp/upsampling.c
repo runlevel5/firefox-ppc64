@@ -235,6 +235,7 @@ extern VP8CPUInfo VP8GetCPUInfo;
 extern void WebPInitYUV444ConvertersMIPSdspR2(void);
 extern void WebPInitYUV444ConvertersSSE2(void);
 extern void WebPInitYUV444ConvertersSSE41(void);
+extern void WebPInitYUV444ConvertersVSX(void);
 
 WEBP_DSP_INIT_FUNC(WebPInitYUV444Converters) {
   WebPYUV444Converters[MODE_RGBA]      = WebPYuv444ToRgba_C;
@@ -265,6 +266,11 @@ WEBP_DSP_INIT_FUNC(WebPInitYUV444Converters) {
       WebPInitYUV444ConvertersMIPSdspR2();
     }
 #endif
+#if defined(WEBP_HAVE_VSX)
+    if (VP8GetCPUInfo(kVSX)) {
+      WebPInitYUV444ConvertersVSX();
+    }
+#endif
   }
 }
 
@@ -276,6 +282,7 @@ extern void WebPInitUpsamplersSSE41(void);
 extern void WebPInitUpsamplersNEON(void);
 extern void WebPInitUpsamplersMIPSdspR2(void);
 extern void WebPInitUpsamplersMSA(void);
+extern void WebPInitUpsamplersVSX(void);
 
 WEBP_DSP_INIT_FUNC(WebPInitUpsamplers) {
 #ifdef FANCY_UPSAMPLING
@@ -313,6 +320,11 @@ WEBP_DSP_INIT_FUNC(WebPInitUpsamplers) {
 #if defined(WEBP_USE_MSA)
     if (VP8GetCPUInfo(kMSA)) {
       WebPInitUpsamplersMSA();
+    }
+#endif
+#if defined(WEBP_HAVE_VSX)
+    if (VP8GetCPUInfo(kVSX)) {
+      WebPInitUpsamplersVSX();
     }
 #endif
   }
