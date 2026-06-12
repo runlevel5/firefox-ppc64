@@ -120,6 +120,8 @@ AllocatableGeneralRegisterSet BaselineICAvailableGeneralRegs(size_t numInputs) {
   MOZ_ASSERT(!regs.has(PseudoStackPointer));
   MOZ_ASSERT(!regs.has(RealStackPointer));
   MOZ_ASSERT(!regs.has(ICTailCallReg));
+#elif defined(JS_CODEGEN_PPC64)
+  regs.take(ICTailCallReg);
 #endif
   regs.take(ICStubReg);
 
