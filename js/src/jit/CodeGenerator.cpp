@@ -2521,6 +2521,12 @@ static bool PrepareAndExecuteRegExp(MacroAssembler& masm, Register regexp,
   masm.computeEffectiveAddress(Address(FramePointer, ioOffset), temp2);
   masm.PushRegsInMask(volatileRegs);
   masm.setupUnalignedABICall(temp3);
+#if defined(JS_CODEGEN_PPC64)
+  // temp1 aliases argregs on this platform, so we need to reuse temp3
+  // or we'll stomp on the code pointer when we pass the first ABI argument.
+  masm.movePtr(codePointer, temp3);
+  codePointer = temp3;
+#endif
   masm.passABIArg(temp2);
   masm.callWithABI(codePointer);
   masm.storeCallInt32Result(temp1);
