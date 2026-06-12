@@ -1,0 +1,105 @@
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
+ * vim: set ts=8 sts=2 et sw=2 tw=80:
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+#ifndef jit_ppc64_Lowering_ppc64_h
+#define jit_ppc64_Lowering_ppc64_h
+
+#include "jit/shared/Lowering-shared.h"
+
+namespace js {
+namespace jit {
+
+class LIRGeneratorPPC64 : public LIRGeneratorShared {
+ protected:
+  LIRGeneratorPPC64(MIRGenerator* gen, MIRGraph& graph, LIRGraph& lirGraph)
+      : LIRGeneratorShared(gen, graph, lirGraph) {}
+
+  LTableSwitch* newLTableSwitch(const LAllocation& in,
+                                const LDefinition& inputCopy);
+  LTableSwitchV* newLTableSwitchV(const LBoxAllocation& in);
+
+  void lowerForShift(LInstructionHelper<1, 2, 0>* ins, MDefinition* mir,
+                     MDefinition* lhs, MDefinition* rhs);
+  template <class LInstr>
+  void lowerForShiftInt64(LInstr* ins, MDefinition* mir, MDefinition* lhs,
+                          MDefinition* rhs);
+  void lowerForALU(LInstructionHelper<1, 1, 0>* ins, MDefinition* mir,
+                   MDefinition* input);
+  void lowerForALU(LInstructionHelper<1, 2, 0>* ins, MDefinition* mir,
+                   MDefinition* lhs, MDefinition* rhs);
+  void lowerForALUInt64(LInstructionHelper<INT64_PIECES, INT64_PIECES, 0>* ins,
+                        MDefinition* mir, MDefinition* input);
+  void lowerForALUInt64(
+      LInstructionHelper<INT64_PIECES, 2 * INT64_PIECES, 0>* ins,
+      MDefinition* mir, MDefinition* lhs, MDefinition* rhs);
+  void lowerForMulInt64(LMulI64* ins, MMul* mir, MDefinition* lhs,
+                        MDefinition* rhs);
+  void lowerForFPU(LInstructionHelper<1, 1, 0>* ins, MDefinition* mir,
+                   MDefinition* input);
+  void lowerForFPU(LInstructionHelper<1, 2, 0>* ins, MDefinition* mir,
+                   MDefinition* lhs, MDefinition* rhs);
+
+  template <size_t Temps>
+  void lowerForCompareI64(LInstructionHelper<1, 2 * INT64_PIECES, Temps>* lir,
+                          MDefinition* mir, MDefinition* lhs, MDefinition* rhs);
+
+  LBoxAllocation useBoxFixed(MDefinition* mir, Register reg1, Register reg2,
+                             bool useAtStart = false);
+
+  LAllocation useByteOpRegister(MDefinition* mir);
+  LAllocation useByteOpRegisterAtStart(MDefinition* mir);
+  LAllocation useByteOpRegisterOrNonDoubleConstant(MDefinition* mir);
+  LDefinition tempByteOpRegister();
+
+  LDefinition tempToUnbox();
+
+  bool needTempForPostBarrier() { return true; }
+
+  void lowerUntypedPhiInput(MPhi* phi, uint32_t inputPosition, LBlock* block,
+                            size_t lirIndex);
+  void lowerInt64PhiInput(MPhi* phi, uint32_t inputPosition, LBlock* block,
+                          size_t lirIndex);
+  void defineInt64Phi(MPhi* phi, size_t lirIndex);
+
+  void lowerMulI(MMul* mul, MDefinition* lhs, MDefinition* rhs);
+  void lowerDivI(MDiv* div);
+  void lowerDivI64(MDiv* div);
+  void lowerModI(MMod* mod);
+  void lowerModI64(MMod* mod);
+  void lowerUDiv(MDiv* div);
+  void lowerUDivI64(MDiv* div);
+  void lowerUMod(MMod* mod);
+  void lowerUModI64(MMod* mod);
+  void lowerUrshD(MUrsh* mir);
+  void lowerPowOfTwoI(MPow* mir);
+  void lowerBigIntPtrDiv(MBigIntPtrDiv* ins);
+  void lowerBigIntPtrMod(MBigIntPtrMod* ins);
+  void lowerBigIntPtrLsh(MBigIntPtrLsh* ins);
+  void lowerBigIntPtrRsh(MBigIntPtrRsh* ins);
+  void lowerTruncateDToInt32(MTruncateToInt32* ins);
+  void lowerTruncateFToInt32(MTruncateToInt32* ins);
+  void lowerBuiltinInt64ToFloatingPoint(MBuiltinInt64ToFloatingPoint* ins);
+  void lowerWasmSelectI(MWasmSelect* select);
+  void lowerWasmSelectI64(MWasmSelect* select);
+  void lowerWasmBuiltinTruncateToInt64(MWasmBuiltinTruncateToInt64* ins);
+  void lowerWasmBuiltinTruncateToInt32(MWasmBuiltinTruncateToInt32* ins);
+  void lowerWasmBuiltinDivI64(MWasmBuiltinDivI64* div);
+  void lowerWasmBuiltinModI64(MWasmBuiltinModI64* mod);
+  void lowerAtomicLoad64(MLoadUnboxedScalar* ins);
+  void lowerAtomicStore64(MStoreUnboxedScalar* ins);
+
+#ifdef ENABLE_WASM_SIMD
+  bool canFoldReduceSimd128AndBranch(wasm::SimdOp op);
+  bool canEmitWasmReduceSimd128AtUses(MWasmReduceSimd128* ins);
+#endif
+};
+
+typedef LIRGeneratorPPC64 LIRGeneratorSpecific;
+
+}  // namespace jit
+}  // namespace js
+
+#endif /* jit_ppc64_Lowering_ppc64_h */

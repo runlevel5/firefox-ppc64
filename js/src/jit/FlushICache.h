@@ -21,7 +21,7 @@ inline void FlushICache(void* code, size_t size) {
 }
 #elif (defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_ARM64)) ||  \
     defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
-    defined(JS_CODEGEN_RISCV64)
+    defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
 
 // Invalidate the given code range from the icache. This will also flush the
 // execution context for this core. If this code is to be executed on another
@@ -37,7 +37,7 @@ inline void FlushICache(void* code, size_t size) { MOZ_CRASH(); }
 #  error "Unknown architecture!"
 #endif
 
-#if (defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)) ||      \
+#if (defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)) ||    \
     defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
     defined(JS_CODEGEN_RISCV64)
 
@@ -55,10 +55,11 @@ inline void FlushExecutionContext() { MOZ_CRASH(); }
 inline bool CanFlushExecutionContextForAllThreads() { MOZ_CRASH(); }
 inline void FlushExecutionContextForAllThreads() { MOZ_CRASH(); }
 
-#elif defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_ARM64)
+#elif defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_ARM64) || \
+    defined(JS_CODEGEN_PPC64)
 
-// ARM and ARM64 must flush the instruction pipeline of the current core
-// before executing newly JIT'ed code. This will remove any stale data from
+// ARM, ARM64, and PPC64 must flush the instruction pipeline of the current
+// core before executing newly JIT'ed code. This will remove any stale data from
 // the pipeline that may have referenced invalidated instructions.
 //
 // `FlushICache` will perform this for the thread that compiles the code, but

@@ -430,7 +430,7 @@ bool ToWebAssemblyValue_i32(JSContext* cx, HandleValue val, int32_t* loc,
   bool ok = ToInt32(cx, val, loc);
   if (ok && mustWrite64) {
 #if defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
-    defined(JS_CODEGEN_RISCV64)
+    defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
     loc[1] = loc[0] >> 31;
 #else
     loc[1] = 0;
