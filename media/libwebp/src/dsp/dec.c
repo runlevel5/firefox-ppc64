@@ -752,6 +752,7 @@ extern void VP8DspInitNEON(void);
 extern void VP8DspInitMIPS32(void);
 extern void VP8DspInitMIPSdspR2(void);
 extern void VP8DspInitMSA(void);
+extern void VP8DspInitVSX(void);
 
 WEBP_DSP_INIT_FUNC(VP8DspInit) {
   VP8InitClipTables();
@@ -842,6 +843,11 @@ WEBP_DSP_INIT_FUNC(VP8DspInit) {
 #if defined(WEBP_USE_MSA)
     if (VP8GetCPUInfo(kMSA)) {
       VP8DspInitMSA();
+    }
+#endif
+#if defined(WEBP_HAVE_VSX)
+    if (VP8GetCPUInfo(kVSX)) {
+      VP8DspInitVSX();
     }
 #endif
   }
