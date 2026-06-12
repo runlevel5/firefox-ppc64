@@ -92,6 +92,8 @@ const uint8_t JS_SCOPE_DATA_TRAILING_NAMES_PATTERN = 0xCC;
 #elif defined(JS_CODEGEN_RISCV64)
 #  define JS_SWEPT_CODE_PATTERN \
     0x29  // illegal sb instruction, crashes in user mode.
+#elif defined(JS_CODEGEN_PPC64)
+#  define JS_SWEPT_CODE_PATTERN 0x00  // illegal instruction (all zeros)
 #else
 #  error "JS_SWEPT_CODE_PATTERN not defined for this platform"
 #endif
