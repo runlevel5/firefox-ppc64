@@ -63,6 +63,11 @@ static void WriteFloatRegisterMask(CompactBufferWriter& stream,
       stream.writeUnsigned64(bits.low());
       stream.writeUnsigned64(bits.high());
       break;
+#elif defined(JS_CODEGEN_PPC64)
+    case 16:
+      stream.writeUnsigned64(static_cast<uint64_t>(bits));
+      stream.writeUnsigned64(static_cast<uint64_t>(bits >> 64));
+      break;
 #else
     case 1:
       stream.writeByte(bits);
@@ -87,6 +92,12 @@ static FloatRegisters::SetType ReadFloatRegisterMask(
       uint64_t low = stream.readUnsigned64();
       uint64_t high = stream.readUnsigned64();
       return Bitset128(high, low);
+    }
+#elif defined(JS_CODEGEN_PPC64)
+    case 16: {
+      uint64_t low = stream.readUnsigned64();
+      uint64_t high = stream.readUnsigned64();
+      return FloatRegisters::SetType(high) << 64 | FloatRegisters::SetType(low);
     }
 #else
     case 1:

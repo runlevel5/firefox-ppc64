@@ -446,6 +446,15 @@ static bool GetBuildConfiguration(JSContext* cx, unsigned argc, Value* vp) {
     return false;
   }
 
+#ifdef JS_CODEGEN_PPC64
+  value = BooleanValue(true);
+#else
+  value = BooleanValue(false);
+#endif
+  if (!JS_SetProperty(cx, info, "ppc64", value)) {
+    return false;
+  }
+
 #ifdef JS_CODEGEN_LOONG64
   value = BooleanValue(true);
 #else
@@ -479,6 +488,15 @@ static bool GetBuildConfiguration(JSContext* cx, unsigned argc, Value* vp) {
   value = BooleanValue(false);
 #endif
   if (!JS_SetProperty(cx, info, "riscv64-simulator", value)) {
+    return false;
+  }
+
+#ifdef JS_SIMULATOR_PPC64
+  value = BooleanValue(true);
+#else
+  value = BooleanValue(false);
+#endif
+  if (!JS_SetProperty(cx, info, "ppc64-simulator", value)) {
     return false;
   }
 

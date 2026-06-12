@@ -200,7 +200,7 @@ class LUse : public LAllocation {
   static const uint32_t POLICY_BITS = 3;
   static const uint32_t POLICY_SHIFT = 0;
   static const uint32_t POLICY_MASK = (1 << POLICY_BITS) - 1;
-#ifdef JS_CODEGEN_ARM64
+#if defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_PPC64)
   static const uint32_t REG_BITS = 7;
 #else
   static const uint32_t REG_BITS = 6;
@@ -619,12 +619,18 @@ class LDefinition {
   Type type() const { return (Type)((bits_ >> TYPE_SHIFT) & TYPE_MASK); }
 
   static bool isFloatRegCompatible(Type type, FloatRegister reg) {
+#if defined(JS_CODEGEN_PPC64) || defined(JS_CODEGEN_RISCV64)
+    if (type == FLOAT32 || type == DOUBLE) {
+      return reg.isSingle() || reg.isDouble();
+    }
+#else
     if (type == FLOAT32) {
       return reg.isSingle();
     }
     if (type == DOUBLE) {
       return reg.isDouble();
     }
+#endif
     MOZ_ASSERT(type == SIMD128);
     return reg.isSimd128();
   }
@@ -2292,6 +2298,8 @@ AnyRegister LAllocation::toAnyRegister() const {
 #  include "jit/loong64/LIR-loong64.h"
 #elif defined(JS_CODEGEN_RISCV64)
 #  include "jit/riscv64/LIR-riscv64.h"
+#elif defined(JS_CODEGEN_PPC64)
+#  include "jit/ppc64/LIR-ppc64.h"
 #elif defined(JS_CODEGEN_MIPS64)
 #  include "jit/mips-shared/LIR-mips-shared.h"
 #  include "jit/mips64/LIR-mips64.h"

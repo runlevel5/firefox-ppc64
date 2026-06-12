@@ -921,7 +921,23 @@ bool ModuleGenerator::finishCodeBlock(CodeBlockResult* result) {
   callSiteTargets_.clear();
   callFarJumps_.clear();
 
-  // None of the linking or far-jump operations should emit masm metadata.
+  // None of the linking or far-jump operations should emit masm metadata,
+  // except on PPC64 where patchFarJump uses addLongJump to create CodeLabels
+  // for absolute-address far jumps. Drain those into linkData_ here.
+#ifdef JS_CODEGEN_PPC64
+  for (const jit::CodeLabel& codeLabel : masm_->codeLabels()) {
+    LinkData::InternalLink link;
+    link.patchAtOffset = codeLabel.patchAt().offset();
+    link.targetOffset = codeLabel.target().offset();
+#  ifdef JS_CODELABEL_LINKMODE
+    link.mode = codeLabel.linkMode();
+#  endif
+    if (!linkData_->internalLinks.append(link)) {
+      return false;
+    }
+  }
+  masm_->codeLabels().clear();
+#endif
 
   MOZ_ASSERT(masm_->inliningContext().empty());
   MOZ_ASSERT(masm_->callSites().empty());

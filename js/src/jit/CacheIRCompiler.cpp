@@ -10310,6 +10310,14 @@ bool CacheIRCompiler::emitConcatStringsResult(StringOperandId lhsId,
     liveRegs.add(ICTailCallReg);
 #endif
     liveRegs.takeUnchecked(output.valueReg());
+
+#ifdef JS_CODEGEN_PPC64
+    // On PPC64, LR is an SPR, not a GPR, so ICTailCallReg is a regular
+    // GPR that does not shadow LR. The inner bctrl will clobber LR, so
+    // save/restore it explicitly.
+    masm.xs_mflr(r0);
+    masm.push(r0);
+#endif
     masm.PushRegsInMask(liveRegs);
 
     // The stub expects lhs in CallTempReg0 and rhs in CallTempReg1.
@@ -10330,11 +10338,19 @@ bool CacheIRCompiler::emitConcatStringsResult(StringOperandId lhsId,
     masm.branchTestPtr(Assembler::Zero, CallTempReg5, CallTempReg5, &vmCall);
     masm.tagValue(JSVAL_TYPE_STRING, CallTempReg5, output.valueReg());
     masm.PopRegsInMask(liveRegs);
+#ifdef JS_CODEGEN_PPC64
+    masm.pop(r0);
+    masm.xs_mtlr(r0);
+#endif
     masm.jump(&done);
 
     masm.bind(&vmCall);
     masm.setFramePushed(framePushed);
     masm.PopRegsInMask(liveRegs);
+#ifdef JS_CODEGEN_PPC64
+    masm.pop(r0);
+    masm.xs_mtlr(r0);
+#endif
   }
 
   {
