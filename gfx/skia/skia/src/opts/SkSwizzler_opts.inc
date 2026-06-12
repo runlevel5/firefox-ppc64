@@ -84,6 +84,29 @@ SI float reciprocal_alpha(float a) {
     auto q = F4{1.0f} / vA;
     return _mm_and_ps(sk_bit_cast<__m128>(vA != F4{0.0f}), q)[0];
 }
+#elif defined(SK_CPU_PPC) && defined(__VSX__)
+// -- VSX -- Harden against timing attacks.
+// vec_splats / vec_div / vec_cmpgt / vec_and each map to a single VSX op on
+// both GCC and Clang. vec_cmpgt(vA, 0) is exact for the non-negative-alpha
+// contract (0 <= a) and avoids Clang's static_cast<float>(vector) extension
+// that GCC does not support.
+SK_NO_SANITIZE("float-divide-by-zero")
+SI float reciprocal_alpha_times_255(float a) {
+    SkASSERT(0 <= a && a <= 255);
+    __vector float vA = vec_splats(a);
+    __vector float q = vec_div(vec_splats(255.0f), vA);
+    __vector float vMask = (__vector float)vec_cmpgt(vA, vec_splats(0.0f));
+    return vec_and(vMask, q)[0];
+}
+
+SK_NO_SANITIZE("float-divide-by-zero")
+SI float reciprocal_alpha(float a) {
+    SkASSERT(0 <= a && a <= 1);
+    __vector float vA = vec_splats(a);
+    __vector float q = vec_div(vec_splats(1.0f), vA);
+    __vector float vMask = (__vector float)vec_cmpgt(vA, vec_splats(0.0f));
+    return vec_and(vMask, q)[0];
+}
 #else
 // -- Portable -- *Not* hardened against timing attacks
 SI float reciprocal_alpha_times_255(float a) {
@@ -1085,6 +1108,208 @@ void rgbA_to_BGRA(uint32_t* dst, const uint32_t* src, int count) {
     rgbA_to_BGRA_portable(dst, src, count);
 }
 
+#elif defined(SK_CPU_PPC) && defined(__VSX__)
+// -- VSX -- Native Power VSX/AltiVec ports of the SSSE3 swizzlers below.
+// Each _mm_* operation is replaced by the corresponding vec_* sequence per
+// the GCC ppc_wrappers translation pattern (vec_mergeh/l, vec_perm, and the
+// vec_vmuleuh/vmulouh + permute idiom for _mm_mulhi_epu16). The permute
+// masks for byte-shuffles use the same byte-order layout as the SSE
+// _mm_setr_epi8 forms because PPC64 LE register-to-memory byte order is the
+// same as x86 LE.
+
+// Scale: ((x*y) + 128) * 257 >> 16, per 16-bit lane (matches the SSSE3 form).
+static inline __vector unsigned short scale(__vector unsigned short x, __vector unsigned short y) {
+    const __vector unsigned short v128 = vec_splats((unsigned short)128);
+    const __vector unsigned short v257 = vec_splats((unsigned short)257);
+    __vector unsigned short summ = (__vector unsigned short)((__vector unsigned short)(x * y) + v128);
+    // _mm_mulhi_epu16 equivalent: 16x16 -> high 16 bits, via mule+mulo+permute.
+    __vector unsigned int even = vec_vmuleuh(summ, v257);
+    __vector unsigned int odd  = vec_vmulouh(summ, v257);
+    const __vector unsigned char xform = (__vector unsigned char){
+        0x02, 0x03, 0x12, 0x13,  0x06, 0x07, 0x16, 0x17,
+        0x0A, 0x0B, 0x1A, 0x1B,  0x0E, 0x0F, 0x1E, 0x1F
+    };
+    return (__vector unsigned short)vec_perm((__vector unsigned char)even,
+                                             (__vector unsigned char)odd, xform);
+}
+
+static void premul_should_swapRB(bool kSwapRB, uint32_t* dst, const uint32_t* src, int count) {
+    auto premul8 = [=](__vector unsigned char* lo, __vector unsigned char* hi) {
+        const __vector unsigned char zeros = (__vector unsigned char){0};
+        const __vector unsigned char planar = kSwapRB
+            ? (__vector unsigned char){2,6,10,14, 1,5,9,13, 0,4,8,12, 3,7,11,15}
+            : (__vector unsigned char){0,4,8,12, 1,5,9,13, 2,6,10,14, 3,7,11,15};
+
+        // Swizzle each 16-byte chunk into 8-bit planar layout.
+        *lo = vec_perm(*lo, *lo, planar);                        // rrrrgggg bbbbaaaa
+        *hi = vec_perm(*hi, *hi, planar);                        // RRRRGGGG BBBBAAAA
+
+        // Interleave the two halves at 32-bit granularity.
+        __vector unsigned char rg = (__vector unsigned char)
+            vec_mergeh((__vector unsigned int)*lo, (__vector unsigned int)*hi);  // rrrrRRRR ggggGGGG
+        __vector unsigned char ba = (__vector unsigned char)
+            vec_mergel((__vector unsigned int)*lo, (__vector unsigned int)*hi);  // bbbbBBBB aaaaAAAA
+
+        // Unpack to 16-bit planar.
+        __vector unsigned short r = (__vector unsigned short)vec_mergeh(rg, zeros);
+        __vector unsigned short g = (__vector unsigned short)vec_mergel(rg, zeros);
+        __vector unsigned short b = (__vector unsigned short)vec_mergeh(ba, zeros);
+        __vector unsigned short a = (__vector unsigned short)vec_mergel(ba, zeros);
+
+        // Premultiply each colour channel by alpha.
+        r = scale(r, a);
+        g = scale(g, a);
+        b = scale(b, a);
+
+        // Repack into interlaced pixels.
+        const __vector unsigned short v8 = vec_splats((unsigned short)8);
+        __vector unsigned short rg2 = vec_or(r, vec_sl(g, v8));
+        __vector unsigned short ba2 = vec_or(b, vec_sl(a, v8));
+        *lo = (__vector unsigned char)vec_mergeh(rg2, ba2);
+        *hi = (__vector unsigned char)vec_mergel(rg2, ba2);
+    };
+
+    while (count >= 8) {
+        __vector unsigned char lo = vec_xl(0, (const unsigned char*)(src + 0));
+        __vector unsigned char hi = vec_xl(0, (const unsigned char*)(src + 4));
+        premul8(&lo, &hi);
+        vec_xst(lo, 0, (unsigned char*)(dst + 0));
+        vec_xst(hi, 0, (unsigned char*)(dst + 4));
+        src += 8; dst += 8; count -= 8;
+    }
+
+    if (count >= 4) {
+        __vector unsigned char lo = vec_xl(0, (const unsigned char*)src);
+        __vector unsigned char hi = (__vector unsigned char){0};
+        premul8(&lo, &hi);
+        vec_xst(lo, 0, (unsigned char*)dst);
+        src += 4; dst += 4; count -= 4;
+    }
+
+    auto proc = kSwapRB ? RGBA_to_bgrA_portable : RGBA_to_rgbA_portable;
+    proc(dst, src, count);
+}
+
+void RGBA_to_rgbA(uint32_t* dst, const uint32_t* src, int count) {
+    premul_should_swapRB(false, dst, src, count);
+}
+
+void RGBA_to_bgrA(uint32_t* dst, const uint32_t* src, int count) {
+    premul_should_swapRB(true, dst, src, count);
+}
+
+void RGBA_to_BGRA(uint32_t* dst, const uint32_t* src, int count) {
+    const __vector unsigned char swapRB = (__vector unsigned char){
+        2,1,0,3, 6,5,4,7, 10,9,8,11, 14,13,12,15
+    };
+    while (count >= 4) {
+        __vector unsigned char rgba = vec_xl(0, (const unsigned char*)src);
+        __vector unsigned char bgra = vec_perm(rgba, rgba, swapRB);
+        vec_xst(bgra, 0, (unsigned char*)dst);
+        src += 4; dst += 4; count -= 4;
+    }
+    RGBA_to_BGRA_portable(dst, src, count);
+}
+
+void grayA_to_RGBA(uint32_t dst[], const uint8_t* src, int count) {
+    while (count >= 8) {
+        __vector unsigned short ga = (__vector unsigned short)vec_xl(0, src);
+        __vector unsigned short gg = vec_or(
+                vec_and(ga, vec_splats((unsigned short)0x00FF)),
+                vec_sl (ga, vec_splats((unsigned short)8)));
+        __vector unsigned short ggga_lo = vec_mergeh(gg, ga);
+        __vector unsigned short ggga_hi = vec_mergel(gg, ga);
+        vec_xst((__vector unsigned char)ggga_lo, 0, (unsigned char*)(dst + 0));
+        vec_xst((__vector unsigned char)ggga_hi, 0, (unsigned char*)(dst + 4));
+        src += 8 * 2; dst += 8; count -= 8;
+    }
+    grayA_to_RGBA_portable(dst, src, count);
+}
+
+void grayA_to_rgbA(uint32_t dst[], const uint8_t* src, int count) {
+    while (count >= 8) {
+        __vector unsigned short grayA = (__vector unsigned short)vec_xl(0, src);
+        __vector unsigned short g0 = vec_and(grayA, vec_splats((unsigned short)0x00FF));
+        __vector unsigned short a0 = vec_sr   (grayA, vec_splats((unsigned short)8));
+        g0 = scale(g0, a0);
+        const __vector unsigned short v8 = vec_splats((unsigned short)8);
+        __vector unsigned short gg = vec_or(g0, vec_sl(g0, v8));
+        __vector unsigned short ga = vec_or(g0, vec_sl(a0, v8));
+        __vector unsigned short ggga_lo = vec_mergeh(gg, ga);
+        __vector unsigned short ggga_hi = vec_mergel(gg, ga);
+        vec_xst((__vector unsigned char)ggga_lo, 0, (unsigned char*)(dst + 0));
+        vec_xst((__vector unsigned char)ggga_hi, 0, (unsigned char*)(dst + 4));
+        src += 8 * 2; dst += 8; count -= 8;
+    }
+    grayA_to_rgbA_portable(dst, src, count);
+}
+
+enum Format { kRGB1, kBGR1 };
+static void inverted_cmyk_to(Format format, uint32_t* dst, const uint32_t* src, int count) {
+    auto convert8 = [=](__vector unsigned char* lo, __vector unsigned char* hi) {
+        const __vector unsigned char zeros = (__vector unsigned char){0};
+        const __vector unsigned char planar = (kBGR1 == format)
+            ? (__vector unsigned char){2,6,10,14, 1,5,9,13, 0,4,8,12, 3,7,11,15}
+            : (__vector unsigned char){0,4,8,12, 1,5,9,13, 2,6,10,14, 3,7,11,15};
+
+        *lo = vec_perm(*lo, *lo, planar);                        // ccccmmmm yyyykkkk
+        *hi = vec_perm(*hi, *hi, planar);                        // CCCCMMMM YYYYKKKK
+        __vector unsigned char cm = (__vector unsigned char)
+            vec_mergeh((__vector unsigned int)*lo, (__vector unsigned int)*hi);
+        __vector unsigned char yk = (__vector unsigned char)
+            vec_mergel((__vector unsigned int)*lo, (__vector unsigned int)*hi);
+
+        __vector unsigned short c = (__vector unsigned short)vec_mergeh(cm, zeros);
+        __vector unsigned short m = (__vector unsigned short)vec_mergel(cm, zeros);
+        __vector unsigned short y = (__vector unsigned short)vec_mergeh(yk, zeros);
+        __vector unsigned short k = (__vector unsigned short)vec_mergel(yk, zeros);
+
+        __vector unsigned short r = scale(c, k);
+        __vector unsigned short g = scale(m, k);
+        __vector unsigned short b = scale(y, k);
+
+        const __vector unsigned short v8 = vec_splats((unsigned short)8);
+        __vector unsigned short rg = vec_or(r, vec_sl(g, v8));
+        __vector unsigned short ba = vec_or(b, vec_splats((unsigned short)0xFF00));
+        *lo = (__vector unsigned char)vec_mergeh(rg, ba);
+        *hi = (__vector unsigned char)vec_mergel(rg, ba);
+    };
+
+    while (count >= 8) {
+        __vector unsigned char lo = vec_xl(0, (const unsigned char*)(src + 0));
+        __vector unsigned char hi = vec_xl(0, (const unsigned char*)(src + 4));
+        convert8(&lo, &hi);
+        vec_xst(lo, 0, (unsigned char*)(dst + 0));
+        vec_xst(hi, 0, (unsigned char*)(dst + 4));
+        src += 8; dst += 8; count -= 8;
+    }
+    if (count >= 4) {
+        __vector unsigned char lo = vec_xl(0, (const unsigned char*)src);
+        __vector unsigned char hi = (__vector unsigned char){0};
+        convert8(&lo, &hi);
+        vec_xst(lo, 0, (unsigned char*)dst);
+        src += 4; dst += 4; count -= 4;
+    }
+    auto proc = (kBGR1 == format) ? inverted_CMYK_to_BGR1_portable : inverted_CMYK_to_RGB1_portable;
+    proc(dst, src, count);
+}
+
+void inverted_CMYK_to_RGB1(uint32_t dst[], const uint32_t* src, int count) {
+    inverted_cmyk_to(kRGB1, dst, src, count);
+}
+
+void inverted_CMYK_to_BGR1(uint32_t dst[], const uint32_t* src, int count) {
+    inverted_cmyk_to(kBGR1, dst, src, count);
+}
+
+void rgbA_to_RGBA(uint32_t* dst, const uint32_t* src, int count) {
+    rgbA_to_RGBA_portable(dst, src, count);
+}
+
+void rgbA_to_BGRA(uint32_t* dst, const uint32_t* src, int count) {
+    rgbA_to_BGRA_portable(dst, src, count);
+}
+
 #elif SK_CPU_LSX_LEVEL >= SK_CPU_LSX_LEVEL_LASX
 // -- LASX ----------------------------------------------------------------------------------------
 
@@ -1736,6 +1961,39 @@ static void gray_to_RGB1_portable(uint32_t dst[], const uint8_t* src, int count)
         }
         gray_to_RGB1_portable(dst, src, count);
     }
+#elif defined(SK_CPU_PPC) && defined(__VSX__)
+    void gray_to_RGB1(uint32_t dst[], const uint8_t* src, int count) {
+        const __vector unsigned char alphas = vec_splats((unsigned char)0xFF);
+        while (count >= 16) {
+            __vector unsigned char grays = vec_xl(0, src);
+
+            // Replicate gray byte: gg = unpack(gray, gray) per 8-bit lane.
+            __vector unsigned char gg_lo = vec_mergeh(grays, grays);
+            __vector unsigned char gg_hi = vec_mergel(grays, grays);
+            __vector unsigned char ga_lo = vec_mergeh(grays, alphas);
+            __vector unsigned char ga_hi = vec_mergel(grays, alphas);
+
+            // Interleave g-pairs and ga-pairs at 16-bit granularity.
+            __vector unsigned short ggga0 = vec_mergeh((__vector unsigned short)gg_lo,
+                                                       (__vector unsigned short)ga_lo);
+            __vector unsigned short ggga1 = vec_mergel((__vector unsigned short)gg_lo,
+                                                       (__vector unsigned short)ga_lo);
+            __vector unsigned short ggga2 = vec_mergeh((__vector unsigned short)gg_hi,
+                                                       (__vector unsigned short)ga_hi);
+            __vector unsigned short ggga3 = vec_mergel((__vector unsigned short)gg_hi,
+                                                       (__vector unsigned short)ga_hi);
+
+            vec_xst((__vector unsigned char)ggga0, 0, (unsigned char*)(dst +  0));
+            vec_xst((__vector unsigned char)ggga1, 0, (unsigned char*)(dst +  4));
+            vec_xst((__vector unsigned char)ggga2, 0, (unsigned char*)(dst +  8));
+            vec_xst((__vector unsigned char)ggga3, 0, (unsigned char*)(dst + 12));
+
+            src += 16;
+            dst += 16;
+            count -= 16;
+        }
+        gray_to_RGB1_portable(dst, src, count);
+    }
 #elif SK_CPU_LSX_LEVEL >= SK_CPU_LSX_LEVEL_LASX
     /*not static*/ inline void gray_to_RGB1(uint32_t dst[], const uint8_t* src, int count) {
         const __m256i alphas = __lasx_xvreplgr2vr_b(0xFF);
@@ -1916,6 +2174,37 @@ static void RGB_to_BGR1_portable(uint32_t dst[], const uint8_t* src, int count) 
         }
 
         // Call portable code to finish up the tail of [0,4) pixels.
+        auto proc = kSwapRB ? RGB_to_BGR1_portable : RGB_to_RGB1_portable;
+        proc(dst, src, count);
+    }
+
+    void RGB_to_RGB1(uint32_t dst[], const uint8_t* src, int count) {
+        insert_alpha_should_swaprb(false, dst, src, count);
+    }
+    void RGB_to_BGR1(uint32_t dst[], const uint8_t* src, int count) {
+        insert_alpha_should_swaprb(true, dst, src, count);
+    }
+#elif defined(SK_CPU_PPC) && defined(__VSX__)
+    static void insert_alpha_should_swaprb(bool kSwapRB,
+                                           uint32_t dst[], const uint8_t* src, int count) {
+        // alphaMask = 0xFF000000 per 32-bit lane -> bytes (in LE memory layout) are
+        // {00,00,00,FF, 00,00,00,FF, ...}.
+        const __vector unsigned char alphaMask = (__vector unsigned char){
+            0,0,0,0xFF, 0,0,0,0xFF, 0,0,0,0xFF, 0,0,0,0xFF
+        };
+        // 'X' (= 0) is irrelevant: the alphaMask OR overwrites those lanes with FF.
+        const __vector unsigned char expand = kSwapRB
+            ? (__vector unsigned char){2,1,0,0, 5,4,3,0, 8,7,6,0, 11,10,9,0}
+            : (__vector unsigned char){0,1,2,0, 3,4,5,0, 6,7,8,0,  9,10,11,0};
+
+        while (count >= 6) {
+            __vector unsigned char rgb = vec_xl(0, src);
+            __vector unsigned char rgba = vec_or(vec_perm(rgb, rgb, expand), alphaMask);
+            vec_xst(rgba, 0, (unsigned char*)dst);
+            src += 4*3;
+            dst += 4;
+            count -= 4;
+        }
         auto proc = kSwapRB ? RGB_to_BGR1_portable : RGB_to_RGB1_portable;
         proc(dst, src, count);
     }

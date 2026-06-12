@@ -29,6 +29,8 @@
     #include <lasxintrin.h>
 #elif SK_CPU_LSX_LEVEL >= SK_CPU_LSX_LEVEL_LSX
     #include <lsxintrin.h>
+#elif defined(SK_CPU_PPC) && defined(__VSX__)
+    #include <altivec.h>
 #endif
 
 namespace SK_OPTS_NS {
@@ -257,6 +259,168 @@ static void decode_packed_coordinates_and_weight(U32 packed, Out* v0, Out* v1, O
 
             // Pack back into 8-bit values and store.
             *colors++ = _mm_cvtsi128_si32(_mm_packus_epi16(sum, _mm_setzero_si128()));
+        }
+    }
+
+#elif defined(SK_CPU_PPC) && defined(__VSX__)
+
+    // Helper: scalar uint32_t -> 16-byte vector with x in low 32 bits, zero elsewhere.
+    // Equivalent of x86's _mm_cvtsi32_si128.
+    static inline __vector unsigned char vsx_cvt_u32_to_vec(uint32_t x) {
+        __vector unsigned int v = (__vector unsigned int){x, 0, 0, 0};
+        return (__vector unsigned char)v;
+    }
+
+    // Helper: PPC64 VSX equivalent of x86's _mm_maddubs_epi16. Multiplies pairs of
+    // (unsigned byte, signed byte) and adds adjacent pairs to produce 16-bit signed
+    // values, saturating to int16. Implementation transcribes the GCC ppc_wrappers
+    // tmmintrin.h sequence for endianness correctness on LE PPC64.
+    static inline __vector signed short vsx_maddubs_epi16(__vector unsigned char A,
+                                                            __vector signed char B) {
+        __vector signed short __ff = vec_splats((signed short)0x00FF);
+        __vector signed short __C = vec_and(vec_unpackh((__vector signed char)A), __ff);
+        __vector signed short __D = vec_and(vec_unpackl((__vector signed char)A), __ff);
+        __vector signed short __E = vec_unpackh(B);
+        __vector signed short __F = vec_unpackl(B);
+        __C = vec_mul(__C, __E);
+        __D = vec_mul(__D, __F);
+        const __vector unsigned char __odds  = (__vector unsigned char){
+            0,1, 4,5, 8,9, 12,13,  16,17, 20,21, 24,25, 28,29
+        };
+        const __vector unsigned char __evens = (__vector unsigned char){
+            2,3, 6,7, 10,11, 14,15,  18,19, 22,23, 26,27, 30,31
+        };
+        __E = (__vector signed short)vec_perm((__vector unsigned char)__C,
+                                              (__vector unsigned char)__D, __odds);
+        __F = (__vector signed short)vec_perm((__vector unsigned char)__C,
+                                              (__vector unsigned char)__D, __evens);
+        return vec_adds(__E, __F);
+    }
+
+    /*not static*/ inline
+    void S32_alpha_D32_filter_DX(const SkBitmapProcState& s,
+                                 const uint32_t* xy, int count, uint32_t* colors) {
+        SkASSERT(count > 0 && colors != nullptr);
+        SkASSERT(s.fBilerp);
+        SkASSERT(kN32_SkColorType == s.fPixmap.colorType());
+        SkASSERT(s.fAlphaScale <= 256);
+
+        // interpolate_in_x() is the crux of the implementation, interpolating in X
+        // for up to two output pixels (A and B) using vsx_maddubs_epi16().
+        auto interpolate_in_x = [](uint32_t A0, uint32_t A1,
+                                   uint32_t B0, uint32_t B1,
+                                   __vector signed char interlaced_x_weights) {
+            // _mm_unpacklo_epi8(_mm_cvtsi32_si128(A0), _mm_cvtsi32_si128(A1))
+            // = vec_mergeh on uchar, since the input vectors have only the low 32 bits set.
+            __vector unsigned char interlaced_A = vec_mergeh(vsx_cvt_u32_to_vec(A0),
+                                                              vsx_cvt_u32_to_vec(A1));
+            __vector unsigned char interlaced_B = vec_mergeh(vsx_cvt_u32_to_vec(B0),
+                                                              vsx_cvt_u32_to_vec(B1));
+            // _mm_unpacklo_epi64 = vec_mergeh on long long.
+            __vector long long lo64 = vec_mergeh((__vector long long)interlaced_A,
+                                                 (__vector long long)interlaced_B);
+            return vsx_maddubs_epi16((__vector unsigned char)lo64, interlaced_x_weights);
+        };
+
+        // Interpolate {A0..A3} --> output pixel A, and {B0..B3} --> output pixel B.
+        // Returns two pixels, with each color channel in a 16-bit lane of the result.
+        auto interpolate_in_x_and_y = [&](uint32_t A0, uint32_t A1,
+                                          uint32_t A2, uint32_t A3,
+                                          uint32_t B0, uint32_t B1,
+                                          uint32_t B2, uint32_t B3,
+                                          __vector signed char interlaced_x_weights,
+                                          int wy) {
+            __vector signed short top = interpolate_in_x(A0,A1, B0,B1, interlaced_x_weights);
+            __vector signed short bot = interpolate_in_x(A2,A3, B2,B3, interlaced_x_weights);
+
+            // 16*top + (bot-top)*wy, mirroring the SSE2 form (saves one multiply vs. the
+            // straightforward top*(16-wy) + bot*wy).
+            __vector unsigned short v4 = vec_splats((unsigned short)4);
+            __vector signed short wy_v = vec_splats((signed short)wy);
+            __vector signed short px = vec_add(vec_sl(top, v4), vec_mul(vec_sub(bot, top), wy_v));
+
+            // Scale down by total max weight 16x16 = 256.
+            px = (__vector signed short)vec_sr((__vector unsigned short)px, vec_splats((unsigned short)8));
+
+            // Scale by alpha if needed.
+            if (s.fAlphaScale < 256) {
+                __vector signed short scale_v = vec_splats((signed short)s.fAlphaScale);
+                px = (__vector signed short)vec_sr((__vector unsigned short)vec_mul(px, scale_v),
+                                                   vec_splats((unsigned short)8));
+            }
+            return px;
+        };
+
+        // We're in _DX mode here, so we're only varying in X.
+        // That means the first entry of xy is our constant pair of Y coordinates and weight in Y.
+        int y0, y1, wy;
+        decode_packed_coordinates_and_weight(*xy++, &y0, &y1, &wy);
+
+        auto row0 = (const uint32_t*)((const uint8_t*)s.fPixmap.addr() + y0 * s.fPixmap.rowBytes()),
+             row1 = (const uint32_t*)((const uint8_t*)s.fPixmap.addr() + y1 * s.fPixmap.rowBytes());
+
+        while (count >= 4) {
+            // We can really get going, loading 4 X-pairs at a time to produce 4 output pixels.
+            int x0[4],
+                x1[4];
+            __vector unsigned int wx;
+
+            // decode_packed_coordinates_and_weight(), 4x.
+            __vector unsigned int packed = (__vector unsigned int)vec_xl(0, (const unsigned char*)xy);
+            __vector unsigned int x0_v = vec_sr(packed, vec_splats(18u));
+            __vector unsigned int x1_v = vec_and(packed, vec_splats(0x3fffu));
+            vec_xst((__vector unsigned char)x0_v, 0, (unsigned char*)x0);
+            vec_xst((__vector unsigned char)x1_v, 0, (unsigned char*)x1);
+            wx = vec_and(vec_sr(packed, vec_splats(14u)), vec_splats(0xfu));  // [0,15]
+
+            // Splat each x weight 4x (for each color channel) as wr for pixels on the right at x1,
+            // and sixteen minus that as wl for pixels on the left at x0.
+            const __vector unsigned char wr_mask = (__vector unsigned char){
+                0,0,0,0, 4,4,4,4, 8,8,8,8, 12,12,12,12
+            };
+            __vector unsigned char wr = vec_perm((__vector unsigned char)wx,
+                                                  (__vector unsigned char)wx, wr_mask);
+            __vector unsigned char wl = vec_sub(vec_splats((unsigned char)16), wr);
+
+            // Interlace wl and wr for vsx_maddubs_epi16().
+            __vector signed char interlaced_x_weights_AB = (__vector signed char)vec_mergeh(wl, wr);
+            __vector signed char interlaced_x_weights_CD = (__vector signed char)vec_mergel(wl, wr);
+
+            enum { A,B,C,D };
+
+            __vector signed short AB = interpolate_in_x_and_y(
+                    row0[x0[A]], row0[x1[A]], row1[x0[A]], row1[x1[A]],
+                    row0[x0[B]], row0[x1[B]], row1[x0[B]], row1[x1[B]],
+                    interlaced_x_weights_AB, wy);
+            __vector signed short CD = interpolate_in_x_and_y(
+                    row0[x0[C]], row0[x1[C]], row1[x0[C]], row1[x1[C]],
+                    row0[x0[D]], row0[x1[D]], row1[x0[D]], row1[x1[D]],
+                    interlaced_x_weights_CD, wy);
+
+            // Pack 16-bit signed -> 8-bit unsigned with saturation, write 4 pixels.
+            __vector unsigned char packed_out = vec_packsu(AB, CD);
+            vec_xst(packed_out, 0, (unsigned char*)colors);
+            xy     += 4;
+            colors += 4;
+            count  -= 4;
+        }
+
+        while (count --> 0) {
+            // Same flow as the count >= 4 loop, but writing one pixel.
+            int x0, x1, wx;
+            decode_packed_coordinates_and_weight(*xy++, &x0, &x1, &wx);
+
+            __vector unsigned char wr = vec_splats((unsigned char)wx);
+            __vector unsigned char wl = vec_sub(vec_splats((unsigned char)16), wr);
+            __vector signed char interlaced_x_weights = (__vector signed char)vec_mergeh(wl, wr);
+
+            __vector signed short Av = interpolate_in_x_and_y(
+                    row0[x0], row0[x1], row1[x0], row1[x1],
+                    0, 0, 0, 0,
+                    interlaced_x_weights, wy);
+            __vector unsigned char packed_out = vec_packsu(Av,
+                    (__vector signed short)(__vector unsigned char){0});
+            *colors++ = ((__vector unsigned int)packed_out)[0];
         }
     }
 

@@ -68,6 +68,43 @@
     }
 #endif
 
+#if defined(SK_CPU_PPC) && defined(__VSX__)
+    #include <altivec.h>
+
+    // Native VSX/AltiVec port of SkPMSrcOver_SSE2.
+    // Same algorithm: src + dst*(256-srcAlpha)/256.
+    static inline __vector unsigned char SkPMSrcOver_VSX(__vector unsigned char src,
+                                                         __vector unsigned char dst) {
+        __vector unsigned int src_u32 = (__vector unsigned int)src;
+        __vector unsigned int dst_u32 = (__vector unsigned int)dst;
+
+        // scale = 256 - (src >> 24)  (per 32-bit lane)
+        __vector unsigned int scale = vec_sub(vec_splats((unsigned int)256),
+                                              vec_sr(src_u32, vec_splats(24u)));
+        // scale_x2 = (scale << 16) | scale  -- splat the scale into both 16-bit halves
+        __vector unsigned int scale_x2 = vec_or(vec_sl(scale, vec_splats(16u)), scale);
+
+        const __vector unsigned int rb_mask = vec_splats(0x00FF00FFu);
+
+        // rb = (dst & 0x00FF00FF) * scale_x2 >> 8   (R and B channels in 16-bit lanes)
+        __vector unsigned short rb = (__vector unsigned short)vec_and(rb_mask, dst_u32);
+        rb = vec_mul(rb, (__vector unsigned short)scale_x2);
+        rb = vec_sr(rb, vec_splats((unsigned short)8));
+
+        // ga = (dst >> 8) * scale_x2  then mask out the rb channels
+        __vector unsigned short ga = vec_sr((__vector unsigned short)dst_u32,
+                                            vec_splats((unsigned short)8));
+        ga = vec_mul(ga, (__vector unsigned short)scale_x2);
+        // andc(ga, rb_mask) = ga & ~rb_mask  -- keep only G and A channels in 16-bit lanes
+        __vector unsigned int ga_u32 = vec_andc((__vector unsigned int)ga, rb_mask);
+
+        // result = src + adds_epu8(rb | ga)
+        __vector unsigned char merged =
+            (__vector unsigned char)vec_or((__vector unsigned int)rb, ga_u32);
+        return vec_adds(src, merged);
+    }
+#endif
+
 #if SK_CPU_X64_LEVEL >= SK_CPU_X64_LEVEL_SSE2
     #include <immintrin.h>
 
@@ -173,6 +210,17 @@ inline void blit_row_s32a_opaque(SkPMColor* dst, const SkPMColor* src, int len, 
         src += 8;
         dst += 8;
         len -= 8;
+    }
+#endif
+
+#if defined(SK_CPU_PPC) && defined(__VSX__)
+    while (len >= 4) {
+        __vector unsigned char vsrc = vec_xl(0, (const unsigned char*)src);
+        __vector unsigned char vdst = vec_xl(0, (const unsigned char*)dst);
+        vec_xst(SkPMSrcOver_VSX(vsrc, vdst), 0, (unsigned char*)dst);
+        src += 4;
+        dst += 4;
+        len -= 4;
     }
 #endif
 

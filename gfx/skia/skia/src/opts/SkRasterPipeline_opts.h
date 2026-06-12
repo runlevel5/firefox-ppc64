@@ -87,6 +87,8 @@ using NoCtx = const void*;
     #define SKRP_CPU_SCALAR
 #elif defined(SK_ARM_HAS_NEON)
     #define SKRP_CPU_NEON
+#elif defined(SK_CPU_PPC) && defined(__VSX__)
+    #define SKRP_CPU_VSX
 #elif SK_CPU_X64_LEVEL >= SK_CPU_X64_LEVEL_ML4
     #define SKRP_CPU_ML4
 #elif SK_CPU_X64_LEVEL >= SK_CPU_X64_LEVEL_AVX2
@@ -109,6 +111,8 @@ using NoCtx = const void*;
     #include <math.h>
 #elif defined(SKRP_CPU_NEON)
     #include <arm_neon.h>
+#elif defined(SKRP_CPU_VSX)
+    #include <altivec.h>
 #elif defined(SKRP_CPU_LASX)
     #include <lasxintrin.h>
     #include <lsxintrin.h>
@@ -335,6 +339,239 @@ namespace SK_OPTS_NS {
     }
     SI void store4(float* ptr, F r, F g, F b, F a) {
         vst4q_f32(ptr, (float32x4x4_t{{r,g,b,a}}));
+    }
+
+#elif defined(SKRP_CPU_VSX)
+    // Reuse the file-scope Vec<N,T> defined above. It already handles the
+    // GCC-vs-Clang divergence (ext_vector_type on Clang; vector_size via
+    // VecHelper on GCC) and produces the right vector-register-passing ABI
+    // on PPC64. The vec_* intrinsics in <altivec.h> accept either form.
+    template <typename T> using V = Vec<4, T>;
+    using F   = V<float   >;
+    using I32 = V< int32_t>;
+    using U64 = V<uint64_t>;
+    using U32 = V<uint32_t>;
+    using U16 = V<uint16_t>;
+    using U8  = V<uint8_t >;
+
+    // We polyfill a few routines that Clang doesn't build into ext_vector_types.
+    SI F   min(F a, F b)     { return vec_min(a,b); }
+    SI I32 min(I32 a, I32 b) { return vec_min(a,b); }
+    SI U32 min(U32 a, U32 b) { return vec_min(a,b); }
+    SI F   max(F a, F b)     { return vec_max(a,b); }
+    SI I32 max(I32 a, I32 b) { return vec_max(a,b); }
+    SI U32 max(U32 a, U32 b) { return vec_max(a,b); }
+
+    SI F   abs_  (F v)   { return vec_abs(v); }
+    SI I32 abs_  (I32 v) { return vec_abs(v); }
+    SI F   rcp_approx(F v) { return vec_re(v); }
+    SI F   rcp_precise (F v) { F e = rcp_approx(v); return e * (2.0f - v * e); }
+    SI F   rsqrt_approx (F v)   { return vec_rsqrte(v); }
+
+    SI U16 pack(U32 v)       { return __builtin_convertvector(v, U16); }
+    SI U8  pack(U16 v)       { return __builtin_convertvector(v,  U8); }
+
+    SI F if_then_else(I32 c, F t, F e) {
+        return vec_or((__vector float)vec_and((__vector float)c, (__vector float)t), (__vector float)vec_andc((__vector float)e, (__vector float)c));
+    }
+    SI I32 if_then_else(I32 c, I32 t, I32 e) {
+        return (I32)vec_or((__vector unsigned int)vec_and((__vector unsigned int)c, (__vector unsigned int)t), (__vector unsigned int)vec_andc((__vector unsigned int)e, (__vector unsigned int)c));
+    }
+
+    // In both AltiVec and SSE there is no horizontal element compare, unlike ARM.  Fall back to scalar operations here...
+    SI bool any(I32 c) {
+        if (vec_extract((U32)c, 0) != 0) return 1;
+        if (vec_extract((U32)c, 1) != 0) return 1;
+        if (vec_extract((U32)c, 2) != 0) return 1;
+        if (vec_extract((U32)c, 3) != 0) return 1;
+        return 0;
+    }
+    SI bool all(I32 c) {
+        if (vec_extract((U32)c, 0) == 0) return 0;
+        if (vec_extract((U32)c, 1) == 0) return 0;
+        if (vec_extract((U32)c, 2) == 0) return 0;
+        if (vec_extract((U32)c, 3) == 0) return 0;
+        return 1;
+    }
+
+    SI F     mad(F f, F m, F a) { return vec_madd(f,m,a); }
+    SI F    nmad(F f, F m, F a) { return vec_nmsub(f,m,a); }
+    SI F  floor_(F v) { return vec_floor(v); }
+    SI F   ceil_(F v) { return vec_ceil(v); }
+    SI F   sqrt_(F v) { return vec_sqrt(v); }
+    SI I32 iround(F v) { return vec_cts((__vector float)vec_rint(v), 0); }
+    SI U32 round(F v)  { return vec_ctu((__vector float)vec_rint(v), 0); }
+    SI U32 round(F v, F scale) { return (U32)vec_cts((__vector float)vec_rint(v*scale), 0); }
+
+    template <typename T>
+    SI V<T> gather(const T* p, U32 ix) {
+        return V<T>{p[ix[0]], p[ix[1]], p[ix[2]], p[ix[3]]};
+    }
+    template <typename T>
+    SI V<T> gather_unaligned(const T* ptr, U32 ix) {
+        // This tells the compiler ptr might not be aligned appropriately, so
+        // it generates better assembly.
+        typedef T __attribute__ ((aligned (1))) unaligned_ptr;
+        const unaligned_ptr* uptr = static_cast<const unaligned_ptr*>(ptr);
+        return V<T>{uptr[ix[0]], uptr[ix[1]], uptr[ix[2]], uptr[ix[3]]};
+    }
+    template <typename V, typename S>
+    SI void scatter_masked(V src, S* dst, U32 ix, I32 mask) {
+        V before = gather(dst, ix);
+        V after = if_then_else(mask, src, before);
+        dst[ix[0]] = after[0];
+        dst[ix[1]] = after[1];
+        dst[ix[2]] = after[2];
+        dst[ix[3]] = after[3];
+    }
+
+    // Native VSX/AltiVec ports of the load2/store2/load3/load4/store4 helpers.
+    // Each uses vec_xl/vec_xst for unaligned 16-byte loads/stores, vec_mergeh/
+    // vec_mergel for SSE-style epi16/epi32/ps unpack ops, and vec_perm with a
+    // byte-mask for the SSE shufflelo/shufflehi/shuffle/srli_si128 ops. The
+    // PPC64 LE register-to-memory byte order matches x86 LE, so the byte-mask
+    // patterns are identical to the corresponding _mm_setr_epi8 forms.
+
+    SI void load2(const uint16_t* ptr, U16* r, U16* g) {
+        // Load 8 uint16: r0 g0 r1 g1 r2 g2 r3 g3 (in LE memory order).
+        __vector unsigned char v = vec_xl(0, (const unsigned char*)ptr);
+        // Extract every-other 16-bit value via vec_perm (high half of result is unused
+        // but written; sk_unaligned_load below picks up the low 8 bytes).
+        const __vector unsigned char r_mask = (__vector unsigned char){
+            0,1, 4,5, 8,9, 12,13,  0,0,0,0,0,0,0,0
+        };
+        const __vector unsigned char g_mask = (__vector unsigned char){
+            2,3, 6,7, 10,11, 14,15,  0,0,0,0,0,0,0,0
+        };
+        __vector unsigned char R_v = vec_perm(v, v, r_mask);
+        __vector unsigned char G_v = vec_perm(v, v, g_mask);
+        *r = sk_unaligned_load<U16>(&R_v);
+        *g = sk_unaligned_load<U16>(&G_v);
+    }
+
+    SI void store2(uint16_t* ptr, U16 r, U16 g) {
+        // Interleave: rg = r0 g0 r1 g1 r2 g2 r3 g3.
+        // r and g are 8-byte vectors; widen to 16 and vec_mergeh on ushort takes
+        // the low 4 lanes of each.
+        __vector unsigned short rw = widen_cast<__vector unsigned short>(r);
+        __vector unsigned short gw = widen_cast<__vector unsigned short>(g);
+        __vector unsigned short rg = vec_mergeh(rw, gw);
+        vec_xst((__vector unsigned char)rg, 0, (unsigned char*)ptr);
+    }
+
+    SI void load3(const uint16_t* ptr, U16* r, U16* g, U16* b) {
+        // 4 pixels x 3 channels x 2 bytes = 24 bytes. Two 16-byte loads with overlap
+        // avoid reading past the 24-byte source.
+        __vector unsigned char v01 = vec_xl(0, (const unsigned char*)(ptr + 0));
+        __vector unsigned char v23_raw = vec_xl(0, (const unsigned char*)(ptr + 4));
+        const __vector unsigned char zero = vec_splats((unsigned char)0);
+        // v23 = v23_raw >> 4 bytes (drops the overlapping pixel-1 trailing R).
+        const __vector unsigned char shift4 = (__vector unsigned char){
+            4,5,6,7, 8,9,10,11, 12,13,14,15, 16,16,16,16
+        };
+        __vector unsigned char v23 = vec_perm(v23_raw, zero, shift4);
+        // _N holds R,G,B for pixel N in its lower 3 lanes. shift6 advances to the next pixel.
+        const __vector unsigned char shift6 = (__vector unsigned char){
+            6,7,8,9, 10,11,12,13, 14,15, 16,16, 16,16, 16,16
+        };
+        __vector unsigned char _0 = v01;
+        __vector unsigned char _1 = vec_perm(v01, zero, shift6);
+        __vector unsigned char _2 = v23;
+        __vector unsigned char _3 = vec_perm(v23, zero, shift6);
+        // De-interlace to R,G,B per the SSE flow.
+        __vector unsigned short _02 = vec_mergeh((__vector unsigned short)_0,
+                                                  (__vector unsigned short)_2);
+        __vector unsigned short _13 = vec_mergeh((__vector unsigned short)_1,
+                                                  (__vector unsigned short)_3);
+        __vector unsigned short R_v = vec_mergeh(_02, _13);
+        const __vector unsigned char shift8 = (__vector unsigned char){
+            8,9,10,11, 12,13,14,15, 16,16,16,16, 16,16,16,16
+        };
+        __vector unsigned char G_v = vec_perm((__vector unsigned char)R_v, zero, shift8);
+        __vector unsigned short B_v = vec_mergel(_02, _13);
+        *r = sk_unaligned_load<U16>(&R_v);
+        *g = sk_unaligned_load<U16>(&G_v);
+        *b = sk_unaligned_load<U16>(&B_v);
+    }
+
+    SI void load4(const uint16_t* ptr, U16* r, U16* g, U16* b, U16* a) {
+        __vector unsigned short v01 = (__vector unsigned short)
+            vec_xl(0, (const unsigned char*)ptr);            // r0 g0 b0 a0 r1 g1 b1 a1
+        __vector unsigned short v23 = (__vector unsigned short)
+            vec_xl(0, (const unsigned char*)(ptr + 8));      // r2 g2 b2 a2 r3 g3 b3 a3
+        __vector unsigned short _02 = vec_mergeh(v01, v23);  // r0 r2 g0 g2 b0 b2 a0 a2
+        __vector unsigned short _13 = vec_mergel(v01, v23);  // r1 r3 g1 g3 b1 b3 a1 a3
+        __vector unsigned short rg  = vec_mergeh(_02, _13);  // r0 r1 r2 r3 g0 g1 g2 g3
+        __vector unsigned short ba  = vec_mergel(_02, _13);  // b0 b1 b2 b3 a0 a1 a2 a3
+        *r = sk_unaligned_load<U16>((const uint16_t*)&rg + 0);
+        *g = sk_unaligned_load<U16>((const uint16_t*)&rg + 4);
+        *b = sk_unaligned_load<U16>((const uint16_t*)&ba + 0);
+        *a = sk_unaligned_load<U16>((const uint16_t*)&ba + 4);
+    }
+
+    SI void store4(uint16_t* ptr, U16 r, U16 g, U16 b, U16 a) {
+        __vector unsigned short rw = widen_cast<__vector unsigned short>(r);
+        __vector unsigned short gw = widen_cast<__vector unsigned short>(g);
+        __vector unsigned short bw = widen_cast<__vector unsigned short>(b);
+        __vector unsigned short aw = widen_cast<__vector unsigned short>(a);
+        __vector unsigned short rg = vec_mergeh(rw, gw);  // r0 g0 r1 g1 r2 g2 r3 g3
+        __vector unsigned short ba = vec_mergeh(bw, aw);  // b0 a0 b1 a1 b2 a2 b3 a3
+        // Now interleave 32-bit lanes (each rg pair = 1 lane, each ba pair = 1 lane).
+        __vector unsigned int rgba_lo = vec_mergeh((__vector unsigned int)rg,
+                                                    (__vector unsigned int)ba);
+        __vector unsigned int rgba_hi = vec_mergel((__vector unsigned int)rg,
+                                                    (__vector unsigned int)ba);
+        vec_xst((__vector unsigned char)rgba_lo, 0, (unsigned char*)ptr);
+        vec_xst((__vector unsigned char)rgba_hi, 0, (unsigned char*)(ptr + 8));
+    }
+
+    SI void load2(const float* ptr, F* r, F* g) {
+        __vector float _01 = vec_xl(0, ptr);          // r0 g0 r1 g1
+        __vector float _23 = vec_xl(0, ptr + 4);      // r2 g2 r3 g3
+        // r = lanes {_01[0], _01[2], _23[0], _23[2]}; g = {_01[1], _01[3], _23[1], _23[3]}.
+        const __vector unsigned char r_mask = (__vector unsigned char){
+            0,1,2,3, 8,9,10,11, 16,17,18,19, 24,25,26,27
+        };
+        const __vector unsigned char g_mask = (__vector unsigned char){
+            4,5,6,7, 12,13,14,15, 20,21,22,23, 28,29,30,31
+        };
+        *r = (F)vec_perm((__vector unsigned char)_01, (__vector unsigned char)_23, r_mask);
+        *g = (F)vec_perm((__vector unsigned char)_01, (__vector unsigned char)_23, g_mask);
+    }
+
+    SI void store2(float* ptr, F r, F g) {
+        __vector float _01 = vec_mergeh((__vector float)r, (__vector float)g);   // r0 g0 r1 g1
+        __vector float _23 = vec_mergel((__vector float)r, (__vector float)g);   // r2 g2 r3 g3
+        vec_xst((__vector unsigned char)_01, 0, (unsigned char*)ptr);
+        vec_xst((__vector unsigned char)_23, 0, (unsigned char*)(ptr + 4));
+    }
+
+    SI void load4(const float* ptr, F* r, F* g, F* b, F* a) {
+        // 4x4 float matrix transpose: rows -> columns.
+        __vector float row0 = vec_xl(0, ptr +  0);
+        __vector float row1 = vec_xl(0, ptr +  4);
+        __vector float row2 = vec_xl(0, ptr +  8);
+        __vector float row3 = vec_xl(0, ptr + 12);
+        __vector float T0 = vec_mergeh(row0, row2);  // {row0[0], row2[0], row0[1], row2[1]}
+        __vector float T1 = vec_mergeh(row1, row3);
+        __vector float T2 = vec_mergel(row0, row2);
+        __vector float T3 = vec_mergel(row1, row3);
+        *r = (F)vec_mergeh(T0, T1);  // {row0[0], row1[0], row2[0], row3[0]}
+        *g = (F)vec_mergel(T0, T1);
+        *b = (F)vec_mergeh(T2, T3);
+        *a = (F)vec_mergel(T2, T3);
+    }
+
+    SI void store4(float* ptr, F r, F g, F b, F a) {
+        // 4x4 float matrix transpose, then store rows.
+        __vector float T0 = vec_mergeh((__vector float)r, (__vector float)b);
+        __vector float T1 = vec_mergeh((__vector float)g, (__vector float)a);
+        __vector float T2 = vec_mergel((__vector float)r, (__vector float)b);
+        __vector float T3 = vec_mergel((__vector float)g, (__vector float)a);
+        vec_xst((__vector unsigned char)vec_mergeh(T0, T1), 0, (unsigned char*)(ptr +  0));
+        vec_xst((__vector unsigned char)vec_mergel(T0, T1), 0, (unsigned char*)(ptr +  4));
+        vec_xst((__vector unsigned char)vec_mergeh(T2, T3), 0, (unsigned char*)(ptr +  8));
+        vec_xst((__vector unsigned char)vec_mergel(T2, T3), 0, (unsigned char*)(ptr + 12));
     }
 
 #elif defined(SKRP_CPU_ML4)
