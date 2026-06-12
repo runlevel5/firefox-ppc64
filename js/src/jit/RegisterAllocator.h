@@ -262,9 +262,10 @@ class RegisterAllocator {
  public:
   template <typename TakeableSet>
   static void takeWasmRegisters(TakeableSet& regs) {
-#if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM) ||      \
-    defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS64) || \
-    defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64)
+#if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM) ||         \
+    defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS64) ||    \
+    defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64) || \
+    defined(JS_CODEGEN_PPC64)
     regs.take(HeapReg);
 #endif
     MOZ_ASSERT(!regs.has(FramePointer));

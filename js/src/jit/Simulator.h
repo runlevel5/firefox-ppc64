@@ -15,6 +15,8 @@
 #  include "jit/loong64/Simulator-loong64.h"
 #elif defined(JS_SIMULATOR_RISCV64)
 #  include "jit/riscv64/Simulator-riscv64.h"
+#elif defined(JS_SIMULATOR_PPC64)
+#  include "jit/ppc64/Simulator-ppc64.h"
 #elif defined(JS_SIMULATOR)
 #  error "Unexpected simulator platform"
 #endif
