@@ -12,6 +12,7 @@
 // generates the expected result.
 
 var isArm64 = getBuildConfiguration("arm64");
+var isPPC64 = getBuildConfiguration("ppc64");
 
 // 32-bit permutation that is not a rotation.
 let perm32x4_pattern = [4, 5, 6, 7, 12, 13, 14, 15, 8, 9, 10, 11, 0, 1, 2, 3];
@@ -846,7 +847,7 @@ for ( let [ty128,size] of [['i8x16',1], ['i16x8',2], ['i32x4',4]] ) {
     let ops = { all_true: allTrue, any_true: anyTrue, bitmask };
 
     for ( let op of ['any_true', 'all_true', 'bitmask'] ) {
-        let folded = op != 'bitmask' || (size == 2 && !isArm64);
+        let folded = op != 'bitmask' || (size == 2 && !isArm64 && !isPPC64);
         let operation = op == 'any_true' ? 'v128.any_true' : `${ty128}.${op}`;
         let positive =
             wasmCompile(
@@ -898,12 +899,12 @@ for ( let [ty128,size] of [['i8x16',1], ['i16x8',2], ['i32x4',4]] ) {
 
 // Bitselect with constant mask folded into shuffle operation
 
-if (!isArm64) {
+if (!isArm64 && !isPPC64) {
   wasmCompile(`
   (module (func (param v128) (param v128) (result v128)
     (v128.bitselect (local.get 0) (local.get 1) (v128.const i8x16 0 -1 -1 0 0 0 0 0 -1 -1 -1 -1 -1 -1 0 0))))
   `);
-      assertEq(wasmSimdAnalysis(), "shuffle -> blend 8x16");  
+      assertEq(wasmSimdAnalysis(), "shuffle -> blend 8x16");
 }
 
 // Library

@@ -622,6 +622,19 @@ static const unsigned PushedFP = 16;
 static const unsigned SetFP = 20;
 static const unsigned PoppedFP = 4;
 static const unsigned PoppedFPJitEntry = 8;
+#elif defined(JS_CODEGEN_PPC64)
+// pushReturnAddress = mflr(4) + stdu(4) = 8 bytes.
+// push(FP) = stdu(4) = 4 bytes (PPC64 stdu is a single DS-form instruction).
+// moveStackPtrTo = mr(4) = 4 bytes.
+static const unsigned PushedRetAddr = 8;
+static const unsigned PushedFP = 12;
+static const unsigned SetFP = 16;
+// Callable + jit-entry epilogues between poppedFP and *ret are:
+//   mtlr r0; addi sp, sp, 16  (two 4-byte instructions — 8 bytes).
+// mtlr must come before addi so LR holds the caller's RA throughout the
+// post-poppedFP window (single-step profiling fires every instruction).
+static const unsigned PoppedFP = 8;
+static const unsigned PoppedFPJitEntry = 8;
 #elif defined(JS_CODEGEN_NONE) || defined(JS_CODEGEN_WASM32)
 // Synthetic values to satisfy asserts and avoid compiler warnings.
 static const unsigned PushedRetAddr = 0;
@@ -709,6 +722,17 @@ static void GenerateCallablePrologue(MacroAssembler& masm, uint32_t* entry) {
     masm.ma_push(ra);
     MOZ_ASSERT_IF(!masm.oom(), PushedRetAddr == masm.currentOffset() - *entry);
     masm.ma_push(FramePointer);
+    MOZ_ASSERT_IF(!masm.oom(), PushedFP == masm.currentOffset() - *entry);
+    masm.moveStackPtrTo(FramePointer);
+    MOZ_ASSERT_IF(!masm.oom(), SetFP == masm.currentOffset() - *entry);
+  }
+#elif defined(JS_CODEGEN_PPC64)
+  {
+    *entry = masm.currentOffset();
+
+    masm.pushReturnAddress();
+    MOZ_ASSERT_IF(!masm.oom(), PushedRetAddr == masm.currentOffset() - *entry);
+    masm.push(FramePointer);
     MOZ_ASSERT_IF(!masm.oom(), PushedFP == masm.currentOffset() - *entry);
     masm.moveStackPtrTo(FramePointer);
     MOZ_ASSERT_IF(!masm.oom(), SetFP == masm.currentOffset() - *entry);
@@ -809,6 +833,38 @@ static void GenerateCallableEpilogue(MacroAssembler& masm, unsigned framePushed,
     masm.jalr(zero, ra, 0);
     masm.nop();
   }
+#elif defined(JS_CODEGEN_PPC64)
+  // Load RA and FP from the Frame while it's still on the stack.
+  // Using r0 (js::jit::r0) for RA is safe: it's volatile, used as
+  // RT (not base), and we're in an epilogue where it's not live.
+  masm.loadPtr(Address(StackPointer, Frame::returnAddressOffset()),
+               js::jit::r0);
+  masm.loadPtr(Address(StackPointer, Frame::callerFPOffset()), FramePointer);
+
+  // Fence the pool BEFORE capturing poppedFP. PoppedFP is a static 8
+  // (mtlr + addi); enterNoPool itself can emit insertNopFill() and a
+  // preemptive finishPool() at its top edge, so any leading insertions
+  // must land before poppedFP — not between poppedFP and *ret. A pool
+  // flush inside the 2-insn window would otherwise extend *ret - poppedFP
+  // and trip the post-condition assertion below. P9 routes FP constants
+  // through the pool so flushes are more frequent than on P8 (the
+  // assertion was historically silent on P8 but reproducible on P9 dbgopt).
+  masm.enterNoPool(2);
+  poppedFP = masm.currentOffset();
+
+  // Move RA into LR BEFORE popping the Frame. If the order were addi/mtlr,
+  // single-step profiling firing at the mtlr instruction would see: sp
+  // already moved (so saved RA at sp[8] is gone), addi already executed,
+  // and LR still holding the address right after the function's last `bl`
+  // (i.e. inside this function, not the caller's RA). With mtlr first,
+  // the entire post-poppedFP window has LR == caller's RA available
+  // either via sp[8] (pre-addi) or registers.lr (post-mtlr).
+  masm.xs_mtlr(js::jit::r0);
+  masm.addToStackPtr(Imm32(sizeof(Frame)));
+  *ret = masm.currentOffset();
+  masm.leaveNoPool();
+  masm.as_blr();
+
 #elif defined(JS_CODEGEN_ARM64)
 
   // See comment at equivalent place in |GenerateCallablePrologue| above.
@@ -1497,6 +1553,9 @@ void wasm::GenerateJitEntryPrologue(MacroAssembler& masm,
     AutoForbidPoolsAndNops afp(&masm, 10);
     offsets->begin = masm.currentOffset();
     masm.push(ra);
+#elif defined(JS_CODEGEN_PPC64)
+    offsets->begin = masm.currentOffset();
+    masm.pushReturnAddress();
 #elif defined(JS_CODEGEN_ARM64)
     AutoForbidPoolsAndNops afp(&masm,
                                /* number of instructions in scope = */ 3);
@@ -1548,6 +1607,20 @@ void wasm::GenerateJitEntryEpilogue(MacroAssembler& masm,
     masm.Ret(ARMRegister(lr, 64));
     masm.setFramePushed(0);
   }
+#elif defined(JS_CODEGEN_PPC64)
+  // Load RA and FP from the frame while it's still on the stack, then
+  // restore LR, pop the frame, and return. mtlr must precede addi so LR
+  // holds the caller's RA across the whole post-poppedFP window (see
+  // GenerateCallableEpilogue for the matching rationale).
+  masm.loadPtr(Address(StackPointer, Frame::returnAddressOffset()),
+               js::jit::r0);
+  masm.loadPtr(Address(StackPointer, Frame::callerFPOffset()), FramePointer);
+  poppedFP = masm.currentOffset();
+
+  masm.xs_mtlr(js::jit::r0);
+  masm.addToStackPtr(Imm32(sizeof(Frame)));
+  offsets->ret = masm.currentOffset();
+  masm.as_blr();
 #else
   // Forbid pools for the same reason as described in GenerateCallablePrologue.
 #  if defined(JS_CODEGEN_ARM)
@@ -1939,6 +2012,22 @@ bool js::wasm::StartUnwinding(const RegisterState& registers,
         fixedFP = fp;
         AssertMatchesCallSite(fixedPC, fixedFP);
       } else
+#elif defined(JS_CODEGEN_PPC64)
+      if (codeRange->isThunk()) {
+        // The FarJumpIsland sequence temporary scrambles the link register.
+        fixedPC = pc;
+        fixedFP = fp;
+        *unwoundCaller = false;
+        AssertMatchesCallSite(
+            Frame::fromUntaggedWasmExitFP(fp)->returnAddress(),
+            Frame::fromUntaggedWasmExitFP(fp)->rawCaller());
+      } else if (offsetFromEntry < PushedFP) {
+        // On PPC64 the return address is in LR (registers.lr) until
+        // pushReturnAddress() saves it to the stack.
+        fixedPC = (uint8_t*)registers.lr;
+        fixedFP = fp;
+        AssertMatchesCallSite(fixedPC, fixedFP);
+      } else
 #elif defined(JS_CODEGEN_ARM64)
       if (offsetFromEntry < SetFP || codeRange->isThunk()) {
         // On ARM64 we rely on register state instead of state saved on
@@ -1988,6 +2077,35 @@ bool js::wasm::StartUnwinding(const RegisterState& registers,
         // stack, so we can acess the ra from there.
         MOZ_ASSERT(*sp == fp);
         fixedPC = Frame::fromUntaggedWasmExitFP(sp)->returnAddress();
+        fixedFP = fp;
+        AssertMatchesCallSite(fixedPC, fixedFP);
+#elif defined(JS_CODEGEN_PPC64)
+      } else if (offsetInCode >= codeRange->ret() - PoppedFP &&
+                 offsetInCode < codeRange->ret()) {
+        // PPC64 epilogue (RA loaded into r0, FP restored, RA not yet
+        // moved to LR, SP not yet adjusted):
+        //   ld r0, 8(sp)      ; restore caller's RA into r0
+        //   ld FP, 0(sp)      ; restore caller's FP
+        //   <-- poppedFP -->
+        //   mtlr r0           ; LR := caller's RA
+        //   addi sp, sp, 16   ; pop the Frame
+        //   <-- ret -->
+        //   blr
+        // In the [poppedFP, ret) window the addi has not run, so *sp
+        // is still the saved Frame and sp[8] is the caller's RA.
+        // (registers.lr would also be correct after mtlr executes, but
+        // sp[8] is valid throughout this window — including before mtlr —
+        // so we read it consistently.)
+        MOZ_ASSERT(*sp == fp);
+        fixedPC = Frame::fromUntaggedWasmExitFP(sp)->returnAddress();
+        fixedFP = fp;
+        AssertMatchesCallSite(fixedPC, fixedFP);
+      } else if (offsetInCode == codeRange->ret()) {
+        // PPC64 epilogue, at the blr: addi has run, so SP is the
+        // caller's and *sp is unrelated memory. mtlr ran earlier in
+        // the [poppedFP, ret) window, so LR holds the caller's RA.
+        // fp holds the restored caller's FP.
+        fixedPC = (uint8_t*)registers.lr;
         fixedFP = fp;
         AssertMatchesCallSite(fixedPC, fixedFP);
 #elif defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_LOONG64)

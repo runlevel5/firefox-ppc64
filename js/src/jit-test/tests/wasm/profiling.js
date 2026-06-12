@@ -117,6 +117,13 @@ for (let type of ['f32', 'f64']) {
         if (getBuildConfiguration("arm64")) {
             continue;
         }
+        // PPC64 inlines ceil/floor/trunc as frip/frim/friz (see
+        // Assembler-ppc64.h HasRoundInstruction), so no builtin thunk
+        // frames exist to profile. `nearest` still goes through the
+        // thunk because PPC64's frin is not IEEE round-to-even.
+        if (getBuildConfiguration("ppc64") && func !== 'nearest') {
+            continue;
+        }
         test(`(module
             (func (export "") (param ${type}) (result ${type})
                 local.get 0
