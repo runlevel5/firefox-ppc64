@@ -267,10 +267,11 @@ class FaultingCodeRange {
   static constexpr uint32_t kMaxInsnLength = 15;
 #elif defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_ARM64) ||    \
     defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_MIPS64) || \
-    defined(JS_CODEGEN_LOONG64)
+    defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_PPC64)
   // These are fixed-length-insn targets, at least for the code we generate.  In
   // particular, ARM-Thumb2 has both insn lengths 2 and 4, but we don't generate
-  // that.  Same for the RiscV compressed-instruction extension.
+  // that.  Same for the RiscV compressed-instruction extension.  PPC64
+  // prefixed (8-byte) instructions are never emitted at trapping sites.
   static constexpr uint32_t kMinInsnLength = 4;
   static constexpr uint32_t kMaxInsnLength = 4;
 #elif defined(JS_CODEGEN_NONE)

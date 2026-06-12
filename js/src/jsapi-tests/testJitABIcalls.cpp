@@ -717,6 +717,11 @@ class JitABICall final : public jsapitest::RuntimeTest,
 #elif defined(JS_CODEGEN_RISCV64)
     Register base = t0;
     regs.take(base);
+#elif defined(JS_CODEGEN_PPC64)
+    // r11 and r12 are the assembler scratch pool and are non-allocatable, so
+    // they cannot hold a value across the generated calls.
+    Register base = r14;
+    regs.take(base);
 #else
 #  error "Unknown architecture!"
 #endif
