@@ -1780,7 +1780,12 @@ Value SnapshotIterator::allocationValue(const RValueAllocation& alloc,
       return DoubleValue(fromRegister<double>(alloc.fpuReg()));
 
     case RValueAllocation::FLOAT32_REG:
+#if defined(JS_CODEGEN_PPC64) || defined(JS_CODEGEN_RISCV64)
+      return Float32Value(
+          float(fromRegister<double>(alloc.fpuReg().asDouble())));
+#else
       return Float32Value(fromRegister<float>(alloc.fpuReg()));
+#endif
 
     case RValueAllocation::FLOAT32_STACK:
       return Float32Value(ReadFrameFloat32Slot(fp_, alloc.stackOffset()));
@@ -2556,7 +2561,10 @@ uintptr_t MachineState::read(Register reg) const {
 
 template <typename T>
 T MachineState::read(FloatRegister reg) const {
-#if !defined(JS_CODEGEN_RISCV64)
+#if defined(JS_CODEGEN_PPC64)
+  // PPC64 always stores FloatRegisters as 64-bit doubles.
+  MOZ_ASSERT(reg.size() >= sizeof(T));
+#elif !defined(JS_CODEGEN_RISCV64)
   MOZ_ASSERT(reg.size() == sizeof(T));
 #else
   // RISCV64 always store FloatRegister as 64bit.

@@ -504,7 +504,12 @@ class RegExpDepthCheck final : public v8::internal::RegExpVisitor {
 
   // This size is picked to be comfortably larger than any
   // RegExp*::ToNode stack frame.
+#if defined(__powerpc64__)
+  // PPC64 ELFv2 has larger minimum stack frames.
+  static const size_t FRAME_PADDING = 256 * 4;
+#else
   static const size_t FRAME_PADDING = 256;
+#endif
 };
 
 enum class AssembleResult {

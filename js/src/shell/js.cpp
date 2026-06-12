@@ -7697,6 +7697,13 @@ static void SingleStepCallback(void* arg, jit::Simulator* sim, void* pc) {
   state.sp = (void*)sim->getRegister(jit::Simulator::sp);
   state.lr = (void*)sim->getRegister(jit::Simulator::ra);
   state.fp = (void*)sim->getRegister(jit::Simulator::fp);
+#  elif defined(JS_SIMULATOR_PPC64)
+  state.sp = (void*)sim->getRegister(jit::Simulator::sp);
+  state.lr = (void*)sim->getLR();
+  state.fp = (void*)sim->getRegister(jit::Simulator::fp);
+  // WasmTailCallFPScratchReg = ABINonArgReg3 = r22 holds the unwind FP
+  // during the wasm tail-call collapse window (RestoreFpRa unwind info).
+  state.tempFP = (void*)sim->getRegister(jit::Simulator::r22);
 #  else
 #    error "NYI: Single-step profiling support"
 #  endif
@@ -12902,6 +12909,15 @@ bool InitOptionParser(OptionParser& op) {
                        "NUMBER of instructions.",
                        -1) ||
 #endif
+#ifdef JS_SIMULATOR_PPC64
+      !op.addBoolOption('\0', "ppc64-sim-icache-checks",
+                        "Enable icache flush checks in the PPC64 "
+                        "simulator.") ||
+      !op.addIntOption('\0', "ppc64-sim-stop-at", "NUMBER",
+                       "Stop the PPC64 simulator after the given "
+                       "NUMBER of instructions.",
+                       -1) ||
+#endif
       !op.addIntOption('\0', "nursery-size", "SIZE-MB",
                        "Set the maximum nursery size in MB",
                        JS::DefaultNurseryMaxBytes / 1024 / 1024) ||
@@ -13884,6 +13900,15 @@ bool SetContextJITOptions(JSContext* cx, const OptionParser& op) {
   }
 
   int32_t stopAt = op.getIntOption("loong64-sim-stop-at");
+  if (stopAt >= 0) {
+    jit::Simulator::StopSimAt = stopAt;
+  }
+#elif defined(JS_SIMULATOR_PPC64)
+  if (op.getBoolOption("ppc64-sim-icache-checks")) {
+    jit::SimulatorProcess::ICacheCheckingDisableCount = 0;
+  }
+
+  int32_t stopAt = op.getIntOption("ppc64-sim-stop-at");
   if (stopAt >= 0) {
     jit::Simulator::StopSimAt = stopAt;
   }

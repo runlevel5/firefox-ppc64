@@ -746,6 +746,49 @@ bool CallOnMainStack(JSContext* cx, CallOnMainStackFn fn, void* data) {
           : "$a0", "$a3", CALLER_SAVED_REGS, "cc", "memory")
   INLINED_ASM(24, 32, 40, 48);
 
+#elif defined(__powerpc64__) && defined(_CALL_ELF) && _CALL_ELF == 2
+#    define CALLER_SAVED_REGS \
+      "r0", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12", \
+      "lr", "ctr", "xer", "cr0", "cr1", "cr5", "cr6", "cr7",              \
+      "fr0", "fr1", "fr2", "fr3", "fr4", "fr5", "fr6", "fr7", "fr8",      \
+      "fr9", "fr10", "fr11", "fr12", "fr13",                              \
+      "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10",  \
+      "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18", "v19"
+#    define INLINED_ASM(MAIN_FP, MAIN_SP, SUSPENDABLE_FP, SUSPENDABLE_SP) \
+      CHECK_OFFSETS(MAIN_FP, MAIN_SP, SUSPENDABLE_FP, SUSPENDABLE_SP);    \
+      asm volatile(                                                       \
+          "\n   mr      12, %2"                                           \
+          "\n   mr      4, %3"                                            \
+          "\n   mr      3, %1"                                            \
+          "\n   std     31, " #SUSPENDABLE_FP "(3)"                       \
+          "\n   std     1, " #SUSPENDABLE_SP "(3)"                        \
+                                                                          \
+          "\n   ld      31, " #MAIN_FP "(3)"                              \
+          "\n   ld      1, " #MAIN_SP "(3)"                               \
+                                                                          \
+          "\n   stdu    1, -64(1)"                                        \
+          "\n   std     2, 24(1)"                                         \
+          "\n   std     3, 32(1)"                                         \
+                                                                          \
+          "\n   mr      3, 4"                                             \
+          "\n   mtctr   12"                                               \
+          "\n   bctrl"                                                    \
+                                                                          \
+          "\n   ld      2, 24(1)"                                         \
+          "\n   ld      4, 32(1)"                                         \
+          "\n   addi    1, 1, 64"                                         \
+                                                                          \
+          "\n   std     31, " #MAIN_FP "(4)"                              \
+          "\n   std     1, " #MAIN_SP "(4)"                               \
+                                                                          \
+          "\n   ld      31, " #SUSPENDABLE_FP "(4)"                       \
+          "\n   ld      1, " #SUSPENDABLE_SP "(4)"                        \
+          "\n   mr      %0, 3"                                            \
+          : "=r"(res)                                                     \
+          : "r"(stacks), "r"(fn), "r"(data)                               \
+          : CALLER_SAVED_REGS, "cc", "memory")
+  INLINED_ASM(24, 32, 40, 48);
+
 #  else
   MOZ_CRASH("Not supported for this platform");
 #  endif

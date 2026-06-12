@@ -2416,6 +2416,12 @@ static bool PrepareAndExecuteRegExp(MacroAssembler& masm, Register regexp,
       Address(FramePointer, inputOutputDataStartOffset), temp2);
   masm.PushRegsInMask(volatileRegs);
   masm.setupUnalignedABICall(temp3);
+#if defined(JS_CODEGEN_PPC64)
+  // temp1 aliases argregs on this platform, so we need to reuse temp3
+  // or we'll stomp on the code pointer when we pass the first ABI argument.
+  masm.movePtr(codePointer, temp3);
+  codePointer = temp3;
+#endif
   masm.passABIArg(temp2);
   masm.callWithABI(codePointer);
   masm.storeCallInt32Result(temp1);
@@ -9951,6 +9957,8 @@ void CodeGenerator::visitWasmStackSwitchToSuspendable(
 #  elif defined(JS_CODEGEN_LOONG64)
   SecondScratchRegisterScope scratch2(masm);
   const Register ScratchReg1 = scratch2;
+#  elif defined(JS_CODEGEN_PPC64)
+  const Register ScratchReg1 = ABINonArgReturnReg0;
 #  else
 #    error "NYI: scratch register"
 #  endif
@@ -10033,6 +10041,8 @@ void CodeGenerator::visitWasmStackSwitchToSuspendable(
 #  ifdef JS_USE_LINK_REGISTER
 #    if defined(JS_CODEGEN_LOONG64)
   masm.mov(ReturnAddressReg, ra);
+#    elif defined(JS_CODEGEN_PPC64)
+  masm.xs_mtlr(ReturnAddressReg);
 #    else
   masm.mov(ReturnAddressReg, lr);
 #    endif
@@ -10100,6 +10110,8 @@ void CodeGenerator::visitWasmStackSwitchToMain(LWasmStackSwitchToMain* lir) {
 #  elif defined(JS_CODEGEN_LOONG64)
   SecondScratchRegisterScope scratch2(masm);
   const Register ScratchReg1 = scratch2;
+#  elif defined(JS_CODEGEN_PPC64)
+  const Register ScratchReg1 = ABINonArgReturnReg0;
 #  else
 #    error "NYI: scratch register"
 #  endif
@@ -10219,6 +10231,8 @@ void CodeGenerator::visitWasmStackSwitchToMain(LWasmStackSwitchToMain* lir) {
 #  ifdef JS_USE_LINK_REGISTER
 #    if defined(JS_CODEGEN_LOONG64)
   masm.mov(ReturnAddressReg, ra);
+#    elif defined(JS_CODEGEN_PPC64)
+  masm.xs_mtlr(ReturnAddressReg);
 #    else
   masm.mov(ReturnAddressReg, lr);
 #    endif
@@ -10296,6 +10310,8 @@ void CodeGenerator::visitWasmStackContinueOnSuspendable(
 #  elif defined(JS_CODEGEN_LOONG64)
   SecondScratchRegisterScope scratch2(masm);
   const Register ScratchReg1 = scratch2;
+#  elif defined(JS_CODEGEN_PPC64)
+  const Register ScratchReg1 = ABINonArgReturnReg0;
 #  else
 #    error "NYI: scratch register"
 #  endif

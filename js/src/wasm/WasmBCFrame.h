@@ -785,6 +785,10 @@ class BaseStackFrame final : public BaseStackFrameAllocator {
 #ifdef RABALDR_CHUNKY_STACK
     pushChunkyBytes(StackSizeOfFloat);
     masm.storeFloat32(r, Address(sp_, stackOffset(currentStackHeight())));
+#elif defined(JS_CODEGEN_PPC64)
+    // A float32 is held in double format in a PPC64 register, so it must be
+    // pushed as a single to match the float32 accesses to its slot.
+    masm.Push(r);
 #else
     if (StackSizeOfFloat == 4) {
       masm.Push(r);
@@ -844,6 +848,10 @@ class BaseStackFrame final : public BaseStackFrameAllocator {
 #ifdef RABALDR_CHUNKY_STACK
     masm.loadFloat32(Address(sp_, stackOffset(currentStackHeight())), r);
     popChunkyBytes(StackSizeOfFloat);
+#elif defined(JS_CODEGEN_PPC64)
+    // A float32 is held in double format in a PPC64 register, so it must be
+    // popped as a single to match the float32 accesses to its slot.
+    masm.Pop(r);
 #else
     if (StackSizeOfFloat == 4) {
       masm.Pop(r);
