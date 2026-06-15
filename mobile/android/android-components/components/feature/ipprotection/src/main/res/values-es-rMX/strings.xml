@@ -8,11 +8,11 @@
 
 <resources>
   <!-- Title of an alert shown when there is an internal VPN error, and the VPN should be disabled to continue using the browser. -->
-  <string name="mozac_feature_ipprotection_unavaliable_dialog_title">Halde fram utan VPN?</string>
+  <string name="mozac_feature_ipprotection_unavaliable_dialog_title">¿Continuar sin VPN?</string>
   <!-- Body of an alert shown when there is an internal VPN error, and the VPN should be disabled to continue using the browser. -->
-  <string name="mozac_feature_ipprotection_unavaliable_dialog_body">VPN fungerer ikkje akkurat no, så posisjonen din kan vere synleg. hald fram med å surfe utan VPN, eller vel faner for å late att.</string>
+  <string name="mozac_feature_ipprotection_unavaliable_dialog_body">La VPN no está funcionando en este momento, por lo que tu ubicación podría estar visible. Continúa navegando sin la VPN o elige qué pestañas cerrar.</string>
   <!-- Title for a button on the alert shown when VPN errors. The button allows user to navigate into tabs tray, to close those they deem sensitive. -->
-  <string name="mozac_feature_ipprotection_unavaliable_dialog_confirm_button">Handsam faner</string>
+  <string name="mozac_feature_ipprotection_unavaliable_dialog_confirm_button">Administrar pestañas</string>
   <!-- Title for a button on the alert shown when VPN errors. The button disabled the VPN, and allows the user to continue using the browser without the extra safety feature. -->
-  <string name="mozac_feature_ipprotection_unavaliable_dialog_dismiss_button">Hald fram</string>
+  <string name="mozac_feature_ipprotection_unavaliable_dialog_dismiss_button">Continuar</string>
 </resources>
