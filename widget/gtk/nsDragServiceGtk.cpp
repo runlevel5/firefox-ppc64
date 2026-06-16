@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "nsDragService.h"
-#include "nsDragServiceX11.h"
+#include "nsDragServiceGtk.h"
 #include "nsWindow.h"
 #include "mozilla/gfx/2D.h"
 #include "mozilla/AutoRestore.h"
@@ -28,18 +28,18 @@ extern mozilla::LazyLogModule gWidgetDragLog;
 #  define LOGDRAGSERVICE(...)
 #endif
 
-ClipboardTargets nsDragSessionX11::DragTaskX11::GetTargets() {
+ClipboardTargets nsDragSessionGtk::DragTaskGtk::GetTargets() {
   return ClipboardTargets(gdk_drag_context_list_targets(mDragContext));
 }
 
-nsDragSessionX11::nsDragSessionX11() {
-  mRecentTask = MakeUnique<DragTaskX11>();
+nsDragSessionGtk::nsDragSessionGtk() {
+  mRecentTask = MakeUnique<DragTaskGtk>();
 }
 
 NS_IMETHODIMP
-nsDragSessionX11::UpdateDragEffect() {
+nsDragSessionGtk::UpdateDragEffect() {
   LOGDRAGSERVICE(
-      "nsDragSessionX11::UpdateDragEffect() from e10s child process");
+      "nsDragSessionGtk::UpdateDragEffect() from e10s child process");
   if (mTargetDragContextForRemote) {
     ReplyToDragMotion(mTargetDragContextForRemote, mRecentTask->mTime);
     mTargetDragContextForRemote = nullptr;
@@ -47,23 +47,23 @@ nsDragSessionX11::UpdateDragEffect() {
   return NS_OK;
 }
 
-void nsDragSessionX11::UpdateDragAction() {
-  DragTaskX11* task = static_cast<DragTaskX11*>(mRecentTask.get());
+void nsDragSessionGtk::UpdateDragAction() {
+  DragTaskGtk* task = static_cast<DragTaskGtk*>(mRecentTask.get());
   if (task->mDragContext) {
     UpdateDragAction(task->mDragContext);
   }
 }
 
-void nsDragSessionX11::ReplyToDragMotion() {
-  DragTaskX11* task = static_cast<DragTaskX11*>(mRecentTask.get());
+void nsDragSessionGtk::ReplyToDragMotion() {
+  DragTaskGtk* task = static_cast<DragTaskGtk*>(mRecentTask.get());
   if (task->mDragContext) {
     ReplyToDragMotion(task->mDragContext, task->mTime);
   }
 }
 
-void nsDragSessionX11::ReplyToDragMotion(GdkDragContext* aDragContext,
+void nsDragSessionGtk::ReplyToDragMotion(GdkDragContext* aDragContext,
                                          guint aTime) {
-  LOGDRAGSERVICE("nsDragSessionX11::ReplyToDragMotion(%p) can drop %d",
+  LOGDRAGSERVICE("nsDragSessionGtk::ReplyToDragMotion(%p) can drop %d",
                  aDragContext, mCanDrop);
 
   // gdk_drag_status() is a kind of red herring here.
@@ -88,7 +88,7 @@ void nsDragSessionX11::ReplyToDragMotion(GdkDragContext* aDragContext,
 // This will update the drag action based on the information in the
 // drag context.  Gtk gets this from a combination of the key settings
 // and what the source is offering.
-void nsDragSessionX11::UpdateDragAction(GdkDragContext* aDragContext) {
+void nsDragSessionGtk::UpdateDragAction(GdkDragContext* aDragContext) {
   // This doesn't look right.  dragSession.dragAction is used by
   // nsContentUtils::SetDataTransferInEvent() to set the initial
   // dataTransfer.dropEffect, so GdkDragContext::suggested_action would be
@@ -141,7 +141,7 @@ void nsDragSessionX11::UpdateDragAction(GdkDragContext* aDragContext) {
 // Gecko drag events are in flight.  This helps event handlers that may not
 // expect nested events, while accessing an event's dataTransfer for example.
 
-gboolean nsDragSessionX11::ScheduleMotionEvent(
+gboolean nsDragSessionGtk::ScheduleMotionEvent(
     nsWindow* aWindow, GdkDragContext* aDragContext,
     LayoutDeviceIntPoint aWindowPoint, guint aTime) {
   if (aDragContext && mNextScheduledTask &&
@@ -156,16 +156,16 @@ gboolean nsDragSessionX11::ScheduleMotionEvent(
 
   // Returning TRUE means we'll reply with a status message, unless we first
   // get a leave.
-  UniquePtr<DragTaskX11> task = MakeUnique<DragTaskX11>(
+  UniquePtr<DragTaskGtk> task = MakeUnique<DragTaskGtk>(
       eDragTaskMotion, aDragContext, aWindow, aWindowPoint, aTime);
   return Schedule(std::move(task));
 }
 
-gboolean nsDragSessionX11::ScheduleDropEvent(nsWindow* aWindow,
+gboolean nsDragSessionGtk::ScheduleDropEvent(nsWindow* aWindow,
                                              GdkDragContext* aDragContext,
                                              LayoutDeviceIntPoint aWindowPoint,
                                              guint aTime) {
-  UniquePtr<DragTaskX11> task = MakeUnique<DragTaskX11>(
+  UniquePtr<DragTaskGtk> task = MakeUnique<DragTaskGtk>(
       eDragTaskDrop, aDragContext, aWindow, aWindowPoint, aTime);
   if (!Schedule(std::move(task))) {
     NS_WARNING("Additional drag drop ignored");
@@ -178,17 +178,17 @@ gboolean nsDragSessionX11::ScheduleDropEvent(nsWindow* aWindow,
   return TRUE;
 }
 
-void nsDragSessionX11::ScheduleLeaveEvent() {
+void nsDragSessionGtk::ScheduleLeaveEvent() {
   // We don't know at this stage whether a drop signal will immediately
   // follow.  If the drop signal gets sent it will happen before we return
   // to the main loop and the scheduled leave task will be replaced.
-  UniquePtr<DragTaskX11> task = MakeUnique<DragTaskX11>(eDragTaskLeave);
+  UniquePtr<DragTaskGtk> task = MakeUnique<DragTaskGtk>(eDragTaskLeave);
   if (!Schedule(std::move(task))) {
     NS_WARNING("Drag leave after drop");
   }
 }
 
-void nsDragSessionX11::DragDataReceived(GtkWidget* aWidget,
+void nsDragSessionGtk::DragDataReceived(GtkWidget* aWidget,
                                         GdkDragContext* aContext, gint aX,
                                         gint aY,
                                         GtkSelectionData* aSelectionData,
@@ -294,17 +294,17 @@ void nsDragSessionX11::DragDataReceived(GtkWidget* aWidget,
 #endif
 }
 
-bool nsDragSessionX11::GetDragDataImpl(GdkAtom aRequestedFlavor) {
-  DragTaskX11* task = static_cast<DragTaskX11*>(mRecentTask.get());
+bool nsDragSessionGtk::GetDragDataImpl(GdkAtom aRequestedFlavor) {
+  DragTaskGtk* task = static_cast<DragTaskGtk*>(mRecentTask.get());
   if (!task->mWindow) {
     LOGDRAGSERVICE(
-        "nsDragSessionX11::GetDragDataImpl() failed, missing Window!");
+        "nsDragSessionGtk::GetDragDataImpl() failed, missing Window!");
     return false;
   }
   GtkWidget* widget = task->mWindow->GetGtkWidget();
   if (!widget) {
     LOGDRAGSERVICE(
-        "nsDragSessionX11::GetDragDataImpl() failed, missing GtkWidget!");
+        "nsDragSessionGtk::GetDragDataImpl() failed, missing GtkWidget!");
     return false;
   }
 
@@ -342,12 +342,12 @@ bool nsDragSessionX11::GetDragDataImpl(GdkAtom aRequestedFlavor) {
   return !mWaitingForDragDataContext;
 }
 
-bool nsDragSessionX11::IsTargetContextList(void) {
+bool nsDragSessionGtk::IsTargetContextList(void) {
   // gMimeListType drags only work for drags within a single process. The
   // gtk_drag_get_source_widget() function will return nullptr if the source
   // of the drag is another app, so we use it to check if a gMimeListType
   // drop will work or not.
-  DragTaskX11* task = static_cast<DragTaskX11*>(mRecentTask.get());
+  DragTaskGtk* task = static_cast<DragTaskGtk*>(mRecentTask.get());
   if (task->mDragContext &&
       gtk_drag_get_source_widget(task->mDragContext) == nullptr) {
     return false;
@@ -356,28 +356,28 @@ bool nsDragSessionX11::IsTargetContextList(void) {
   return IsDragFlavorAvailable(sMimeListTypeAtom);
 }
 
-bool nsDragSessionX11::IsDragFlavorAvailable(GdkAtom aRequestedFlavor) {
+bool nsDragSessionGtk::IsDragFlavorAvailable(GdkAtom aRequestedFlavor) {
   if (!mCachedDragFlavors) {
     mCachedDragFlavors =
-        static_cast<DragTaskX11*>(mRecentTask.get())->GetTargets();
+        static_cast<DragTaskGtk*>(mRecentTask.get())->GetTargets();
   }
   return mCachedDragFlavors.Contains(aRequestedFlavor);
 }
 
-void nsDragSessionX11::EndDragSessionImplBackend() {
+void nsDragSessionGtk::EndDragSessionImplBackend() {
   mTargetDragContextForRemote = nullptr;
 }
 
-void nsDragSessionX11::SetRemoteContext() {
-  DragTaskX11* task = static_cast<DragTaskX11*>(mRecentTask.get());
+void nsDragSessionGtk::SetRemoteContext() {
+  DragTaskGtk* task = static_cast<DragTaskGtk*>(mRecentTask.get());
   mTargetDragContextForRemote = task->mDragContext;
 }
 
-void nsDragSessionX11::DropFinish(bool aSucceed) {
+void nsDragSessionGtk::DropFinish(bool aSucceed) {
   // Perhaps we should set the del parameter to TRUE when the drag
   // action is move, but we don't know whether the data was successfully
   // transferred.
-  DragTaskX11* task = static_cast<DragTaskX11*>(mRecentTask.get());
+  DragTaskGtk* task = static_cast<DragTaskGtk*>(mRecentTask.get());
   if (task->mDragContext) {
     LOGDRAGSERVICE("  drag finished (gtk_drag_finish)");
     gtk_drag_finish(task->mDragContext, aSucceed,
@@ -385,8 +385,8 @@ void nsDragSessionX11::DropFinish(bool aSucceed) {
   }
 }
 
-nsWindow* nsDragSessionX11::GetMostRecentDestWindow() {
+nsWindow* nsDragSessionGtk::GetMostRecentDestWindow() {
   return mNextScheduledTask
-             ? static_cast<DragTaskX11*>(mNextScheduledTask.get())->mWindow
-             : static_cast<DragTaskX11*>(mRecentTask.get())->mWindow;
+             ? static_cast<DragTaskGtk*>(mNextScheduledTask.get())->mWindow
+             : static_cast<DragTaskGtk*>(mRecentTask.get())->mWindow;
 }

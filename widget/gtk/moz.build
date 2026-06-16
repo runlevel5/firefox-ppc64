@@ -92,6 +92,7 @@ UNIFIED_SOURCES += [
     "nsClipboard.cpp",
     "nsColorPicker.cpp",
     "nsDragService.cpp",
+    "nsDragServiceGtk.cpp",
     "nsFilePicker.cpp",
     "nsGtkHtmlUtils.cpp",
     "nsGtkKeyUtils.cpp",
@@ -141,7 +142,6 @@ if CONFIG["MOZ_WAYLAND"]:
 
 if CONFIG["MOZ_X11"]:
     UNIFIED_SOURCES += [
-        "nsDragServiceX11.cpp",
         "nsShmImage.cpp",
         "RetrievalContextX11.cpp",
         "WindowSurfaceX11.cpp",

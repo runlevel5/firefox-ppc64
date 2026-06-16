@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsDragServiceX11_h_
-#define nsDragServiceX11_h_
+#ifndef nsDragServiceGtk_h_
+#define nsDragServiceGtk_h_
 
 #include "mozilla/RefPtr.h"
 #include <gtk/gtk.h>
@@ -15,7 +15,7 @@ namespace mozilla::widget {
 /**
  * X11 specific D&D routines
  */
-class nsDragSessionX11 : public nsDragSession {
+class nsDragSessionGtk : public nsDragSession {
  public:
   void ReplyToDragMotion(GdkDragContext* aDragContext, guint aTime);
   void ReplyToDragMotion() override;
@@ -40,14 +40,14 @@ class nsDragSessionX11 : public nsDragSession {
   nsWindow* GetMostRecentDestWindow() override;
 
  public:
-  nsDragSessionX11();
+  nsDragSessionGtk();
 
  protected:
-  virtual ~nsDragSessionX11() = default;
+  virtual ~nsDragSessionGtk() = default;
 
  private:
-  struct DragTaskX11 : public DragTask {
-    explicit DragTaskX11(DragTaskType aType = eDragTaskNone,
+  struct DragTaskGtk : public DragTask {
+    explicit DragTaskGtk(DragTaskType aType = eDragTaskNone,
                          GdkDragContext* aDragContext = nullptr,
                          nsWindow* aWindow = nullptr,
                          const mozilla::LayoutDeviceIntPoint& aWindowPoint =
@@ -55,7 +55,7 @@ class nsDragSessionX11 : public nsDragSession {
                          guint aTime = 0)
         : DragTask(aType, aWindow, aWindowPoint, aTime),
           mDragContext(aDragContext) {};
-    virtual ~DragTaskX11() = default;
+    virtual ~DragTaskGtk() = default;
 
     void Reset() override {
       mType = eDragTaskNone;
@@ -100,4 +100,4 @@ class nsDragSessionX11 : public nsDragSession {
 
 }  // namespace mozilla::widget
 
-#endif  // nsDragServiceX11_h_
+#endif  // nsDragServiceGtk_h_

@@ -3,11 +3,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "nsDragService.h"
+#include "nsDragServiceGtk.h"
 #ifdef MOZ_WAYLAND
 #  include "nsDragServiceWayland.h"
-#endif
-#ifdef MOZ_X11
-#  include "nsDragServiceX11.h"
 #endif
 #include "nsArrayUtils.h"
 #include "nsComponentManagerUtils.h"
@@ -667,7 +665,7 @@ already_AddRefed<nsIDragSession> nsDragService::CreateDragSession() {
 #endif
 #ifdef MOZ_X11
   if (widget::GdkIsX11Display()) {
-    return MakeAndAddRef<nsDragSessionX11>();
+    return MakeAndAddRef<nsDragSessionGtk>();
   }
 #endif
   return nullptr;
