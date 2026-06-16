@@ -104,15 +104,6 @@
     --tab-min-height: max(32px, calc(var(--tab-label-line-height) * 1em));
     --tab-block-margin: var(--tab-vertical-block-margin);
     --tab-inline-padding: var(--tab-vertical-inline-padding);
-
-    /* In compact mode, shrink the inline margin around vertical tabs and
-     * the new-tab button so they fit inside the (also shrunk) collapsed
-     * sidebar launcher. See browser.compactmode.auto.threshold and the
-     * matching launcher padding override in
-     * browser/themes/shared/sidebar.css. */
-    &[uidensity="compact"] {
-      --tab-inner-inline-margin: var(--space-xsmall);
-    }
   }
 }
 

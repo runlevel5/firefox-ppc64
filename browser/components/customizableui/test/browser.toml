@@ -452,8 +452,6 @@ skip-if = [
   "os == 'win'",
 ]
 
-["browser_uidensity_auto_compact.js"]
-
 ["browser_unified_extensions_reset.js"]
 
 ["browser_vertical_tabs_customize_navbar.js"]

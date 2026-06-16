@@ -284,17 +284,6 @@ sidebar-main,
   }
 }
 
-/* Drive the sidebar-main shadow DOM's launcher button inline padding from the
- * document's uidensity. Custom properties inherit across shadow boundaries,
- * so this value is consumed by sidebar-main.css. */
-:root {
-  --sidebar-launcher-button-padding-inline: var(--space-medium);
-
-  &[uidensity="compact"] {
-    --sidebar-launcher-button-padding-inline: var(--space-xsmall);
-  }
-}
-
 /* Expand on hover */
 
 :root[sidebar-expand-on-hover] {

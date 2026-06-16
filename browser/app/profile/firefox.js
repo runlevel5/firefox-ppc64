@@ -258,17 +258,6 @@ pref("browser.uidensity", 0);
 // Whether Firefox will automatically override the uidensity to "touch"
 // while the user is in a touch environment (such as Windows tablet mode).
 pref("browser.touchmode.auto", true);
-// Threshold (under nova) at which the uidensity is automatically overridden
-// to "compact" in small windows, expressed as a ratio of chrome size to
-// window inner size. The trigger fires when either:
-//   - the natural (non-compact) tabstrip height / window inner height, or
-//   - (with sidebar.revamp enabled and the launcher visible but collapsed)
-//     the collapsed sidebar launcher width / window inner width
-// exceeds this value, unless the user has explicitly chosen a uidensity
-// value. Default 0.05 means compact engages when the tabstrip would
-// otherwise take up more than 5% of the window's vertical space, or the
-// collapsed sidebar would take up more than 5% of horizontal space.
-pref("browser.compactmode.auto.threshold", "0.05");
 // Whether Firefox will show the Compact Mode UIDensity option.
 pref("browser.compactmode.show", false);
 
