@@ -20353,6 +20353,13 @@
   type: bool
   value: false
   mirror: always
+
+# Use native D&D session type on Wayland instead of Gtk.
+# Recently disabled due compositor bugs (Bug 2046911).
+- name: widget.wayland.native-data-session
+  type: bool
+  value: false
+  mirror: once
 #endif
 
 #ifdef MOZ_WIDGET_GTK
