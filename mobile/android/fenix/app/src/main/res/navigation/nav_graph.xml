@@ -2010,6 +2010,9 @@
             android:name="customTabSessionId"
             app:argType="string"
             app:nullable="true" />
+        <argument
+            android:name="source"
+            app:argType="string" />
     </dialog>
 
     <dialog

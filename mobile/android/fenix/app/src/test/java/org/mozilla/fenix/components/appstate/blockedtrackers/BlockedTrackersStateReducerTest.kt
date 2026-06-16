@@ -4,6 +4,7 @@
 
 package org.mozilla.fenix.components.appstate.blockedtrackers
 
+import mozilla.components.feature.protection.dashboard.TrackerCategory
 import mozilla.components.feature.protection.dashboard.TrackersBlockedCategory
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -30,7 +31,8 @@ class BlockedTrackersStateReducerTest {
     @Test
     fun `WHEN the number of trackers blocked this week is updated THEN update the state`() {
         val initialState = AppState()
-        val newTrackersBlocked: List<TrackersBlockedCategory> = listOf(TrackersBlockedCategory(1, 1, 2))
+        val newTrackersBlocked: List<TrackersBlockedCategory> =
+            listOf(TrackersBlockedCategory(1, 1, 2, TrackerCategory.CROSS_SITE_COOKIES))
 
         val updatedState = BlockedTrackersStateReducer.reduce(initialState, UpdateTrackersBlockedThisWeek(newTrackersBlocked))
 

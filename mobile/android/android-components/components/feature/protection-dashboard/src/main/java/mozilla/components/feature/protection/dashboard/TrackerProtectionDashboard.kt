@@ -9,6 +9,7 @@ import androidx.annotation.PluralsRes
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,6 +36,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -47,6 +49,7 @@ import androidx.compose.ui.tooling.preview.PreviewLightDark
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import mozilla.components.compose.base.theme.AcornTheme
+import mozilla.components.feature.protection.dashboard.facts.emitTrackerCategoryTappedFact
 
 /**
  * Composable for the Tracker Protection Dashboard.
@@ -326,6 +329,9 @@ private fun TrackerCategoryRow(
         modifier = modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.extraSmall)
+            .pointerInput(trackersBlocked.category) {
+                detectTapGestures(onTap = { emitTrackerCategoryTappedFact(trackersBlocked.category) })
+            }
             .background(MaterialTheme.colorScheme.surfaceBright)
             .padding(vertical = AcornTheme.layout.space.static100)
             .padding(horizontal = AcornTheme.layout.space.static200)
@@ -413,21 +419,25 @@ private fun TrackerProtectionDashboardPreview() {
             icon = mozilla.components.ui.icons.R.drawable.mozac_ic_cookies_24,
             name = R.plurals.protections_dashboard_category_cookies,
             count = 302,
+            category = TrackerCategory.CROSS_SITE_COOKIES,
         ),
         TrackersBlockedCategory(
             icon = mozilla.components.ui.icons.R.drawable.mozac_ic_social_tracker_24,
             name = R.plurals.protections_dashboard_category_social,
             count = 241,
+            category = TrackerCategory.SOCIAL_MEDIA_TRACKERS,
         ),
         TrackersBlockedCategory(
             icon = mozilla.components.ui.icons.R.drawable.mozac_ic_fingerprinter_24,
             name = R.plurals.protections_dashboard_category_fingerprinters,
             count = 1,
+            category = TrackerCategory.FINGERPRINTERS,
         ),
         TrackersBlockedCategory(
             icon = mozilla.components.ui.icons.R.drawable.mozac_ic_image_24,
             name = R.plurals.protections_dashboard_category_tracking_content,
             count = 0,
+            category = TrackerCategory.TRACKING_CONTENT,
         ),
     )
     AcornTheme {
@@ -478,14 +488,26 @@ private fun previewDashboardColors() = when (isSystemInDarkTheme()) {
 }
 
 /**
+ * The kinds of trackers the dashboard breaks down, used as a stable identity for telemetry.
+ */
+enum class TrackerCategory {
+    CROSS_SITE_COOKIES,
+    SOCIAL_MEDIA_TRACKERS,
+    FINGERPRINTERS,
+    TRACKING_CONTENT,
+}
+
+/**
  * Represents a category of trackers with its count.
  *
  * @property icon Drawable resource ID for the category icon.
  * @property name Plural string resource ID for the category name.
  * @property count Number of trackers blocked in this category.
+ * @property category Stable identity of the category, used when emitting interaction facts.
  */
 data class TrackersBlockedCategory(
     @param:DrawableRes val icon: Int,
     @param:PluralsRes val name: Int,
     val count: Int,
+    val category: TrackerCategory,
 )

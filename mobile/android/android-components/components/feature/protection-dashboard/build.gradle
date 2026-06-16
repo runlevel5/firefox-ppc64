@@ -31,6 +31,7 @@ dependencies {
     implementation project(':components:browser-state')
     implementation project(':components:lib-state')
     implementation project(':components:compose-base')
+    implementation project(':components:support-base')
     implementation project(':components:ui-icons')
     implementation libs.androidx.core.ktx
 

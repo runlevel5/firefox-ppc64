@@ -62,6 +62,7 @@ import org.mozilla.fenix.tabstray.redux.state.Page
 import org.mozilla.fenix.tabstray.redux.state.TabsTrayState
 import org.mozilla.fenix.tabstray.redux.store.TabsTrayStore
 import org.mozilla.fenix.tabstray.ui.TabManagementFragmentDirections
+import org.mozilla.fenix.trackingprotection.ProtectionsDashboardFragment
 import org.mozilla.fenix.utils.Settings
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.CoroutineContext
@@ -732,7 +733,10 @@ class DefaultTabManagerController(
         val currentSessionId = browserStore.state.selectedTabId
         navController.nav(
             R.id.tabManagementFragment,
-            TabManagementFragmentDirections.actionTabManagementFragmentToGlobalProtectionsDashboard(currentSessionId),
+            TabManagementFragmentDirections.actionTabManagementFragmentToGlobalProtectionsDashboard(
+                currentSessionId,
+                source = ProtectionsDashboardFragment.SOURCE_TABS_TRAY,
+            ),
         )
     }
 

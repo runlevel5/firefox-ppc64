@@ -383,6 +383,7 @@ class TrustPanelFragment : BottomSheetDialogFragment() {
                                     contentState = Route.TrackerCategoryDetailsPanel
                                 },
                                 onTrackersBlockedThisWeekClicked = {
+                                    store.dispatch(TrustPanelAction.Navigate.TrackersProtectionDashboard)
                                     contentState = Route.TrackersProtectionDashboard
                                 },
                                 onBackButtonClick = {

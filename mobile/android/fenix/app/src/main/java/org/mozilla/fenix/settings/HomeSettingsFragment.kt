@@ -15,6 +15,7 @@ import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreferenceCompat
 import org.mozilla.fenix.GleanMetrics.CustomizeHome
+import org.mozilla.fenix.GleanMetrics.Events
 import org.mozilla.fenix.R
 import org.mozilla.fenix.components.Components
 import org.mozilla.fenix.components.appstate.AppAction
@@ -84,7 +85,10 @@ class HomeSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
 
         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_privacy_report).apply {
             isChecked = fenixSettings.showPrivacyReportFeature
-            onPreferenceChangeListener = createMetricPreferenceChangeListener("privacy_report")
+            onPreferenceChangeListener = createMetricPreferenceChangeListener(
+                metricKey = getString(R.string.pref_key_privacy_report_metric),
+                recordEventsToggle = true,
+            )
         }
 
         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_recent_tabs).apply {
@@ -153,7 +157,10 @@ class HomeSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
         setupSportsWidgetPreferences()
     }
 
-    private fun createMetricPreferenceChangeListener(metricKey: String): Preference.OnPreferenceChangeListener {
+    private fun createMetricPreferenceChangeListener(
+        metricKey: String,
+        recordEventsToggle: Boolean = false,
+    ): Preference.OnPreferenceChangeListener {
         return Preference.OnPreferenceChangeListener { preference, newValue ->
             val newBooleanValue = newValue as? Boolean ?: return@OnPreferenceChangeListener false
 
@@ -163,6 +170,15 @@ class HomeSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
                     metricKey,
                 ),
             )
+
+            if (recordEventsToggle) {
+                Events.preferenceToggled.record(
+                    Events.PreferenceToggledExtra(
+                        newBooleanValue,
+                        metricKey,
+                    ),
+                )
+            }
 
             fenixSettings.preferences.edit { putBoolean(preference.key, newBooleanValue) }
 

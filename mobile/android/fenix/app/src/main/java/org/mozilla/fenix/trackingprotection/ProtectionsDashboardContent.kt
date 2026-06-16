@@ -25,6 +25,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
 import mozilla.components.compose.base.BottomSheetHandle
+import mozilla.components.feature.protection.dashboard.TrackerCategory
 import mozilla.components.feature.protection.dashboard.TrackerProtectionDashboard
 import mozilla.components.feature.protection.dashboard.TrackersBlockedCategory
 import org.mozilla.fenix.R
@@ -112,21 +113,25 @@ private fun ProtectionsDashboardContentPreview(
             icon = iconsR.drawable.mozac_ic_cookies_24,
             name = R.plurals.trackers_blocked_panel_num_cross_site_cookies,
             count = 302,
+            category = TrackerCategory.CROSS_SITE_COOKIES,
         ),
         TrackersBlockedCategory(
             icon = iconsR.drawable.mozac_ic_social_tracker_24,
             name = R.plurals.trackers_blocked_panel_num_social_media_trackers,
             count = 241,
+            category = TrackerCategory.SOCIAL_MEDIA_TRACKERS,
         ),
         TrackersBlockedCategory(
             icon = iconsR.drawable.mozac_ic_fingerprinter_24,
             name = R.plurals.trackers_blocked_panel_num_fingerprinters,
             count = 0,
+            category = TrackerCategory.FINGERPRINTERS,
         ),
         TrackersBlockedCategory(
             icon = iconsR.drawable.mozac_ic_image_24,
             name = R.plurals.trackers_blocked_panel_num_trackers_2,
             count = 2234,
+            category = TrackerCategory.TRACKING_CONTENT,
         ),
     )
 

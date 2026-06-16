@@ -271,7 +271,7 @@ events:
           open_links_in_a_private_tab, pref_key_sync_logins,
           pref_key_sync_bookmarks, pref_key_sync_history, pref_key_show_voice_search,
           pref_key_show_search_suggestions_in_private, pref_key_show_trending_search_suggestions,
-          pref_key_show_recent_search_suggestions.
+          pref_key_show_recent_search_suggestions, privacy_report.
         type: string
       enabled:
         description: "Whether or not the preference is *now* enabled"
@@ -286,6 +286,7 @@ events:
       - https://github.com/mozilla-mobile/fenix/issues/19923
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1945634
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1950208
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2044067
     data_reviews:
       - https://github.com/mozilla-mobile/fenix/pull/1896
       - https://github.com/mozilla-mobile/fenix/pull/5704
@@ -299,6 +300,7 @@ events:
       - https://github.com/mozilla-mobile/fenix/pull/21038#issuecomment-906757301
       - https://phabricator.services.mozilla.com/D239200
       - https://phabricator.services.mozilla.com/D240680
+      - https://phabricator.services.mozilla.com/D304862
     data_sensitivity:
       - technical
       - interaction
@@ -8176,6 +8178,94 @@ search_widget:
         - Search
 
 tracking_protection:
+  privacy_report_tapped:
+    type: event
+    description: |
+      A user tapped the privacy report / trackers blocked card to open the
+      privacy dashboard.
+    extra_keys:
+      source:
+        description: |
+          The surface the user opened the privacy dashboard from. Possible
+          values are: `home`, `tabs_tray` or `trust_panel`.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2044067
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D304862
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - TrackingProtection
+  privacy_report_tracking_cookies_tapped:
+    type: event
+    description: |
+      A user tapped the tracking cookies category row in the privacy dashboard.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2044067
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D304862
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - TrackingProtection
+  privacy_report_social_tapped:
+    type: event
+    description: |
+      A user tapped the social media trackers category row in the privacy
+      dashboard.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2044067
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D304862
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - TrackingProtection
+  privacy_report_fingerprints_tapped:
+    type: event
+    description: |
+      A user tapped the fingerprinters category row in the privacy dashboard.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2044067
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D304862
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - TrackingProtection
+  privacy_report_tracking_content_tapped:
+    type: event
+    description: |
+      A user tapped the tracking content category row in the privacy dashboard.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2044067
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D304862
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - TrackingProtection
   exception_added:
     type: event
     description: |
@@ -12409,22 +12499,6 @@ homepage:
     metadata:
       tags:
         - Tabs
-  privacy_report_tapped:
-    type: event
-    description: |
-      A user tapped the privacy report / trackers blocked card on the homepage.
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=2025368
-    data_reviews:
-      - https://phabricator.services.mozilla.com/D289791
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-    metadata:
-      tags:
-        - TrackingProtection
 
 start_on_home:
   enter_home_screen:

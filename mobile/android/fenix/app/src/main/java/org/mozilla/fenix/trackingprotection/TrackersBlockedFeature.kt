@@ -21,6 +21,7 @@ import mozilla.components.concept.engine.content.blocking.TrackingProtectionEven
 import mozilla.components.concept.engine.content.blocking.TrackingProtectionEvent.Companion.SUSPICIOUS_FINGERPRINTERS
 import mozilla.components.concept.engine.content.blocking.TrackingProtectionEvent.Companion.TRACKERS
 import mozilla.components.concept.engine.content.blocking.TrackingProtectionEvent.Companion.TRACKING_COOKIES
+import mozilla.components.feature.protection.dashboard.TrackerCategory
 import mozilla.components.feature.protection.dashboard.TrackersBlockedCategory
 import mozilla.components.feature.session.TrackingProtectionUseCases
 import mozilla.components.lib.state.helpers.AbstractBinding
@@ -117,32 +118,43 @@ class TrackersBlockedFeature(
         get() {
             val events = this ?: return emptyList()
             val trackerCategories = listOf(
-                Triple(
-                    R.plurals.trackers_blocked_panel_num_cross_site_cookies,
-                    iconsR.drawable.mozac_ic_cookies_24,
-                    setOf(TRACKING_COOKIES),
+                CategoryConfig(
+                    nameRes = R.plurals.trackers_blocked_panel_num_cross_site_cookies,
+                    iconRes = iconsR.drawable.mozac_ic_cookies_24,
+                    types = setOf(TRACKING_COOKIES),
+                    category = TrackerCategory.CROSS_SITE_COOKIES,
                 ),
-                Triple(
-                    R.plurals.trackers_blocked_panel_num_social_media_trackers,
-                    iconsR.drawable.mozac_ic_social_tracker_24,
-                    setOf(SOCIAL),
+                CategoryConfig(
+                    nameRes = R.plurals.trackers_blocked_panel_num_social_media_trackers,
+                    iconRes = iconsR.drawable.mozac_ic_social_tracker_24,
+                    types = setOf(SOCIAL),
+                    category = TrackerCategory.SOCIAL_MEDIA_TRACKERS,
                 ),
-                Triple(
-                    R.plurals.trackers_blocked_panel_num_fingerprinters,
-                    iconsR.drawable.mozac_ic_fingerprinter_24,
-                    setOf(FINGERPRINTERS, SUSPICIOUS_FINGERPRINTERS),
+                CategoryConfig(
+                    nameRes = R.plurals.trackers_blocked_panel_num_fingerprinters,
+                    iconRes = iconsR.drawable.mozac_ic_fingerprinter_24,
+                    types = setOf(FINGERPRINTERS, SUSPICIOUS_FINGERPRINTERS),
+                    category = TrackerCategory.FINGERPRINTERS,
                 ),
-                Triple(
-                    R.plurals.trackers_blocked_panel_num_trackers_2,
-                    iconsR.drawable.mozac_ic_image_24,
-                    setOf(TRACKERS),
+                CategoryConfig(
+                    nameRes = R.plurals.trackers_blocked_panel_num_trackers_2,
+                    iconRes = iconsR.drawable.mozac_ic_image_24,
+                    types = setOf(TRACKERS),
+                    category = TrackerCategory.TRACKING_CONTENT,
                 ),
             )
-            return trackerCategories.map { (trackerNameRes, trackerIconRes, types) ->
+            return trackerCategories.map { config ->
                 val count = events
-                    .filter { it.type in types }
+                    .filter { it.type in config.types }
                     .sumOf { it.count }
-                TrackersBlockedCategory(trackerIconRes, trackerNameRes, count)
+                TrackersBlockedCategory(config.iconRes, config.nameRes, count, config.category)
             }
         }
+
+    private data class CategoryConfig(
+        val nameRes: Int,
+        val iconRes: Int,
+        val types: Set<Int>,
+        val category: TrackerCategory,
+    )
 }

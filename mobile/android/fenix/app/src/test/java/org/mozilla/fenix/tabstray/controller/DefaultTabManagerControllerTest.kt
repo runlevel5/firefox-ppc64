@@ -79,6 +79,7 @@ import org.mozilla.fenix.tabstray.redux.state.Page
 import org.mozilla.fenix.tabstray.redux.state.TabsTrayState
 import org.mozilla.fenix.tabstray.redux.store.TabsTrayStore
 import org.mozilla.fenix.tabstray.ui.TabManagementFragmentDirections
+import org.mozilla.fenix.trackingprotection.ProtectionsDashboardFragment
 import org.mozilla.fenix.utils.Settings
 import org.robolectric.RobolectricTestRunner
 import java.util.concurrent.TimeUnit
@@ -2152,7 +2153,7 @@ class DefaultTabManagerControllerTest {
     }
 
     @Test
-    fun `WHEN the privacy report pill is tapped THEN navigate to the protections dashboard`() {
+    fun `WHEN the privacy report pill is tapped THEN navigate to the protections dashboard with the tabs_tray source`() {
         every { navController.currentDestination } returns mockk<NavDestination> {
             every { id } returns R.id.tabManagementFragment
         }
@@ -2167,6 +2168,7 @@ class DefaultTabManagerControllerTest {
             navController.navigate(
                 directions = TabManagementFragmentDirections.actionTabManagementFragmentToGlobalProtectionsDashboard(
                     currentSessionId,
+                    source = ProtectionsDashboardFragment.SOURCE_TABS_TRAY,
                 ),
                 navOptions = null,
             )

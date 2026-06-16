@@ -5,11 +5,10 @@
 package org.mozilla.fenix.home.logo
 
 import androidx.navigation.NavController
-import mozilla.telemetry.glean.private.NoExtras
-import org.mozilla.fenix.GleanMetrics.Homepage
 import org.mozilla.fenix.R
 import org.mozilla.fenix.ext.nav
 import org.mozilla.fenix.home.HomeFragmentDirections
+import org.mozilla.fenix.trackingprotection.ProtectionsDashboardFragment
 
 /**
  * Home content controller for handling interactions with the tracking protections pill.
@@ -25,11 +24,12 @@ class TrackingProtectionController(
      * Handle the tracking protections pill being clicked.
      */
     fun handleProtectionStatusPillClicked() {
-        Homepage.privacyReportTapped.record(NoExtras())
-
         navController.nav(
             R.id.homeFragment,
-            HomeFragmentDirections.actionHomeFragmentToGlobalProtectionsDashboard(currentSessionId),
+            HomeFragmentDirections.actionHomeFragmentToGlobalProtectionsDashboard(
+                currentSessionId,
+                source = ProtectionsDashboardFragment.SOURCE_HOME,
+            ),
         )
     }
 }
