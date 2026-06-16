@@ -18,6 +18,12 @@ from webdriver.bidi.error import InvalidArgumentException, NoSuchFrameException
 from webdriver.bidi.modules.script import ContextTarget
 
 
+def escape_xpath_string_quotes(text):
+    if not "'" in text:
+        return f"'{text}'"
+    return "concat('" + """', "'", '""".join(text.split("'")) + "')"
+
+
 class Client:
     def __init__(self, request, session, event_loop):
         self.request = request
@@ -805,7 +811,8 @@ class Client:
             )
 
         async def await_text(self, text, **kwargs):
-            xpath = f"//*[text()[contains(.,'{text}')]]"
+            escaped_text = escape_xpath_string_quotes(text)
+            xpath = f"//*[text()[contains(.,{escaped_text})]]"
             return await self.await_xpath(self, xpath, **kwargs)
 
         async def await_xpath(
@@ -1181,7 +1188,8 @@ class Client:
 
     def find_text(self, text, is_displayed=None, **kwargs):
         try:
-            e = self.find_xpath(f"//*[text()[contains(.,'{text}')]]", **kwargs)
+            escaped_text = escape_xpath_string_quotes(text)
+            e = self.find_xpath(f"//*[text()[contains(.,{escaped_text})]]", **kwargs)
             return self._do_is_displayed_check(e, is_displayed)
         except webdriver.error.NoSuchElementException:
             return None
