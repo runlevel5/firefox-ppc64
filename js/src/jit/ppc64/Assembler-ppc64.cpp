@@ -2754,9 +2754,16 @@ void Assembler::WriteLoad64Instructions(Instruction* inst0, Register reg,
     i5->setData(PPC_b | (12 & 0x03FFFFFC));
   }
 
-  // [6..7] .quad VALUE (low 32 at lower addr, high 32 at higher addr).
+  // [6..7] .quad VALUE. The trailing `ld` is a native 64-bit load, so the two
+  // 32-bit halves must be laid out in target byte order: high half at the lower
+  // address (slot [6]) on big-endian, low half there on little-endian.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  i6->setData((uint32_t)(value >> 32));
+  i7->setData((uint32_t)(value & 0xFFFFFFFF));
+#else
   i6->setData((uint32_t)(value & 0xFFFFFFFF));
   i7->setData((uint32_t)(value >> 32));
+#endif
 }
 
 /* static */
@@ -2765,9 +2772,13 @@ uint64_t Assembler::ExtractLoad64Value(Instruction* inst0) {
   Instruction* i6 = inst0 + 6;
   Instruction* i7 = inst0 + 7;
 
-  uint64_t lo = (uint64_t)i6->encode();  // low 32 at lower addr
-  uint64_t hi = (uint64_t)i7->encode();  // high 32 at higher addr
-  return (hi << 32) | lo;
+  // Mirror WriteLoad64Quad's byte order: high half at the lower address
+  // (slot [6]) on big-endian, low half there on little-endian.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  return ((uint64_t)i6->encode() << 32) | (uint64_t)i7->encode();
+#else
+  return ((uint64_t)i7->encode() << 32) | (uint64_t)i6->encode();
+#endif
 }
 
 /* static */
@@ -2782,8 +2793,14 @@ void Assembler::UpdateLoad64Value(Instruction* inst0, uint64_t value) {
   Instruction* i6 = inst0 + 6;
   Instruction* i7 = inst0 + 7;
 
-  i6->setData((uint32_t)(value & 0xFFFFFFFF));  // low 32 at lower addr
-  i7->setData((uint32_t)(value >> 32));         // high 32 at higher addr
+  // Match WriteLoad64Quad: high half at the lower address on big-endian.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  i6->setData((uint32_t)(value >> 32));
+  i7->setData((uint32_t)(value & 0xFFFFFFFF));
+#else
+  i6->setData((uint32_t)(value & 0xFFFFFFFF));
+  i7->setData((uint32_t)(value >> 32));
+#endif
 }
 
 // ========================================================================

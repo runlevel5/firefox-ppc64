@@ -21,6 +21,7 @@
 #include "mozilla/ThreadLocal.h"
 
 #include <algorithm>
+#include <bit>
 #include <cfloat>
 #include <cinttypes>
 #include <cmath>
@@ -584,6 +585,11 @@ static bool GetBuildConfiguration(JSContext* cx, unsigned argc, Value* vp) {
 
   value.setInt32(sizeof(void*));
   if (!JS_SetProperty(cx, info, "pointer-byte-size", value)) {
+    return false;
+  }
+
+  value = BooleanValue(std::endian::native == std::endian::big);
+  if (!JS_SetProperty(cx, info, "big-endian", value)) {
     return false;
   }
 

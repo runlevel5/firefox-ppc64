@@ -1,3 +1,10 @@
+// |jit-test| skip-if: getBuildConfiguration("big-endian")
+// The structured-clone buffer is canonically little-endian (SCOutput writes via
+// swapToLittleEndian), but this test inspects and rewrites the BigInt length
+// word through a native-endian Uint32Array view, which only matches the on-disk
+// layout on little-endian targets. The clone itself round-trips correctly on
+// big-endian; only this raw-buffer manipulation is layout-specific.
+
 function str(u32a) {
     return [].map.call(u32a, n => n.toString(16).padStart(8, 0)).join(",");
 }

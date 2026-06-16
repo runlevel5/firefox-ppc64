@@ -378,8 +378,34 @@ class JitRuntime {
   }
 
   EnterJitCode enterJit() const {
+#if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
+    __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // PPC64 ELFv1: a function pointer is a 24-byte descriptor
+    // {entry, toc, env}, not a raw entry. GCC compiles every
+    // function-pointer call as `ld r12, 0(p); ld r2, 8(p); mtctr r12;
+    // bctrl`, so passing a raw JIT entry would dereference the JIT
+    // prologue bytes as the descriptor. Build a synthetic descriptor
+    // pointing at the trampoline; capture libmozjs's TOC on first use
+    // so the trampoline can call back into libmozjs C++ with r2 valid.
+    static struct alignas(8) Descriptor {
+      void* entry;
+      void* toc;
+      void* env;
+    } desc;
+    if (!desc.entry) {
+      void* toc;
+      asm volatile("mr %0, 2" : "=r"(toc));
+      desc.toc = toc;
+      desc.env = nullptr;
+      // Set entry last so concurrent readers see a fully-initialised
+      // descriptor (single 8-byte aligned store on PPC64 is atomic).
+      desc.entry = trampolineCode(enterJITOffset_).value;
+    }
+    return reinterpret_cast<EnterJitCode>(&desc);
+#else
     return JS_DATA_TO_FUNC_PTR(EnterJitCode,
                                trampolineCode(enterJITOffset_).value);
+#endif
   }
 
   // Return the registers from the native caller frame of the given JIT frame.

@@ -32,7 +32,11 @@ namespace detail {
 
 // Nth<N, types...>::Type is the Nth type (0-based) in the list of types Ts.
 #if defined(__has_builtin)
-#  if __has_builtin(__type_pack_element)
+// GCC 15+ hard-errors on __type_pack_element used in a function signature; fall
+// back to the NthImpl template there. Real GCC only (clang defines __GNUC__ too
+// but is unaffected), and only >= 15 so older GCC keeps the faster builtin.
+#  if __has_builtin(__type_pack_element) && \
+      !(defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 15)
 #    define MOZ_HAS_TYPE_PACK_ELEMENT
 #  endif
 #endif

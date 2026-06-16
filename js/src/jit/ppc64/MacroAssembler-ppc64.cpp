@@ -602,6 +602,33 @@ CodeOffset MacroAssembler::call(wasm::SymbolicAddress target) {
   return call(CallReg);
 }
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+void MacroAssemblerPPC64Compat::callABIDescriptorELFv1(Register descriptor) {
+  // On ELFv1 a C function pointer is a 24-byte descriptor {entry@0, toc@8,
+  // env@16}, not a code entry (the ELFv2 convention call(Register) assumes).
+  // Allocate the ELFv1 call frame: a 48-byte linkage area (the callee's LR
+  // (+16) / TOC saves land in scratch space; we park our r2, the JIT's
+  // libmozjs TOC, in the reserved +24 slot) plus a 64-byte parameter save area
+  // (8 doublewords). The parameter save area is mandatory: a GCC-compiled
+  // callee may spill its incoming register arguments to [SP+48 ..), and without
+  // it those spills land on the JIT's outparameter slot sitting just above SP
+  // and corrupt it (e.g. CreateThisFromICWithAllocSite's MutableHandleValue
+  // result). Load the callee entry and TOC from the descriptor, call, restore
+  // r2 and pop. Load TOC before entry so a descriptor==r12 alias is safe. Note:
+  // register-arg calls only; stack-passed args would need the area folded into
+  // callWithABIPre.
+  constexpr int32_t kELFv1FrameSize = 48 + 64;
+  as_stdu(StackPointer, StackPointer, -kELFv1FrameSize);
+  as_std(r2, StackPointer, 24);
+  as_ld(r2, descriptor, 8);
+  as_ld(r12, descriptor, 0);
+  xs_mtctr(r12);
+  as_bctr(LinkB);
+  as_ld(r2, StackPointer, 24);
+  as_addi(StackPointer, StackPointer, kELFv1FrameSize);
+}
+#endif
+
 void MacroAssembler::callWithABINoProfiler(const Address& fun, ABIType result) {
   UseScratchRegisterScope temps(asMasm());
   Register scratch = temps.Acquire();
@@ -609,7 +636,11 @@ void MacroAssembler::callWithABINoProfiler(const Address& fun, ABIType result) {
 
   uint32_t stackAdjust;
   callWithABIPre(&stackAdjust);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  callABIDescriptorELFv1(scratch);
+#else
   call(scratch);
+#endif
   callWithABIPost(stackAdjust, result);
 }
 
@@ -1188,7 +1219,11 @@ void MacroAssembler::callWithABINoProfiler(Register fun, ABIType result) {
 
   uint32_t stackAdjust;
   callWithABIPre(&stackAdjust);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  callABIDescriptorELFv1(scratch);
+#else
   call(scratch);
+#endif
   callWithABIPost(stackAdjust, result);
 }
 

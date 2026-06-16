@@ -10073,8 +10073,15 @@ static void TableIteratorAdvance(MacroAssembler& masm, Register iter,
   Register i = temp;
 
   // Note: |count| and |index| are stored as PrivateUint32Value. We use add32
-  // and store32 to change the payload.
-  masm.add32(Imm32(1), Address(iter, TableIteratorObject::offsetOfCount()));
+  // and store32 to change the payload. The Int32 payload is in the low 32 bits
+  // of the 64-bit Value, which on big-endian targets is at byte offset +4.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  constexpr int32_t payloadOff = sizeof(int32_t);
+#else
+  constexpr int32_t payloadOff = 0;
+#endif
+  masm.add32(Imm32(1),
+             Address(iter, TableIteratorObject::offsetOfCount() + payloadOff));
 
   masm.unboxInt32(Address(iter, TableIteratorObject::offsetOfIndex()), i);
 
@@ -10094,7 +10101,8 @@ static void TableIteratorAdvance(MacroAssembler& masm, Register iter,
                        JS_HASH_KEY_EMPTY, &seek);
 
   masm.bind(&done);
-  masm.store32(i, Address(iter, TableIteratorObject::offsetOfIndex()));
+  masm.store32(i,
+               Address(iter, TableIteratorObject::offsetOfIndex() + payloadOff));
 }
 
 // Corresponds to TableIteratorObject::finish.
@@ -18304,14 +18312,17 @@ void CodeGenerator::visitObjectToIterator(LObjectToIterator* lir) {
     // do a VM call to replace the cached iterator with a fresh iterator
     // including indices.
     masm.branchTest32(Assembler::NonZero, iterFlagsAddr,
-                      Imm32(NativeIterator::Flags::IndicesSupported),
+                      Imm32(NativeIterator::flagForJit32(
+                          NativeIterator::Flags::IndicesSupported)),
                       ool->entry());
   }
 
   if (!lir->mir()->skipRegistration()) {
     masm.storePtr(obj, Address(nativeIter,
                                NativeIterator::offsetOfObjectBeingIterated()));
-    masm.or32(Imm32(NativeIterator::Flags::Active), iterFlagsAddr);
+    masm.or32(Imm32(NativeIterator::flagForJit32(
+                  NativeIterator::Flags::Active)),
+              iterFlagsAddr);
 
     Register enumeratorsAddr = temp2;
     masm.movePtr(ImmPtr(lir->mir()->enumeratorsAddr()), enumeratorsAddr);
@@ -18359,7 +18370,9 @@ void CodeGenerator::emitIteratorHasIndicesAndBranch(Register iterator,
   masm.loadPrivate(nativeIterAddr, temp);
   masm.branchTest32(Assembler::Zero,
                     Address(temp, NativeIterator::offsetOfFlags()),
-                    Imm32(NativeIterator::Flags::IndicesAvailable), ifFalse);
+                    Imm32(NativeIterator::flagForJit32(
+                        NativeIterator::Flags::IndicesAvailable)),
+                    ifFalse);
 
   // Guard that the first shape stored in the iterator matches the current
   // shape of the iterated object.

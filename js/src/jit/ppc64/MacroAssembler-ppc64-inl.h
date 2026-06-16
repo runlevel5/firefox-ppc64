@@ -3240,7 +3240,8 @@ void MacroAssembler::wasmMulI64WideHI64(Register lhs, Register rhs,
 //}}} check_macroassembler_style
 
 void MacroAssemblerPPC64Compat::incrementInt32Value(const Address& addr) {
-  asMasm().add32(Imm32(1), addr);
+  // Increment the int32 payload, which on big-endian is at +4 within the Value.
+  asMasm().add32(Imm32(1), valuePayload(addr));
 }
 
 void MacroAssemblerPPC64Compat::retn(Imm32 n) {

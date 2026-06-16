@@ -280,6 +280,13 @@ class ResultImplementation<V, E, PackingStrategy::LowBitTagIsError> {
   }
   explicit constexpr ResultImplementation(E aErrorValue) : mBits(1) {
     if constexpr (!std::is_empty_v<E>) {
+      // Clear mBits before copying the error payload. When E is smaller than a
+      // word, big-endian targets memcpy it into the high-order bytes, leaving
+      // the tag bit set by the |mBits(1)| initializer in the low byte; that
+      // trips the assertion below even though |= 1 would set the tag anyway. On
+      // little-endian the memcpy overwrites the initializer, so clearing first
+      // is equivalent there.
+      mBits = 0;
       std::memcpy(&mBits, &aErrorValue, sizeof(E));
       MOZ_ASSERT((mBits & 1) == 0);
       mBits |= 1;
