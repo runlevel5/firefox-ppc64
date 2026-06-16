@@ -1664,7 +1664,7 @@ class Client:
                 string,
             )
 
-    def do_paste(self):
+    def send_key(self, key, options={}):
         with self.using_context("chrome"):
             self.execute_script(
                 """
@@ -1685,9 +1685,15 @@ class Client:
                 if (!win.EventUtils) {
                     win.EventUtils = _getEventUtils(win);
                 }
-                win.EventUtils.synthesizeKey("v", { accelKey: true }, win);
-            """
+                const [key, options] = arguments;
+                win.EventUtils.synthesizeKey(key, options, win);
+            """,
+                key,
+                options,
             )
+
+    def do_paste(self):
+        self.send_key("v", {"accelKey": True})
 
     def make_base64_xpi(self, files):
         buf = BytesIO()
