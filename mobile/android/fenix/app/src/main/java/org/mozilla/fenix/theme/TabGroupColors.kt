@@ -21,7 +21,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
 import mozilla.components.compose.base.theme.ContainerColorStack
-import mozilla.components.ui.colors.PhotonColors
+import mozilla.components.ui.colors.NovaColors
 
 /**
  * Represents the complete palette of colors available for tab groups.
@@ -39,27 +39,27 @@ data class TabGroupColorPalette(
 ) {
     companion object {
         val lightPalette = TabGroupColorPalette(
-            yellow = TabGroupColors(primary = Color(0xFFC15727), onPrimary = PhotonColors.LightGrey05),
-            orange = TabGroupColors(primary = PhotonColors.Orange70, onPrimary = PhotonColors.LightGrey05),
-            red = TabGroupColors(primary = PhotonColors.Red70, onPrimary = PhotonColors.LightGrey05),
-            pink = TabGroupColors(primary = PhotonColors.Pink70, onPrimary = PhotonColors.LightGrey05),
-            purple = TabGroupColors(primary = PhotonColors.Purple60, onPrimary = PhotonColors.LightGrey05),
-            blue = TabGroupColors(primary = PhotonColors.Blue50, onPrimary = PhotonColors.LightGrey05),
-            cyan = TabGroupColors(primary = Color(0xFF008383), onPrimary = PhotonColors.LightGrey05),
-            green = TabGroupColors(primary = Color(0xFF108307), onPrimary = PhotonColors.LightGrey05),
-            grey = TabGroupColors(primary = PhotonColors.DarkGrey10, onPrimary = PhotonColors.LightGrey05),
+            yellow = TabGroupColors(primary = NovaColors.Yellow50, onPrimary = NovaColors.White),
+            orange = TabGroupColors(primary = NovaColors.Orange50, onPrimary = NovaColors.White),
+            red = TabGroupColors(primary = NovaColors.Red50, onPrimary = NovaColors.White),
+            pink = TabGroupColors(primary = NovaColors.Pink50, onPrimary = NovaColors.White),
+            purple = TabGroupColors(primary = NovaColors.Violet50, onPrimary = NovaColors.White),
+            blue = TabGroupColors(primary = NovaColors.Blue50, onPrimary = NovaColors.White),
+            cyan = TabGroupColors(primary = NovaColors.Cyan50, onPrimary = NovaColors.White),
+            green = TabGroupColors(primary = NovaColors.Green50, onPrimary = NovaColors.White),
+            grey = TabGroupColors(primary = NovaColors.Gray50, onPrimary = NovaColors.White),
         )
 
         val darkPalette = TabGroupColorPalette(
-            yellow = TabGroupColors(primary = PhotonColors.Yellow05, onPrimary = PhotonColors.DarkGrey90),
-            orange = TabGroupColors(primary = PhotonColors.Orange10, onPrimary = PhotonColors.DarkGrey90),
-            red = TabGroupColors(primary = PhotonColors.Red10, onPrimary = PhotonColors.DarkGrey90),
-            pink = TabGroupColors(primary = PhotonColors.Pink10, onPrimary = PhotonColors.DarkGrey90),
-            purple = TabGroupColors(primary = PhotonColors.Purple10, onPrimary = PhotonColors.DarkGrey90),
-            blue = TabGroupColors(primary = PhotonColors.Blue05, onPrimary = PhotonColors.DarkGrey90),
-            cyan = TabGroupColors(primary = PhotonColors.Green20, onPrimary = PhotonColors.DarkGrey90),
-            green = TabGroupColors(primary = Color(0xFFC6EBBD), onPrimary = PhotonColors.DarkGrey90),
-            grey = TabGroupColors(primary = PhotonColors.LightGrey20, onPrimary = PhotonColors.DarkGrey90),
+            yellow = TabGroupColors(primary = NovaColors.Yellow10, onPrimary = NovaColors.Yellow60),
+            orange = TabGroupColors(primary = NovaColors.Orange10, onPrimary = NovaColors.Orange60),
+            red = TabGroupColors(primary = NovaColors.Red10, onPrimary = NovaColors.Red60),
+            pink = TabGroupColors(primary = NovaColors.Pink10, onPrimary = NovaColors.Pink60),
+            purple = TabGroupColors(primary = NovaColors.Violet10, onPrimary = NovaColors.Violet60),
+            blue = TabGroupColors(primary = NovaColors.Blue10, onPrimary = NovaColors.Blue60),
+            cyan = TabGroupColors(primary = NovaColors.Cyan10, onPrimary = NovaColors.Cyan60),
+            green = TabGroupColors(primary = NovaColors.Green10, onPrimary = NovaColors.Green60),
+            grey = TabGroupColors(primary = NovaColors.Gray20, onPrimary = NovaColors.Gray55),
         )
 
         val privatePalette = darkPalette
