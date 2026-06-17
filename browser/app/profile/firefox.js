@@ -3384,11 +3384,7 @@ pref("first-startup.category-tasks-enabled", true);
   pref("browser.menu.share_url.allow", false);
 #endif
 
-#ifdef NIGHTLY_BUILD
 pref("browser.shareqrcode.enabled", true);
-#else
-pref("browser.shareqrcode.enabled", false);
-#endif
 
 // Whether to embed a logo in the center of generated QR codes.
 pref("browser.shareqrcode.embed_logo", true);
