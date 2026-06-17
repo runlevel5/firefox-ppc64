@@ -122,6 +122,65 @@ add_task(async function test_qrcode_dialog_opens() {
   });
 });
 
+add_task(async function test_qrcode_enter_triggers_copy() {
+  await BrowserTestUtils.withNewTab(TEST_URL, async browser => {
+    info("Testing that Enter copies the QR code");
+
+    let dialogBox = gBrowser.getTabDialogBox(browser);
+    let dialogManager = dialogBox.getTabDialogManager();
+
+    let { qrCodeItem } = await openShareMenuAndGetQRItem(window);
+    qrCodeItem.doCommand();
+
+    await BrowserTestUtils.waitForCondition(
+      () => dialogManager._dialogs.length,
+      "Waiting for QR code subdialog"
+    );
+
+    let dialog = dialogManager._dialogs[0];
+    await dialog._dialogReady;
+
+    let dialogDoc = dialog._frame.contentDocument;
+    let dialogWin = dialog._frame.contentWindow;
+
+    await BrowserTestUtils.waitForCondition(
+      () => !dialogDoc.getElementById("success-container").hidden,
+      "Waiting for QR code to be displayed"
+    );
+
+    await BrowserTestUtils.waitForCondition(
+      () => dialogDoc.activeElement?.id === "copy-button",
+      "Copy button should be focused on open so native Enter copies"
+    );
+
+    let copyCount = 0;
+    dialogWin.QRCodeDialog.copyImage = () => {
+      copyCount++;
+    };
+
+    let pressEnter = target =>
+      target.dispatchEvent(
+        new dialogWin.KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+
+    info("Enter with no button focused (the macOS case) should copy");
+    pressEnter(dialogDoc.getElementById("qrcode-url"));
+    Assert.equal(copyCount, 1, "Enter should trigger copy");
+
+    info("Enter on a focused button should defer to its native action");
+    pressEnter(dialogDoc.getElementById("save-button"));
+    pressEnter(dialogDoc.getElementById("copy-button"));
+    pressEnter(dialogDoc.getElementById("close-button"));
+    Assert.equal(copyCount, 1, "Enter on a button should not trigger copy");
+
+    dialogWin.close();
+  });
+});
+
 add_task(async function test_qrcode_disabled_for_non_shareable_urls() {
   await BrowserTestUtils.withNewTab("about:blank", async _browser => {
     info("Testing QR code disabled for non-shareable URLs");

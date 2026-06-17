@@ -35,15 +35,28 @@ const QRCodeDialog = {
 
     document.mozSubdialogReady = this.setupDialog();
 
-    document
-      .getElementById("copy-button")
-      .addEventListener("click", () => this.copyImage());
+    const copyButton = document.getElementById("copy-button");
+
+    document.subDialogSetDefaultFocus = () => copyButton.focus();
+
+    copyButton.addEventListener("click", () => this.copyImage());
     document
       .getElementById("save-button")
       .addEventListener("click", () => this.saveImage());
     document
       .getElementById("close-button")
       .addEventListener("click", () => window.close());
+
+    document.addEventListener("keydown", event => {
+      if (
+        event.key === "Enter" &&
+        !event.defaultPrevented &&
+        !event.target.closest("moz-button")
+      ) {
+        event.preventDefault();
+        this.copyImage();
+      }
+    });
   },
 
   /**
