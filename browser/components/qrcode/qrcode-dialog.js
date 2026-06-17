@@ -11,7 +11,7 @@ const { XPCOMUtils } = ChromeUtils.importESModule(
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
-  DownloadPaths: "resource://gre/modules/DownloadPaths.sys.mjs",
+  PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
 });
 
 XPCOMUtils.defineLazyServiceGetter(
@@ -138,11 +138,8 @@ const QRCodeDialog = {
     }
   },
 
-  /** Opens a file picker and saves the QR code image as a PNG file. */
+  /** Saves the QR code image as a PNG file via the standard download flow. */
   async saveImage() {
-    const nsIFilePicker = Ci.nsIFilePicker;
-    const fp = Cc["@mozilla.org/filepicker;1"].createInstance(nsIFilePicker);
-
     let domain = "";
     let uri;
     try {
@@ -159,32 +156,32 @@ const QRCodeDialog = {
     const filenameMessage = domain
       ? { id: "qrcode-save-filename-with-domain-base", args: { domain } }
       : "qrcode-save-filename-base";
-    const [title, pngFilterTitle, defaultFilename] =
-      await document.l10n.formatValues([
-        "qrcode-save-title",
-        "qrcode-save-filter-png",
-        filenameMessage,
-      ]);
-    fp.init(window.browsingContext, title, nsIFilePicker.modeSave);
-    fp.appendFilter(pngFilterTitle, "*.png");
-    fp.defaultString = lazy.DownloadPaths.sanitize(defaultFilename);
-    fp.defaultExtension = "png";
+    const [defaultFilename] = await document.l10n.formatValues([
+      filenameMessage,
+    ]);
+    // Append .png so the QR code for "firefox.com" defaults to
+    // "qrcode-firefox.com.png".
+    const filename = `${defaultFilename}.png`;
 
-    const result = await new Promise(resolve => fp.open(resolve));
-
-    if (
-      result === nsIFilePicker.returnOK ||
-      result === nsIFilePicker.returnReplace
-    ) {
-      try {
-        const qrCodeBytes = this.decodeDataURI();
-        await IOUtils.write(fp.file.path, qrCodeBytes);
-        this.showFeedback("success", "qrcode-save-success");
-      } catch (error) {
-        console.error("Failed to save QR code:", error);
-        this.showFeedback("error", "qrcode-save-error");
-      }
-    }
+    const chromeWindow = window.browsingContext.topChromeWindow;
+    chromeWindow.internalSave(
+      this._qrCodeDataURI,
+      null, // originalURL
+      null, // document
+      filename,
+      null, // content disposition
+      "image/png",
+      true, // bypass cache, since it's a data: URI
+      "SaveImageTitle",
+      null, // chosen data
+      null, // referrer info
+      null, // cookie jar settings
+      null, // initiating document
+      false, // don't skip the prompt for where to save
+      null, // cache key
+      lazy.PrivateBrowsingUtils.isWindowPrivate(chromeWindow),
+      Services.scriptSecurityManager.getSystemPrincipal()
+    );
   },
 };
 

@@ -1140,12 +1140,6 @@ qrcode-copy-error =
 
 qrcode-save-button =
     .label = Save
-qrcode-save-success =
-    .message = QR code saved.
-qrcode-save-error =
-    .message = Failed to save QR code.
-qrcode-save-title = Save QR Code
-qrcode-save-filter-png = PNG Image
 
 ## Default filenames used when saving a QR code. The file extension (.png)
 ## is added automatically.
