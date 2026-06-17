@@ -28,6 +28,9 @@ void AudioSinkWrapper::Shutdown() {
   AssertOwnerThread();
   MOZ_ASSERT(!mIsStarted, "Must be called after playback stopped.");
   mSinkCreator = nullptr;
+  // Ensure that async init tasks complete while the MDSM TaskQueue is still
+  // available to resolve pending promises.
+  mAsyncInitTaskQueue->AwaitIdle();
 }
 
 /* static */
