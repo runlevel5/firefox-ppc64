@@ -496,6 +496,12 @@ SafeRefPtr<Request> Request::Clone(ErrorResult& aRv) {
     return nullptr;
   }
 
+  // InternalRequest::Clone() may have replaced our underlying input stream (a
+  // non-cloneable body is now consumed by the cloning copy). If an unread
+  // native ReadableStream still reflects this request's body, repoint it at the
+  // current stream so the original is not read from two places.
+  MaybeRebindReadableStreamBody();
+
   return MakeSafeRefPtr<Request>(mGlobal, std::move(ir), GetOrCreateSignal());
 }
 
