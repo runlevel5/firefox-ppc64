@@ -55,6 +55,8 @@ support-files = [
   "server_fetch_synthetic.sjs",
 ]
 
+["browser_system_worker_page_icon_rejected.js"]
+
 ["browser_worker_use_counters.js"]
 support-files = [
   "file_use_counter_worker.html",
