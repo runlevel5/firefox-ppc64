@@ -1533,15 +1533,6 @@ class DrawTarget : public external::AtomicRefCounted<DrawTarget> {
   }
 
   /**
-   * Try to replay a source surface into this draw target, returning `true` on
-   * success. Parameter coordinate spaces match DrawSurface().
-   */
-  virtual bool TryToReplaySurface(SourceSurface* aSurface, const Rect& aDest,
-                                  const Rect& aSource) {
-    return false;
-  }
-
-  /**
    * Draw a surface to the draw target, when the surface will be available
    * at a later time. This is only valid for recording DrawTargets.
    *
