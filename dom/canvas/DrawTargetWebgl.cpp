@@ -217,6 +217,10 @@ DrawTargetWebgl::~DrawTargetWebgl() {
 SharedContextWebgl::SharedContextWebgl() = default;
 
 SharedContextWebgl::~SharedContextWebgl() {
+  // Detach weak references first so that no cleanup below can promote a
+  // WeakPtr to this object while it is being destroyed, which would AddRef
+  // an object with a zero refcount and recursively delete it on Release.
+  DetachWeakPtr();
   // Detect context loss before deletion.
   if (mWebgl) {
     ExitTlsScope();
