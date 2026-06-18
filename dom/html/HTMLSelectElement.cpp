@@ -1580,12 +1580,20 @@ void HTMLSelectElement::ContentWillBeRemoved(nsIContent* aChild,
   }
   if (IsInComposedDoc() && IsCombobox()) {
     OptionValueMightHaveChanged(aChild);
-    if (anySelected || InsideSelectedOption(aChild, this)) {
+    if (anySelected) {
       // If there's any selected option getting removed, we need to call
       // SelectedContentTextMightHaveChanged ignoring the options here
       // to get the correct text.
       // TODO(emilio): Maybe plumb options down further or something.
       SelectedContentTextMightHaveChanged(true, options);
+    } else if (InsideSelectedOption(aChild, this)) {
+      // If content mutates in our selected option, we need to use a script
+      // runner to make sure the algorithm doesn't look at the pre-removal text.
+      nsContentUtils::AddScriptRunner(
+          NewRunnableMethod<bool, Span<RefPtr<HTMLOptionElement>>>(
+              "SelectedContentTextMightHaveChangedAfterRemoval", this,
+              &HTMLSelectElement::SelectedContentTextMightHaveChanged, true,
+              Span<RefPtr<HTMLOptionElement>>{}));
     }
   }
   if (!options.IsEmpty()) {
