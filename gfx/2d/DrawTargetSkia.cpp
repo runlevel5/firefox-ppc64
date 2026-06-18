@@ -1893,16 +1893,16 @@ bool DrawTargetSkia::Init(const IntSize& aSize, SurfaceFormat aFormat) {
   }
   const SkSurfaceProps& props = GetSkSurfaceProps();
 
+  size_t bufSize = BufferSizeFromStrideAndHeight(stride.value(), info.height());
+  if (!bufSize) {
+    return false;
+  }
+
   if (aFormat == SurfaceFormat::A8) {
     // Skia does not fully allocate the last row according to stride.
     // Since some of our algorithms (i.e. blur) depend on this, we must allocate
     // the bitmap pixels manually.
-    CheckedInt<size_t> size = stride.value();
-    size *= info.height();
-    if (!size.isValid()) {
-      return false;
-    }
-    void* buf = sk_malloc_flags(size.value(), SK_MALLOC_ZERO_INITIALIZE);
+    void* buf = sk_malloc_flags(bufSize, SK_MALLOC_ZERO_INITIALIZE);
     if (!buf) {
       return false;
     }
