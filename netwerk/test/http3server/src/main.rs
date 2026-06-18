@@ -169,27 +169,22 @@ impl Http3TestServer {
     }
 
     fn maybe_create_wt_stream(&mut self, now: Instant) {
-        if self.sessions_to_create_stream.is_empty() {
-            return;
-        }
-        let tuple = self.sessions_to_create_stream.pop().unwrap();
-        let session = tuple.0;
-        let wt_server_stream = session.create_stream(tuple.1).unwrap();
-        if tuple.1 == StreamType::UniDi {
-            if let Some(data) = tuple.2 {
-                self.new_response(wt_server_stream, data, now);
+        while let Some(tuple) = self.sessions_to_create_stream.pop() {
+            let session = tuple.0;
+            let wt_server_stream = session.create_stream(tuple.1).unwrap();
+            if tuple.1 == StreamType::UniDi {
+                if let Some(data) = tuple.2 {
+                    self.new_response(wt_server_stream, data, now);
+                } else {
+                    self.wt_unidi_conn_to_stream
+                        .insert(wt_server_stream.conn.clone(), wt_server_stream);
+                }
             } else {
-                // relaying Http3ServerEvent::Data to uni streams
-                // slows down netwerk/test/unit/test_webtransport_simple.js
-                // to the point of failure. Only do so when necessary.
-                self.wt_unidi_conn_to_stream
-                    .insert(wt_server_stream.conn.clone(), wt_server_stream);
-            }
-        } else {
-            if let Some(data) = tuple.2 {
-                self.new_response(wt_server_stream, data, now);
-            } else {
-                self.webtransport_bidi_stream.insert(wt_server_stream);
+                if let Some(data) = tuple.2 {
+                    self.new_response(wt_server_stream, data, now);
+                } else {
+                    self.webtransport_bidi_stream.insert(wt_server_stream);
+                }
             }
         }
     }
@@ -653,6 +648,33 @@ impl HttpServer for Http3TestServer {
                                     StreamType::UniDi,
                                     Some(Vec::from("qwerty")),
                                 ));
+                            } else if path.starts_with(b"/create_unidi_streams/") {
+                                let count: usize = std::str::from_utf8(&path[22..])
+                                    .unwrap()
+                                    .parse()
+                                    .unwrap();
+                                session.response(&SessionAcceptAction::Accept, now).unwrap();
+                                for i in 0..count {
+                                    self.sessions_to_create_stream.push((
+                                        session.clone(),
+                                        StreamType::UniDi,
+                                        Some(format!("stream{i}").into_bytes()),
+                                    ));
+                                }
+                            } else if path.starts_with(b"/create_bidi_streams/") {
+                                let count: usize = std::str::from_utf8(&path[21..])
+                                    .unwrap()
+                                    .parse()
+                                    .unwrap();
+                                self.webtransport_bidi_stream.clear();
+                                session.response(&SessionAcceptAction::Accept, now).unwrap();
+                                for i in 0..count {
+                                    self.sessions_to_create_stream.push((
+                                        session.clone(),
+                                        StreamType::BiDi,
+                                        Some(format!("stream{i}").into_bytes()),
+                                    ));
+                                }
                             } else if path == b"/create_bidi_stream" {
                                 session.response(&SessionAcceptAction::Accept, now).unwrap();
                                 self.sessions_to_create_stream.push((
