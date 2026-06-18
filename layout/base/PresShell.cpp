@@ -2445,23 +2445,31 @@ NS_IMETHODIMP
 PresShell::CompleteMove(bool aForward, bool aExtend) {
   // Beware! This may flush notifications via synchronous
   // ScrollSelectionIntoView.
-  RefPtr<nsFrameSelection> frameSelection = mSelection;
-  Element* const limiter = frameSelection->GetAncestorLimiter();
-  nsIFrame* frame = limiter ? limiter->GetPrimaryFrame()
-                            : FrameConstructor()->GetRootElementFrame();
-  if (!frame) {
+  const RefPtr<nsFrameSelection> frameSelection = mSelection;
+  const RefPtr<Element> limiter = frameSelection->GetAncestorLimiter();
+  const auto pos = [&]() -> Maybe<nsIFrame::CaretPosition> {
+    nsIFrame* frame = limiter ? limiter->GetPrimaryFrame()
+                              : FrameConstructor()->GetRootElementFrame();
+    if (!frame) [[unlikely]] {
+      return Nothing{};
+    }
+    return Some(frame->GetExtremeCaretPosition(!aForward));
+  }();
+  if (pos.isNothing()) [[unlikely]] {
     return NS_ERROR_FAILURE;
   }
-  nsIFrame::CaretPosition pos = frame->GetExtremeCaretPosition(!aForward);
 
   const nsFrameSelection::FocusMode focusMode =
       aExtend ? nsFrameSelection::FocusMode::kExtendSelection
               : nsFrameSelection::FocusMode::kCollapseToNewPoint;
   frameSelection->HandleClick(
-      MOZ_KnownLive(pos.mResultContent) /* bug 1636889 */, pos.mContentOffset,
-      pos.mContentOffset, focusMode,
+      MOZ_KnownLive(pos->mResultContent) /* bug 1636889 */, pos->mContentOffset,
+      pos->mContentOffset, focusMode,
       aForward ? CaretAssociationHint::After : CaretAssociationHint::Before);
-  if (limiter) {
+  if (IsDestroying()) [[unlikely]] {
+    return NS_OK;
+  }
+  if (limiter && GetDocument() == limiter->GetComposedDoc()) {
     // HandleClick resets ancestorLimiter, so set it again.
     frameSelection->SetAncestorLimiter(limiter);
   }
