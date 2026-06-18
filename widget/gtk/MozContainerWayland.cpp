@@ -230,7 +230,8 @@ static bool moz_container_wayland_ensure_surface(MozContainer* container,
                                          /* aRegisterCommitHandler */ true);
 
   bool fractionalScale = StaticPrefs::widget_wayland_fractional_scale_enabled();
-  if (surface->IsToplevelSurface() && fractionalScale) {
+  bool setHandler = surface->IsToplevelSurface() && fractionalScale;
+  if (setHandler) {
     surface->SetScaleCallbackLocked(
         lock, WaylandSurface::ScaleCallbackType::Widget,
         [win = RefPtr{window}]() {
@@ -242,7 +243,7 @@ static bool moz_container_wayland_ensure_surface(MozContainer* container,
                               fractionalScale
                                   ? WaylandSurface::ScaleType::Fractional
                                   : WaylandSurface::ScaleType::Ceiled,
-                              /* aSetHandler */ true);
+                              /* aSetHandler */ setHandler);
 
   surface->SetOpaqueRegionLocked(lock,
                                  window->GetOpaqueRegion().ToUnknownRegion());

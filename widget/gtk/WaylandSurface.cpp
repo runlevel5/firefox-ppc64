@@ -1470,6 +1470,7 @@ double WaylandSurface::GetScale() const {
     return scale;
   }
 
+  LOGVERBOSE("WaylandSurface::GetScale() fall back to monitor scale!");
   return ScreenHelperGTK::GetGTKMonitorFractionalScaleFactor();
 }
 

@@ -4419,6 +4419,14 @@ nsresult nsWindow::Create(nsIWidget* aParent, const LayoutDeviceIntRect& aRect,
   if (GdkIsWaylandDisplay()) {
     mSurface = new WaylandSurface();
     mSurface->Init();
+
+    // Child surfaces get scale from parent window so we need it to
+    // set it early.
+    if (parentnsWindow) {
+      WaylandSurfaceLock lock(mSurface);
+      mSurface->SetParentLocked(
+          lock, MOZ_WL_SURFACE(parentnsWindow->GetMozContainer()));
+    }
   }
   container = moz_container_new(this, mSurface);
 #else
