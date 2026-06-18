@@ -136,9 +136,6 @@
     <color name="mozac_ui_tabcounter_default_tint" tools:ignore="UnusedResources">@color/fx_mobile_on_surface</color>
     <color name="mozac_ui_tabcounter_default_text" tools:ignore="UnusedResources">@color/fx_mobile_on_surface</color>
 
-    <!-- Private Mode mask icon circle fill colors -->
-    <color name="mozac_ui_private_mode_circle_fill" tools:ignore="UnusedResources">@color/photonPurple60</color>
-
     <!-- Account Sync Avatar fill colors -->
     <color name="mozac_ui_avatar_warning_bg_fill_critical">@color/fx_mobile_on_surface_variant</color>
     <color name="mozac_ui_avatar_warning_fill_critical">@color/fx_mobile_error</color>

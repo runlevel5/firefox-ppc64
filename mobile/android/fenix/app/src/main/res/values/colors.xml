@@ -269,8 +269,10 @@
     <color name="mozac_feature_addons_messagebar_error_background_color" tools:ignore="UnusedResources">@color/fx_mobile_layer_color_critical</color>
     <color name="mozac_feature_addons_messagebar_warning_background_color" tools:ignore="UnusedResources">@color/fx_mobile_layer_color_warning</color>
 
-    <!-- Private Mode mask icon circle fill colors -->
-    <color name="mozac_ui_private_mode_circle_fill" tools:ignore="UnusedResources">@color/photonPurple60</color>
+    <!-- Private Mode mask icon circle fill colors for mozac_ic_private_mode_circle_fill_stroke_20 -->
+    <color name="mozac_ui_private_mode_circle_fill" tools:ignore="UnusedResources">@color/fx_mobile_icon_private</color>
+    <color name="mozac_ui_private_mode_circle_stroke_fill" tools:ignore="UnusedResources">@color/fx_mobile_private_surface</color>
+    <color name="mozac_ui_private_mode_mask_fill" tools:ignore="UnusedResources">@color/fx_mobile_private_on_surface</color>
 
     <!-- Account Sync Avatar fill colors -->
     <color name="mozac_ui_avatar_warning_bg_fill_critical" tools:ignore="UnusedResources">@color/fx_mobile_on_surface_variant</color>
