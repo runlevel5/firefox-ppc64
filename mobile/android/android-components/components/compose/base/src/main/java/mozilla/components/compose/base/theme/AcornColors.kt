@@ -43,6 +43,7 @@ class AcornColors(
     surfaceDimVariant: Color,
     autofillText: Color,
     selectedText: Color,
+    iconPrivate: Color,
 ) {
     // Tooltip
     var layerGradientStart by mutableStateOf(layerGradientStart)
@@ -154,6 +155,12 @@ class AcornColors(
         private set
 
     /**
+     * Private mode icon.
+     */
+    internal var iconPrivate by mutableStateOf(iconPrivate)
+        private set
+
+    /**
      * Updates the existing colors with the provided [AcornColors].
      */
     fun update(other: AcornColors) {
@@ -175,6 +182,7 @@ class AcornColors(
         surfaceDimVariant = other.surfaceDimVariant
         autofillText = other.autofillText
         selectedText = other.selectedText
+        iconPrivate = other.iconPrivate
     }
 
     /**
@@ -199,6 +207,7 @@ class AcornColors(
         surfaceDimVariant: Color = this.surfaceDimVariant,
         autofillText: Color = this.autofillText,
         selectedText: Color = this.selectedText,
+        iconPrivate: Color = this.iconPrivate,
     ): AcornColors = AcornColors(
         layerGradientStart = layerGradientStart,
         layerGradientEnd = layerGradientEnd,
@@ -218,6 +227,7 @@ class AcornColors(
         surfaceDimVariant = surfaceDimVariant,
         autofillText = autofillText,
         selectedText = selectedText,
+        iconPrivate = iconPrivate,
     )
 }
 
@@ -240,6 +250,7 @@ val darkColorPalette = AcornColors(
     surfaceDimVariant = NovaColors.Gray80,
     autofillText = NovaColors.VioletDesaturated30A55,
     selectedText = NovaColors.Gray45A80,
+    iconPrivate = NovaColors.Violet50,
 )
 
 val lightColorPalette = AcornColors(
@@ -261,6 +272,7 @@ val lightColorPalette = AcornColors(
     surfaceDimVariant = NovaColors.Gray10,
     autofillText = NovaColors.VioletDesaturated30,
     selectedText = NovaColors.Gray35,
+    iconPrivate = NovaColors.Violet50,
 )
 
 val privateColorPalette = darkColorPalette.copy(
@@ -499,3 +511,11 @@ val ColorScheme.selectedText: Color
     @Composable
     @ReadOnlyComposable
     get() = AcornTheme.colors.selectedText
+
+/**
+ * @see AcornColors.iconPrivate
+ */
+val ColorScheme.iconPrivate: Color
+    @Composable
+    @ReadOnlyComposable
+    get() = AcornTheme.colors.iconPrivate

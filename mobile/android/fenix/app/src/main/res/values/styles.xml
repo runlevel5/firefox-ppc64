@@ -97,6 +97,7 @@
         <item name="colorSurfaceContainerLowest">@color/fx_mobile_surface_container_lowest</item>
         <item name="colorAutofillText">@color/fx_mobile_autofill_text</item>
         <item name="colorSelectedText">@color/fx_mobile_selected_text</item>
+        <item name="colorIconPrivate">@color/fx_mobile_icon_private</item>
         <item name="scrim">@color/fx_mobile_scrim</item>
 
         <!-- Design system color attributes -->
@@ -376,6 +377,7 @@
         <item name="colorSurfaceContainerLowest">@color/fx_mobile_private_surface_container_lowest</item>
         <item name="colorAutofillText">@color/fx_mobile_private_autofill_text</item>
         <item name="colorSelectedText">@color/fx_mobile_private_selected_text</item>
+        <item name="colorIconPrivate">@color/fx_mobile_private_icon_private</item>
         <item name="scrim">@color/fx_mobile_private_scrim</item>
 
         <!-- Design system color attributes -->

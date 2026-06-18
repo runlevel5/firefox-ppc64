@@ -354,6 +354,12 @@ private fun AcornColorGrid(
                         modifier = Modifier.colorGridItemShort(color = colorScheme.selectedText),
                         color = colorScheme.onPrimary,
                     )
+
+                    Text(
+                        text = "iconPrivate",
+                        modifier = Modifier.colorGridItemShort(color = colorScheme.iconPrivate),
+                        color = colorScheme.onPrimary,
+                    )
                 }
 
                 Text(

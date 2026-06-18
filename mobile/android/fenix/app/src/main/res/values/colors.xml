@@ -50,6 +50,7 @@
     <color name="fx_mobile_surface_container_lowest">@color/novaWhite</color>
     <color name="fx_mobile_autofill_text">@color/novaVioletDesaturated30</color>
     <color name="fx_mobile_selected_text">@color/novaGray35</color>
+    <color name="fx_mobile_icon_private">@color/novaViolet50</color>
     <color name="fx_mobile_scrim">@color/novaBlackA50</color>
 
     <color name="fx_mobile_splashscreen_background">#FCF3EE</color>
@@ -146,6 +147,7 @@
     <color name="fx_mobile_private_surface_container_lowest">#FF0D0321</color>
     <color name="fx_mobile_private_autofill_text">@color/novaVioletDesaturated30A55</color>
     <color name="fx_mobile_private_selected_text">@color/novaGray45A81</color>
+    <color name="fx_mobile_private_icon_private">@color/novaViolet50</color>
     <color name="fx_mobile_private_scrim">@color/novaBlackA50</color>
 
     <!-- Layers -->
@@ -213,7 +215,6 @@
     <color name="homepage_tab_edge_to_edge_toolbar_background">#00000000</color>
     <color name="homepage_tab_edge_to_edge_toolbar_outline">#00000000</color>
     <color name="homepage_tab_edge_to_edge_private_toolbar_outline">#564A75</color>
-
 
     <!-- Bookmark buttons -->
     <color name="bookmark_favicon_background">#DFDFE3</color>
