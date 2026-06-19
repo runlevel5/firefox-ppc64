@@ -1107,6 +1107,17 @@ features:
         description: The final date for the promotion to end. This needs to be an ISO 8601 formatted date (i.e. YYYY-MM-DD).
         type: String
         default: "2026-08-31"
+    defaults:
+      - channel: developer
+        value:
+          enabled: true
+          allowed-regions: ["XX"]
+      - channel: nightly
+        value:
+          enabled: true
+      - channel: beta
+        value:
+          enabled: true
 
   native-share-sheet:
     description: Feature to enable the Native Share Sheet for users on Firefox on Android.
