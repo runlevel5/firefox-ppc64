@@ -6695,7 +6695,11 @@ static bool AddIsANonZeroAdditionOf(MAdd* add, MDefinition* ins) {
   if (!other->isConstant()) {
     return false;
   }
-  if (other->toConstant()->numberToDouble() == 0) {
+  // The constant must be representable as a non-zero int32. Other doubles may
+  // leave the index unchanged after conversion.
+  int32_t n;
+  if (!mozilla::NumberIsInt32(other->toConstant()->numberToDouble(), &n) ||
+      n == 0) {
     return false;
   }
   return true;
