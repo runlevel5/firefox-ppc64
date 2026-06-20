@@ -305,7 +305,13 @@ class ResultImplementation<V, E, PackingStrategy::LowBitTagIsError> {
   constexpr V unwrap() { return inspect(); }
 
   constexpr E inspectErr() const {
-    const auto bits = mBits ^ 1;
+    // Keep the cleared-tag value in StorageType. |mBits ^ 1| integer-promotes to
+    // int when StorageType is narrower than int (e.g. uint8_t when both V and E
+    // are byte-sized), and the memcpy below would then copy sizeof(E) bytes from
+    // the low-address end of that int -- the high-order, zero bytes on
+    // big-endian -- producing a zero-valued error. Truncating back to
+    // StorageType keeps the payload byte where memcpy expects it.
+    const StorageType bits = mBits ^ 1;
     E res;
     std::memcpy(&res, &bits, sizeof(E));
     return res;
