@@ -819,7 +819,15 @@ class IonDOMMethodExitFrameLayout {
     return reinterpret_cast<JS::Value*>(&loCalleeResult_);
   }
   inline JSObject** thisObjAddress() { return &thisObj_; }
-  inline uintptr_t argc() { return argc_; }
+  inline uintptr_t argc() {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // visitCallDOMNative stores argc in the high 32 bits of this word so the
+    // native's uint32 JSJitMethodCallArgs::argc_ overlay reads it on big-endian.
+    return argc_ >> 32;
+#else
+    return argc_;
+#endif
+  }
 };
 
 inline bool IonDOMExitFrameLayout::isMethodFrame() {

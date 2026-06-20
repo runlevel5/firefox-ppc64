@@ -6338,8 +6338,16 @@ void CodeGenerator::visitCallDOMNative(LCallDOMNative* call) {
   LoadDOMPrivate(masm, obj, argPrivate,
                  static_cast<MCallDOMNative*>(call->mir())->objectKind());
 
-  // Push argc from the call instruction into what will become the IonExitFrame
+  // Push argc from the call instruction into what will become the IonExitFrame.
+  // This word is read both as a uintptr_t (IonDOMMethodExitFrameLayout::argc(),
+  // for GC tracing) and as a uint32 (JSJitMethodCallArgs::argc_, by the native).
+  // On big-endian a uint32 read of a word slot sees the high half, so store argc
+  // in the high 32 bits; argc() reads it back shifted.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  masm.Push(ImmWord(uintptr_t(call->numActualArgs()) << 32));
+#else
   masm.Push(Imm32(call->numActualArgs()));
+#endif
 
   // Push our argv onto the stack
   masm.Push(argArgs);
