@@ -70,7 +70,7 @@ class SettingsGeneralTest {
             verifyAutofillButton()
             verifyAccessibilityButton()
             verifyLanguageButton()
-            verifyPageSummariesButton()
+            // verifyPageSummariesButton() // Disabling to ease uplift. See bug 2049060.
             verifySetAsDefaultBrowserButton()
             verifyDefaultBrowserToggle(false)
         }
