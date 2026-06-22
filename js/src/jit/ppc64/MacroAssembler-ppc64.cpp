@@ -3312,7 +3312,17 @@ void MacroAssemblerPPC64Compat::wasmLoadImpl(
           as_xxpermdi(output.fpu(), output.fpu(), ScratchSimd128Reg, 0);
         }
       } else {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+        // wasm memory is little-endian: load the 4 single-precision bytes
+        // byte-reversed into a GPR, then reinterpret into the FPR (matching
+        // what lfsx would place, including the single->double conversion).
+        UseScratchRegisterScope temps(asMasm());
+        Register tmp = temps.Acquire();
+        as_lwbrx(tmp, memoryBase, ptr);
+        asMasm().moveGPRToFloat32(tmp, output.fpu());
+#else
         as_lfsx(output.fpu(), memoryBase, ptr);
+#endif
       }
       break;
     case Scalar::Simd128:
@@ -3351,10 +3361,10 @@ void MacroAssemblerPPC64Compat::wasmStoreImpl(
   // Flush pool first; see comment in wasmLoadImpl.
   bool deferTrapSite = (access.type() == Scalar::Simd128 && !HasPOWER9());
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-  // On BE, an f64 store moves FP->GPR before the byte-reversed store, so the
-  // faulting store is not the first emitted instruction; defer the trap-site
-  // record to just before stdbrx (same reason as the P8 Simd128 path).
-  if (access.type() == Scalar::Float64) {
+  // On BE, an f32/f64 store moves FP->GPR before the byte-reversed store, so
+  // the faulting store is not the first emitted instruction; defer the
+  // trap-site record to just before the store (as the P8 Simd128 path does).
+  if (access.type() == Scalar::Float64 || access.type() == Scalar::Float32) {
     deferTrapSite = true;
   }
 #endif
@@ -3412,7 +3422,21 @@ void MacroAssemblerPPC64Compat::wasmStoreImpl(
 #endif
       break;
     case Scalar::Float32:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    {
+      // wasm memory is little-endian: reinterpret the f32 into its single
+      // bits in a GPR and store byte-reversed. Trap site at the faulting store.
+      UseScratchRegisterScope temps(asMasm());
+      Register tmp = temps.Acquire();
+      asMasm().moveFloat32ToGPR(value.fpu(), tmp);
+      m_buffer.flushPool();
+      append(access, wasm::TrapMachineInsnForStore(4),
+             FaultingCodeOffset(currentOffset()));
+      as_stwbrx(tmp, memoryBase, ptr);
+    }
+#else
       as_stfsx(value.fpu(), memoryBase, ptr);
+#endif
       break;
     case Scalar::Simd128:
       if (HasPOWER9()) {
