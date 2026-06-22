@@ -3516,6 +3516,13 @@ void MacroAssemblerPPC64Compat::wasmLoadImpl(
     case Scalar::Simd128:
       if (HasPOWER9()) {
         as_lxvx(output.fpu(), memoryBase, ptr);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+        // wasm v128 memory is little-endian: byte-reverse the 16 bytes so the
+        // register matches the canonical LE layout the VSX lane/element ops
+        // use. (lxvb16x is endian-normalizing and a no-op on BE; xxbrq is an
+        // absolute register byte-reverse.)
+        as_xxbrq(output.fpu(), output.fpu());
+#endif
       } else {
         as_lxvd2x(output.fpu(), memoryBase, ptr);
         as_xxpermdi(output.fpu(), output.fpu(), output.fpu(), 2);
@@ -3553,6 +3560,11 @@ void MacroAssemblerPPC64Compat::wasmStoreImpl(
   // the faulting store is not the first emitted instruction; defer the
   // trap-site record to just before the store (as the P8 Simd128 path does).
   if (access.type() == Scalar::Float64 || access.type() == Scalar::Float32) {
+    deferTrapSite = true;
+  }
+  // On BE the P9 Simd128 store byte-reverses (xxbrq) into a scratch before the
+  // faulting stxvx, so its trap site is deferred too (like the P8 path).
+  if (access.type() == Scalar::Simd128) {
     deferTrapSite = true;
   }
 #endif
@@ -3628,7 +3640,18 @@ void MacroAssemblerPPC64Compat::wasmStoreImpl(
       break;
     case Scalar::Simd128:
       if (HasPOWER9()) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+        // wasm v128 memory is little-endian: byte-reverse (xxbrq) into a
+        // scratch, then store. Record the trap site at the faulting stxvx.
+        as_xxbrq(ScratchSimd128Reg, value.fpu());
+        m_buffer.flushPool();
+        append(access,
+               wasm::TrapMachineInsnForStore(Scalar::byteSize(access.type())),
+               FaultingCodeOffset(currentOffset()));
+        as_stxvx(ScratchSimd128Reg, memoryBase, ptr);
+#else
         as_stxvx(value.fpu(), memoryBase, ptr);
+#endif
       } else {
         as_xxpermdi(ScratchSimd128Reg, value.fpu(), value.fpu(), 2);
         m_buffer.flushPool();  // see comment in wasmLoadImpl

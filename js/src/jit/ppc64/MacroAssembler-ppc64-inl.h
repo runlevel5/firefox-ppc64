@@ -3580,6 +3580,12 @@ void MacroAssembler::loadConstantSimd128(const SimdConstant& v,
   // Load 128-bit constant from inline constant pool.
   // Clobbers SecondScratchReg (r12).
   loadFromPoolSimd128(dest, v);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // The pool load yields the native (BE) byte layout; byte-reverse to the
+  // canonical LE register layout the VSX lane/element ops expect (matching the
+  // xxbrq-reversed v128 memory loads).
+  as_xxbrq(dest, dest);
+#endif
 }
 
 // PPC64 LE lane mapping:

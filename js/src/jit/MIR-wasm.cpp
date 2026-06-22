@@ -680,6 +680,14 @@ static int32_t Bitmask(const T& v) {
 }
 
 MDefinition* MWasmReduceSimd128::foldsTo(TempAllocator& alloc) {
+#  if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // SimdConstant::bytes() is a little-endian image of the v128. The folds below
+  // read it through native-endian element views ((int16_t*)bytes() etc.), which
+  // byte-swaps every multi-byte lane on a big-endian host (and misplaces the
+  // sign bits Bitmask reads). Skip the fold and let the runtime lane ops -- which
+  // operate on the canonical (byte-reversed) register -- compute the result.
+  return this;
+#  endif
 #  ifdef DEBUG
   auto logging = mozilla::MakeScopeExit([&] {
     js::wasm::ReportSimdAnalysis("simd128-to-scalar -> constant folded");

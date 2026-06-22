@@ -774,6 +774,7 @@ enum PPCOpcodes {
   PPC_xsmaxjdp = 0xF0000480,
   PPC_xsminjdp = 0xF00004C0,
   PPC_xxbrd = 0xF017076C,
+  PPC_xxbrq = 0xF01F076C,  // VSX vector byte-reverse quadword (whole 16 bytes)
   PPC_xvabsdp = 0xF0000764,
   PPC_xvabssp = 0xF0000664,
   PPC_xvadddp = 0xF0000300,
@@ -1686,6 +1687,7 @@ class Assembler : public AssemblerShared {
   BufferOffset as_mtvsrwz(FloatRegister xs, Register ra);
   BufferOffset as_mtvsrws(FloatRegister xs, Register ra);
   BufferOffset as_xxbrd(FloatRegister xt, FloatRegister xb);
+  BufferOffset as_xxbrq(FloatRegister xt, FloatRegister xb);
   // POWER9 scalar VSX max/min with Java/JavaScript semantics (matches
   // ECMA-262 Math.max / Math.min). Operate on FPR-space (encoding 0..31).
   BufferOffset as_xsmaxjdp(FloatRegister xt, FloatRegister xa,

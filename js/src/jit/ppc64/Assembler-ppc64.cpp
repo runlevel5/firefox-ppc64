@@ -1303,6 +1303,11 @@ BufferOffset Assembler::as_xxbrd(FloatRegister xt, FloatRegister xb) {
   return writeInst(XX2Form(PPC_xxbrd, xt.encoding(), xb.encoding()));
 }
 
+BufferOffset Assembler::as_xxbrq(FloatRegister xt, FloatRegister xb) {
+  spew("xxbrq\t%3s,%3s", xt.name(), xb.name());
+  return writeInst(XX2Form(PPC_xxbrq, xt.encoding(), xb.encoding()));
+}
+
 BufferOffset Assembler::as_xscvdpspn(FloatRegister xt, FloatRegister xb) {
   spew("xscvdpspn\t%3s,%3s", xt.name(), xb.name());
   return writeInst(XX2Form(PPC_xscvdpspn, xt.encoding(), xb.encoding()));
@@ -1379,6 +1384,7 @@ BufferOffset Assembler::as_stxvx(FloatRegister xs, Register ra, Register rb) {
   spew("stxvx\t%3s,%3s,%3s", xs.name(), ra.name(), rb.name());
   return writeInst(XX1Form(PPC_stxvx, xs.encoding(), ra.code(), rb.code()));
 }
+
 
 BufferOffset Assembler::as_lxvd2x(FloatRegister xt, Register ra, Register rb) {
   spew("lxvd2x\t%3s,%3s,%3s", xt.name(), ra.name(), rb.name());
@@ -2575,7 +2581,16 @@ bool Assembler::PatchConstantPoolLoad(void* loadAddr, void* constPoolAddr) {
     constexpr uint32_t kTX = 1u;
     constexpr uint32_t kAxBxTx_xxpermdi = (1u << 2) | (1u << 1) | 1u;
 
-    if (HasPOWER10()) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // Route POWER10 through the POWER9 (lxvx) path on big-endian so the pool
+    // load yields the same native byte layout that loadConstantSimd128 then
+    // reverses to canonical LE with xxbrq. (plxv's natural-LE order would not
+    // compose correctly with that reversal.)
+    const bool kUsePlxv = false;
+#else
+    const bool kUsePlxv = HasPOWER10();
+#endif
+    if (kUsePlxv) {
       // Place plxv prefix at the highest 4-byte-aligned offset within
       // the 5 reserved slots that doesn't straddle a 64-byte block.
       uint64_t loadAddrBits = reinterpret_cast<uint64_t>(loadAddr);
@@ -2628,7 +2643,9 @@ bool Assembler::PatchConstantPoolLoad(void* loadAddr, void* constPoolAddr) {
                 ((Dhi >> 6) & 0x3FF) << 6 | (2u << 1) | (Dhi & 1u);
       // [1] addi r16, r16, lo
       inst[1] = PPC_addi | (baseReg << 21) | (baseReg << 16) | uint16_t(lo);
-      // [2] lxvx vsD, 0, r16  (XT[0:4] in bits 21-25, TX at bit 0)
+      // [2] lxvx vsD, 0, r16  (XT[0:4] in bits 21-25, TX at bit 0). On BE the
+      // pool load yields the native (BE) byte layout; loadConstantSimd128
+      // reverses it to canonical LE with xxbrq afterwards.
       inst[2] = PPC_lxvx | (destReg << 21) | (baseReg << 11) | kTX;
     } else {
       // P8 fallback: bcl + mflr + addi + lxvd2x + xxpermdi (5 slots).
