@@ -4106,7 +4106,27 @@ bool Instance::callExport(JSContext* cx, uint32_t funcIndex,
     JitActivation activation(cx);
 
     // Call the per-exported-function trampoline created by GenerateEntry.
+#if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
+    __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // PPC64 ELFv1: a function pointer is a {entry, toc, env} descriptor, not a
+    // raw code entry. interpEntry is a raw JIT entry, so build a synthetic
+    // descriptor pointing at it, capturing libmozjs's TOC so the trampoline can
+    // call back into C++ with r2 valid (see JitRuntime::enterJit).
+    void* hostToc;
+    asm volatile("mr %0, 2" : "=r"(hostToc));
+    struct alignas(8) {
+      void* entry;
+      void* toc;
+      void* env;
+    } desc = {interpEntry, hostToc, nullptr};
+    auto funcPtr = reinterpret_cast<ExportFuncPtr>(&desc);
+    // The compiler does not model the ELFv1 descriptor loads performed by the
+    // indirect call below, so without this barrier it may elide the stores
+    // that initialise |desc| (leaving a garbage entry). Force them first.
+    asm volatile("" : : "r"(funcPtr), "m"(desc) : "memory");
+#else
     auto funcPtr = JS_DATA_TO_FUNC_PTR(ExportFuncPtr, interpEntry);
+#endif
     if (!CALL_GENERATED_2(funcPtr, exportArgs.begin(), this)) {
       return false;
     }
