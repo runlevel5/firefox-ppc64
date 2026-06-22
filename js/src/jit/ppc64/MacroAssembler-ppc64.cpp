@@ -2789,6 +2789,15 @@ static void AtomicEffectOp(MacroAssembler& masm,
 
     masm.as_lwarx(scratch2, r0, scratch);
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // wasm atomic memory is little-endian; byte-reverse the loaded value to LE
+    // before the op and the result back to native before stwcx (VSX scratch).
+    masm.as_mtvsrd(ScratchDoubleReg, scratch2);
+    masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
+    masm.as_mfvsrd(scratch2, ScratchDoubleReg);
+    masm.x_srdi(scratch2, scratch2, 32);
+#endif
+
     switch (op) {
       case AtomicOp::Add:
         masm.as_add(scratch2, scratch2, value);
@@ -2808,6 +2817,14 @@ static void AtomicEffectOp(MacroAssembler& masm,
       default:
         MOZ_CRASH();
     }
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    masm.as_rldicl(scratch2, scratch2, 0, 32);
+    masm.as_mtvsrd(ScratchDoubleReg, scratch2);
+    masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
+    masm.as_mfvsrd(scratch2, ScratchDoubleReg);
+    masm.x_srdi(scratch2, scratch2, 32);
+#endif
 
     masm.as_stwcx(scratch2, r0, scratch);
     masm.ma_b(Assembler::NotEqual, &again);
