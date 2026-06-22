@@ -3330,6 +3330,13 @@ void ScrollContainerFrame::ScrollToImpl(
   }
 
   if (ChildrenHavePerspective() && RecomputePerspectiveChildrenOverflow(this)) {
+    // RecomputePerspectiveChildrenOverflow just changed mScrolledFrame's
+    // scrollable overflow, which is an input to the scrolled rect. If a cache
+    // is active, invalidate it.
+    if (mScrolledRectCache) {
+      mScrolledRectCache->Invalidate();
+    }
+
     // The overflow areas of descendants may depend on the scroll position,
     // so ensure they get updated.
     // First we recompute the overflow areas of the transformed children

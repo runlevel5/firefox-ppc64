@@ -337,6 +337,10 @@ class ScrollContainerFrame : public nsContainerFrame,
    private:
     friend class ScrollContainerFrame;
     const nsRect& GetOrCompute();
+    // Drop any cached value so the next GetScrolledRect() recomputes it. Used
+    // when an operation legitimately changes the scrolled rect while the cache
+    // is alive.
+    void Invalidate() { mComputed = false; }
 
     ScrollContainerFrame* const mFrame;
     const nsIFrame* const mReferenceFrame;
