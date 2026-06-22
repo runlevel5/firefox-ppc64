@@ -2498,6 +2498,18 @@ static void AtomicFetchOp(MacroAssembler& masm,
 
     masm.as_lwarx(output, r0, memTemp);
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // wasm atomic memory is little-endian, but lwarx read the value natively.
+    // Byte-reverse it to LE before the op (and the result before stwcx).
+    // Swap via the VSX scratch: no GPR temp (the scratch pool is exhausted by
+    // memTemp/scratch) and no memory access (which would clear the reservation).
+    // output then holds the LE old value to return.
+    masm.as_mtvsrd(ScratchDoubleReg, output);
+    masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
+    masm.as_mfvsrd(output, ScratchDoubleReg);
+    masm.x_srdi(output, output, 32);
+#endif
+
     switch (op) {
       case AtomicOp::Add:
         masm.as_add(scratch, output, value);
@@ -2518,11 +2530,23 @@ static void AtomicFetchOp(MacroAssembler& masm,
         MOZ_CRASH();
     }
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // Byte-reverse the LE result back to native for the store. Mask the high
+    // 32 bits first (an Add/Sub may have carried into bit 32) so the swap
+    // operates only on the 32-bit result.
+    masm.as_rldicl(scratch, scratch, 0, 32);
+    masm.as_mtvsrd(ScratchDoubleReg, scratch);
+    masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
+    masm.as_mfvsrd(scratch, ScratchDoubleReg);
+    masm.x_srdi(scratch, scratch, 32);
+#endif
+
     masm.as_stwcx(scratch, r0, memTemp);
     masm.ma_b(Assembler::NotEqual, &again);
 
     masm.memoryBarrierAfter(sync);
-    // lwarx zero-extends; sign-extend for 32-bit canonical form.
+    // output already holds the (byte-reversed) little-endian old value;
+    // sign-extend for 32-bit canonical form.
     masm.as_extsw(output, output);
 
     return;
