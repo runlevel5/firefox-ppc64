@@ -3682,8 +3682,19 @@ static void SplatImm32(MacroAssembler& masm, Imm32 imm, FloatRegister dest) {
     masm.as_vspltisw(dest.encoding() & 31, (int8_t)val);
     return;
   }
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // This splat is used only for vector shift counts. The count must be in
+  // architectural (vspltisw) layout so vsl*/vsr* read the per-element count
+  // from the right bits; loadConstantSimd128 byte-reverses for wasm's
+  // little-endian constants, which puts the count in the wrong bytes (the
+  // per-doubleword count for i64 shifts then reads as 0). mtvsrws splats GPR
+  // bits 32:63 to all word elements, matching vspltisw.
+  masm.xs_li(SecondScratchReg, val);
+  masm.as_mtvsrws(dest, SecondScratchReg);
+#else
   int32_t words[4] = {val, val, val, val};
   masm.loadConstantSimd128(SimdConstant::CreateX4(words), dest);
+#endif
 }
 
 // ===============================================================

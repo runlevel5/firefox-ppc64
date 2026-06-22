@@ -656,38 +656,8 @@ MDefinition* MWasmScalarToSimd128::foldsTo(TempAllocator& alloc) {
   return this;
 }
 
-template <typename T>
-static bool AllTrue(const T& v) {
-  constexpr size_t count = sizeof(T) / sizeof(*v);
-  static_assert(count == 16 || count == 8 || count == 4 || count == 2);
-  bool result = true;
-  for (unsigned i = 0; i < count; i++) {
-    result = result && v[i] != 0;
-  }
-  return result;
-}
-
-template <typename T>
-static int32_t Bitmask(const T& v) {
-  constexpr size_t count = sizeof(T) / sizeof(*v);
-  constexpr size_t shift = 8 * sizeof(*v) - 1;
-  static_assert(shift == 7 || shift == 15 || shift == 31 || shift == 63);
-  int32_t result = 0;
-  for (unsigned i = 0; i < count; i++) {
-    result = result | int32_t(((v[i] >> shift) & 1) << i);
-  }
-  return result;
-}
 
 MDefinition* MWasmReduceSimd128::foldsTo(TempAllocator& alloc) {
-#  if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-  // SimdConstant::bytes() is a little-endian image of the v128. The folds below
-  // read it through native-endian element views ((int16_t*)bytes() etc.), which
-  // byte-swaps every multi-byte lane on a big-endian host (and misplaces the
-  // sign bits Bitmask reads). Skip the fold and let the runtime lane ops -- which
-  // operate on the canonical (byte-reversed) register -- compute the result.
-  return this;
-#  endif
 #  ifdef DEBUG
   auto logging = mozilla::MakeScopeExit([&] {
     js::wasm::ReportSimdAnalysis("simd128-to-scalar -> constant folded");
@@ -695,77 +665,94 @@ MDefinition* MWasmReduceSimd128::foldsTo(TempAllocator& alloc) {
 #  endif
   if (input()->isWasmFloatConstant()) {
     SimdConstant c = input()->toWasmFloatConstant()->toSimd128();
+    // SimdConstant::bytes() is a little-endian image of the v128 regardless of
+    // host endianness. Read each lane explicitly little-endian so the fold is
+    // correct on big-endian hosts too (a native-endian element view would
+    // byte-swap each multi-byte lane and misplace the sign bits the bitmask
+    // reads). On little-endian hosts this is identical to a native read.
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(c.bytes());
+    auto leLane = [bytes](unsigned lane, unsigned width) -> uint64_t {
+      uint64_t v = 0;
+      for (unsigned i = 0; i < width; i++) {
+        v |= uint64_t(bytes[lane * width + i]) << (8 * i);
+      }
+      return v;
+    };
+    auto allTrue = [&](unsigned lanes, unsigned width) -> int32_t {
+      for (unsigned i = 0; i < lanes; i++) {
+        if (leLane(i, width) == 0) {
+          return 0;
+        }
+      }
+      return 1;
+    };
+    auto bitmask = [&](unsigned lanes, unsigned width) -> int32_t {
+      int32_t r = 0;
+      for (unsigned i = 0; i < lanes; i++) {
+        if ((leLane(i, width) >> (width * 8 - 1)) & 1) {
+          r |= 1 << i;
+        }
+      }
+      return r;
+    };
     int32_t i32Result = 0;
     switch (simdOp()) {
       case wasm::SimdOp::V128AnyTrue:
         i32Result = !c.isZeroBits();
         break;
       case wasm::SimdOp::I8x16AllTrue:
-        i32Result = AllTrue(
-            SimdConstant::CreateSimd128((int8_t*)c.bytes()).asInt8x16());
+        i32Result = allTrue(16, 1);
         break;
       case wasm::SimdOp::I8x16Bitmask:
-        i32Result = Bitmask(
-            SimdConstant::CreateSimd128((int8_t*)c.bytes()).asInt8x16());
+        i32Result = bitmask(16, 1);
         break;
       case wasm::SimdOp::I16x8AllTrue:
-        i32Result = AllTrue(
-            SimdConstant::CreateSimd128((int16_t*)c.bytes()).asInt16x8());
+        i32Result = allTrue(8, 2);
         break;
       case wasm::SimdOp::I16x8Bitmask:
-        i32Result = Bitmask(
-            SimdConstant::CreateSimd128((int16_t*)c.bytes()).asInt16x8());
+        i32Result = bitmask(8, 2);
         break;
       case wasm::SimdOp::I32x4AllTrue:
-        i32Result = AllTrue(
-            SimdConstant::CreateSimd128((int32_t*)c.bytes()).asInt32x4());
+        i32Result = allTrue(4, 4);
         break;
       case wasm::SimdOp::I32x4Bitmask:
-        i32Result = Bitmask(
-            SimdConstant::CreateSimd128((int32_t*)c.bytes()).asInt32x4());
+        i32Result = bitmask(4, 4);
         break;
       case wasm::SimdOp::I64x2AllTrue:
-        i32Result = AllTrue(
-            SimdConstant::CreateSimd128((int64_t*)c.bytes()).asInt64x2());
+        i32Result = allTrue(2, 8);
         break;
       case wasm::SimdOp::I64x2Bitmask:
-        i32Result = Bitmask(
-            SimdConstant::CreateSimd128((int64_t*)c.bytes()).asInt64x2());
+        i32Result = bitmask(2, 8);
         break;
       case wasm::SimdOp::I8x16ExtractLaneS:
-        i32Result =
-            SimdConstant::CreateSimd128((int8_t*)c.bytes()).asInt8x16()[imm()];
+        i32Result = int32_t(int8_t(leLane(imm(), 1)));
         break;
       case wasm::SimdOp::I8x16ExtractLaneU:
-        i32Result = int32_t(SimdConstant::CreateSimd128((int8_t*)c.bytes())
-                                .asInt8x16()[imm()]) &
-                    0xFF;
+        i32Result = int32_t(leLane(imm(), 1) & 0xFF);
         break;
       case wasm::SimdOp::I16x8ExtractLaneS:
-        i32Result =
-            SimdConstant::CreateSimd128((int16_t*)c.bytes()).asInt16x8()[imm()];
+        i32Result = int32_t(int16_t(leLane(imm(), 2)));
         break;
       case wasm::SimdOp::I16x8ExtractLaneU:
-        i32Result = int32_t(SimdConstant::CreateSimd128((int16_t*)c.bytes())
-                                .asInt16x8()[imm()]) &
-                    0xFFFF;
+        i32Result = int32_t(leLane(imm(), 2) & 0xFFFF);
         break;
       case wasm::SimdOp::I32x4ExtractLane:
-        i32Result =
-            SimdConstant::CreateSimd128((int32_t*)c.bytes()).asInt32x4()[imm()];
+        i32Result = int32_t(uint32_t(leLane(imm(), 4)));
         break;
       case wasm::SimdOp::I64x2ExtractLane:
-        return MConstant::NewInt64(
-            alloc, SimdConstant::CreateSimd128((int64_t*)c.bytes())
-                       .asInt64x2()[imm()]);
-      case wasm::SimdOp::F32x4ExtractLane:
-        return MWasmFloatConstant::NewFloat32(
-            alloc, SimdConstant::CreateSimd128((float*)c.bytes())
-                       .asFloat32x4()[imm()]);
-      case wasm::SimdOp::F64x2ExtractLane:
-        return MWasmFloatConstant::NewDouble(
-            alloc, SimdConstant::CreateSimd128((double*)c.bytes())
-                       .asFloat64x2()[imm()]);
+        return MConstant::NewInt64(alloc, int64_t(leLane(imm(), 8)));
+      case wasm::SimdOp::F32x4ExtractLane: {
+        uint32_t fb = uint32_t(leLane(imm(), 4));
+        float f;
+        memcpy(&f, &fb, sizeof(f));
+        return MWasmFloatConstant::NewFloat32(alloc, f);
+      }
+      case wasm::SimdOp::F64x2ExtractLane: {
+        uint64_t db = leLane(imm(), 8);
+        double d;
+        memcpy(&d, &db, sizeof(d));
+        return MWasmFloatConstant::NewDouble(alloc, d);
+      }
       default:
 #  ifdef DEBUG
         logging.release();
