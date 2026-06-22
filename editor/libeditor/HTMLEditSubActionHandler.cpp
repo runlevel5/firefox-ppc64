@@ -1036,8 +1036,8 @@ Result<EditActionResult, nsresult> HTMLEditor::HandleInsertText(
     if (InsertingTextForComposition(aPurpose)) {
       MOZ_ASSERT(mComposition);
       if (mComposition->GetContainerTextNode()) {
-        start = mComposition->XPOffsetInTextNode();
-        end = mComposition->XPEndOffsetInTextNode();
+        start = mComposition->ClampedStartOffsetInTextNode();
+        end = mComposition->ClampedEndOffsetInTextNode();
       }
       mComposition->OnUpdateCompositionInEditor(aInsertionString,
                                                 editContext->TextNode(), start);
