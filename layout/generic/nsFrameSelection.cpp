@@ -215,6 +215,8 @@ inline int8_t GetIndexFromSelectionType(SelectionType aSelectionType) {
   return kIndexOfSelections[static_cast<int8_t>(aSelectionType) + 1];
 }
 
+namespace mozilla {
+
 /*
 The limiter is used specifically for the text areas and textfields
 In that case it is the DIV tag that is anonymously created for the text
@@ -228,16 +230,7 @@ If its parent it the limiter then the point is also valid.  In the case of
 NO limiter all points are valid since you are in a topmost iframe. (browser
 or composer)
 */
-bool nsFrameSelection::NodeIsInLimiters(const nsINode* aContainerNode) const {
-  return NodeIsInLimiters(aContainerNode, GetIndependentSelectionRootElement(),
-                          GetAncestorLimiter());
-}
-
-// static
-bool nsFrameSelection::NodeIsInLimiters(
-    const nsINode* aContainerNode,
-    const Element* aIndependentSelectionLimiterElement,
-    const Element* aSelectionAncestorLimiter) {
+bool SelectionLimiters::NodeIsInLimiters(const nsINode* aContainerNode) const {
   if (!aContainerNode) {
     return false;
   }
@@ -246,15 +239,14 @@ bool nsFrameSelection::NodeIsInLimiters(
   // control.  The <div> should have only one Text and/or a <br>.  Therefore,
   // when it's non-nullptr, selection range containers must be the container or
   // the Text in it.
-  if (aIndependentSelectionLimiterElement) {
-    MOZ_ASSERT(aIndependentSelectionLimiterElement->GetPseudoElementType() ==
+  if (mIndependentSelectionRootElement) {
+    MOZ_ASSERT(mIndependentSelectionRootElement->GetPseudoElementType() ==
                PseudoStyleType::MozTextControlEditingRoot);
-    MOZ_ASSERT(
-        aIndependentSelectionLimiterElement->IsHTMLElement(nsGkAtoms::div));
-    if (aIndependentSelectionLimiterElement == aContainerNode) {
+    MOZ_ASSERT(mIndependentSelectionRootElement->IsHTMLElement(nsGkAtoms::div));
+    if (mIndependentSelectionRootElement == aContainerNode) {
       return true;
     }
-    if (aIndependentSelectionLimiterElement == aContainerNode->GetParent()) {
+    if (mIndependentSelectionRootElement == aContainerNode->GetParent()) {
       NS_WARNING_ASSERTION(aContainerNode->IsText(),
                            ToString(*aContainerNode).c_str());
       MOZ_ASSERT(aContainerNode->IsText());
@@ -266,11 +258,10 @@ bool nsFrameSelection::NodeIsInLimiters(
   // XXX We might need to return `false` if aContainerNode is in a native
   // anonymous subtree, but doing it will make it impossible to select the
   // anonymous subtree text in <details>.
-  return !aSelectionAncestorLimiter ||
-         aContainerNode->IsInclusiveDescendantOf(aSelectionAncestorLimiter);
+  return !mAncestorLimiter ||
+         aContainerNode->IsInclusiveDescendantOf(mAncestorLimiter);
 }
 
-namespace mozilla {
 struct MOZ_RAII AutoPrepareFocusRange {
   AutoPrepareFocusRange(Selection* aSelection,
                         const bool aMultiRangeSelection) {
@@ -3186,7 +3177,24 @@ void nsFrameSelection::SetAncestorLimiter(Element* aLimiter) {
     const Selection& sel = NormalSelection();
     LogSelectionAPI(&sel, __FUNCTION__, "aLimiter", aLimiter);
 
-    if (!NodeIsInLimiters(sel.GetFocusNode())) {
+    const bool hasOutOfBoundsRanges = [&]() {
+      if (!mLimiters.HasLimiters()) {
+        return false;
+      }
+      for (const uint32_t i : IntegerRange(sel.RangeCount())) {
+        const auto* range = sel.GetRangeAt(i);
+        MOZ_ASSERT(range);
+        if (!RangeInLimiters(*range)) {
+          NS_WARNING(fmt::format("{} (index: {}) is not in the limiters {}",
+                                 RefPtr{range}, i, mLimiters)
+                         .c_str());
+          return true;
+        }
+      }
+      return false;
+    }();
+
+    if (hasOutOfBoundsRanges) {
       ClearNormalSelection();
       if (mLimiters.mAncestorLimiter) {
         SetChangeReasons(nsISelectionListener::NO_REASON);

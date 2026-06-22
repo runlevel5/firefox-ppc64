@@ -4916,6 +4916,13 @@ nsresult HTMLEditor::SelectAllInternal() {
     if (MOZ_UNLIKELY(!computedSelectionRootContent->IsElement())) {
       return computedSelectionRootContent;
     }
+    // GetSelectionRootContent() returns shadow host element if selection is in
+    // a shadow in the focused editing host. Then, we should select all content
+    // in the shadow root rather than the host.
+    if (ShadowRoot* const shadowRoot =
+            computedSelectionRootContent->GetShadowRootForSelection()) {
+      return shadowRoot;
+    }
     return GetBodyElementIfElementIsParentOfHTMLBody(
         *computedSelectionRootContent->AsElement());
   }();

@@ -232,6 +232,7 @@ class Selection final : public nsSupportsWeakReference,
   // utility methods for scrolling the selection into view
   nsPresContext* GetPresContext() const;
   PresShell* GetPresShell() const;
+  Document* GetDocument() const;
   nsFrameSelection* GetFrameSelection() const { return mFrameSelection; }
   // Returns a rect containing the selection region, and frame that that
   // position is relative to. For SELECTION_ANCHOR_REGION or
@@ -977,8 +978,6 @@ class Selection final : public nsSupportsWeakReference,
    */
   MOZ_CAN_RUN_SCRIPT nsresult MaybeAddTableCellRange(nsRange& aRange,
                                                      Maybe<size_t>* aOutIndex);
-
-  Document* GetDocument() const;
 
   MOZ_CAN_RUN_SCRIPT void RemoveAllRangesInternal(
       mozilla::ErrorResult& aRv, IsUnlinking aIsUnlinking = IsUnlinking::No);

@@ -339,7 +339,7 @@ nsresult ContentEventHandler::InitBasic(bool aRequireFlush) {
   return NS_OK;
 }
 
-nsresult ContentEventHandler::InitRootContent(
+Result<nsRange*, nsresult> ContentEventHandler::InitRootContent(
     const Selection& aNormalSelection) {
   // Root content should be computed with normal selection because normal
   // selection is typically has at least one range but the other selections
@@ -347,22 +347,52 @@ nsresult ContentEventHandler::InitRootContent(
   // there are no ranges, we need to use ancestor limit instead.
   MOZ_ASSERT(aNormalSelection.Type() == SelectionType::eNormal);
 
-  if (!aNormalSelection.RangeCount()) {
+  const auto SetRootElementWithNoRanges = [&]() -> Result<nsRange*, nsresult> {
     // If there is no selection range, we should compute the selection root
     // from ancestor limiter or root content of the document.
     mRootElement = aNormalSelection.GetAncestorLimiter();
     if (!mRootElement) {
       mRootElement = mDocument->GetRootElement();
       if (NS_WARN_IF(!mRootElement)) {
-        return NS_ERROR_NOT_AVAILABLE;
+        return Err(NS_ERROR_NOT_AVAILABLE);
       }
     }
-    return NS_OK;
+    // See bug 2046677. If the ancestor limiter is moved to another document, we
+    // cannot handle it.
+    if (mRootElement->IsInComposedDoc() &&
+        NS_WARN_IF(mRootElement->GetComposedDoc() !=
+                   aNormalSelection.GetDocument())) [[unlikely]] {
+      mRootElement = nullptr;
+      return Err(NS_ERROR_FAILURE);
+    }
+    return nullptr;
+  };
+
+  if (!aNormalSelection.RangeCount()) {
+    return SetRootElementWithNoRanges();
   }
 
-  RefPtr<const nsRange> range(aNormalSelection.GetRangeAt(0));
-  if (NS_WARN_IF(!range)) {
-    return NS_ERROR_UNEXPECTED;
+  // See bug 2046677. The range may be outside the ancestor limiter if it was
+  // removed from the DOM. Therefore, we should ignore "invalid" ranges.
+  nsRange* const rangeInRootElement = [&]() MOZ_NEVER_INLINE_DEBUG -> nsRange* {
+    nsFrameSelection* const fs = aNormalSelection.GetFrameSelection();
+    if (NS_WARN_IF(!fs)) {
+      return nullptr;
+    }
+    for (const uint32_t i : IntegerRange(aNormalSelection.RangeCount())) {
+      nsRange* const range = aNormalSelection.GetRangeAt(i);
+      MOZ_ASSERT(range);
+      if (fs->RangeInLimiters(*range)) {
+        return range;
+      }
+      NS_WARNING(fmt::format("{} (index: {}) is not in the limiters {}",
+                             RefPtr{range}, i, fs->LimitersRef())
+                     .c_str());
+    }
+    return nullptr;
+  }();
+  if (!rangeInRootElement) {
+    return SetRootElementWithNoRanges();
   }
 
   // If there is a selection, we should retrieve the selection root from
@@ -371,29 +401,27 @@ nsresult ContentEventHandler::InitRootContent(
   // selection range still keeps storing the nodes.  If the active element of
   // the deactive window is <input> or <textarea>, we can compute the
   // selection root from them.
-  nsCOMPtr<nsINode> startNode = range->GetStartContainer();
-  nsINode* endNode = range->GetEndContainer();
+  nsINode* const startNode = rangeInRootElement->GetStartContainer();
+  nsINode* const endNode = rangeInRootElement->GetEndContainer();
   if (NS_WARN_IF(!startNode) || NS_WARN_IF(!endNode)) {
-    return NS_ERROR_FAILURE;
+    return Err(NS_ERROR_FAILURE);
   }
 
   // See bug 537041 comment 5, the range could have removed node.
   if (NS_WARN_IF(startNode->GetComposedDoc() != mDocument)) {
-    return NS_ERROR_FAILURE;
+    return Err(NS_ERROR_FAILURE);
   }
 
   NS_ASSERTION(startNode->GetComposedDoc() == endNode->GetComposedDoc(),
                "firstNormalSelectionRange crosses the document boundary");
 
-  RefPtr<PresShell> presShell = mDocument->GetPresShell();
   mRootElement = Element::FromNodeOrNull(startNode->GetSelectionRootContent(
-      presShell, nsINode::IgnoreOwnIndependentSelection::Yes,
+      mDocument->GetPresShell(), nsINode::IgnoreOwnIndependentSelection::Yes,
       nsINode::AllowCrossShadowBoundary::No));
   if (NS_WARN_IF(!mRootElement)) {
-    return NS_ERROR_FAILURE;
+    return Err(NS_ERROR_FAILURE);
   }
-
-  return NS_OK;
+  return rangeInRootElement;
 }
 
 nsresult ContentEventHandler::InitCommon(EventMessage aEventMessage,
@@ -431,21 +459,28 @@ nsresult ContentEventHandler::InitCommon(EventMessage aEventMessage,
     MOZ_ASSERT(normalSelection);
   }
 
-  rv = InitRootContent(*normalSelection);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
+  Result<RefPtr<nsRange>, nsresult> firstRangeOrError =
+      InitRootContent(*normalSelection);
+  if (NS_WARN_IF(firstRangeOrError.isErr())) {
+    return firstRangeOrError.unwrapErr();
   }
 
-  if (mSelection->RangeCount()) {
-    mFirstSelectedSimpleRange.SetStartAndEnd(mSelection->GetRangeAt(0));
-    return NS_OK;
-  }
-
-  // Even if there are no selection ranges, it's usual case if aSelectionType
-  // is a special selection or we're handling eQuerySelectedText.
-  if (aSelectionType != SelectionType::eNormal ||
-      aEventMessage == eQuerySelectedText) {
-    MOZ_ASSERT(!mFirstSelectedSimpleRange.IsPositioned());
+  if (mSelection->Type() == SelectionType::eNormal) {
+    if (firstRangeOrError.inspect()) {
+      mFirstSelectedSimpleRange.SetStartAndEnd(firstRangeOrError.inspect());
+      return NS_OK;
+    }
+    // Let's return no-range case if we're handling a selection range.
+    if (aEventMessage == eQuerySelectedText) {
+      return NS_OK;
+    }
+  } else {
+    if (mSelection->RangeCount()) {
+      mFirstSelectedSimpleRange.SetStartAndEnd(mSelection->GetRangeAt(0));
+      return NS_OK;
+    }
+    // Even if there is no selection range, it's usual case if aSelectionType
+    // is a special selection.
     return NS_OK;
   }
 
@@ -1350,7 +1385,6 @@ nsresult ContentEventHandler::OnQuerySelectedText(
 
   if (!mFirstSelectedSimpleRange.IsPositioned()) {
     MOZ_ASSERT(aEvent->mReply->mOffsetAndData.isNothing());
-    MOZ_ASSERT_IF(mSelection, !mSelection->RangeCount());
     // This is special case that `mReply` is emplaced, but mOffsetAndData is
     // not emplaced but treated as succeeded because of no selection ranges
     // is a usual case.

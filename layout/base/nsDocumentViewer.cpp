@@ -1971,6 +1971,10 @@ MOZ_CAN_RUN_SCRIPT_BOUNDARY NS_IMETHODIMP nsDocumentViewer::SelectAll() {
     return NS_ERROR_FAILURE;
   }
 
+  // XXX Chrome and Safari select all in the shadow, but we do it in the <body>
+  // or the document element. Shouldn't we consider the root element from the
+  // selection range or the focused element if there is no selection range and
+  // use the shadow root?
   nsCOMPtr<nsINode> bodyNode;
   if (mDocument->IsHTMLOrXHTML()) {
     // XXXbz why not just do GetBody() for all documents, then GetRootElement()

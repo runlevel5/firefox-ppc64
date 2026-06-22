@@ -289,6 +289,18 @@ nsresult nsIContent::LookupNamespaceURIInternal(
   return NS_ERROR_FAILURE;
 }
 
+nsIContent* nsIContent::GetInclusiveEditableAncestor() const {
+  if (IsEditable()) {
+    return const_cast<nsIContent*>(this);
+  }
+  for (auto* const content : AncestorsOfType<nsIContent>()) {
+    if (content->IsEditable()) {
+      return content;
+    }
+  }
+  return nullptr;
+}
+
 nsAtom* nsIContent::GetLang() const {
   for (const Element* element = GetAsElementOrParentElement(); element;
        element = element->GetParentElement()) {

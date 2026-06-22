@@ -187,13 +187,15 @@ class MOZ_STACK_CLASS ContentEventHandler {
              SelectionType aSelectionType = SelectionType::eNormal,
              bool aRequireFlush = true);
   /**
-   * InitRootContent() computes the root content of current focused editor.
+   * InitRootContent() initializes mRootElement and return the first selection
+   * range in it.
    *
    * @param aNormalSelection    This must be a Selection instance whose type is
    *                            SelectionType::eNormal.
+   * @return The first valid range of aNormalSelection.
    */
-  MOZ_CAN_RUN_SCRIPT nsresult
-  InitRootContent(const Selection& aNormalSelection);
+  MOZ_CAN_RUN_SCRIPT Result<nsRange*, nsresult> InitRootContent(
+      const Selection& aNormalSelection);
 
  public:
   // FlatText means the text that is generated from DOM tree. The BR elements
