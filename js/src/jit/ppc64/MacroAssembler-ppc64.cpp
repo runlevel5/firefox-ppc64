@@ -2294,6 +2294,14 @@ static void CompareExchange(MacroAssembler& masm,
       break;
     case 2:
       masm.as_lharx(output, r0, scratch);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      // wasm atomic memory is little-endian; byte-reverse the loaded halfword
+      // to LE so it compares against the (little-endian) oldval and is returned
+      // correctly. offsetTemp is unused in the sub-word path.
+      masm.as_rlwinm(offsetTemp, output, 8, 16, 23);
+      masm.as_rlwinm(output, output, 24, 24, 31);
+      masm.as_or_(output, output, offsetTemp);
+#endif
       if (signExtend) {
         masm.as_extsh(valueTemp, oldval);
         masm.as_extsh(output, output);
@@ -2309,7 +2317,15 @@ static void CompareExchange(MacroAssembler& masm,
   if (nbytes == 1) {
     masm.as_stbcx(newval, r0, scratch);
   } else {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // Byte-reverse the replacement to native (rlwinm+rlwimi keeps it in
+    // offsetTemp, leaving newval intact for retries); sthcx stores low 16 bits.
+    masm.as_rlwinm(offsetTemp, newval, 8, 16, 23);
+    masm.as_rlwimi(offsetTemp, newval, 24, 24, 31);
+    masm.as_sthcx(offsetTemp, r0, scratch);
+#else
     masm.as_sthcx(newval, r0, scratch);
+#endif
   }
   masm.ma_b(Assembler::NotEqual, &again);
 
@@ -2460,7 +2476,19 @@ static void AtomicExchange(MacroAssembler& masm,
     masm.as_stbcx(value, r0, memTemp);
   } else {
     masm.as_lharx(output, r0, memTemp);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // wasm atomic memory is little-endian: store value byte-reversed to native
+    // (rlwinm+rlwimi keeps it in offsetTemp, leaving value intact for retries)
+    // and byte-reverse the loaded old value to LE.
+    masm.as_rlwinm(offsetTemp, value, 8, 16, 23);
+    masm.as_rlwimi(offsetTemp, value, 24, 24, 31);
+    masm.as_sthcx(offsetTemp, r0, memTemp);
+    masm.as_rlwinm(offsetTemp, output, 8, 16, 23);
+    masm.as_rlwimi(offsetTemp, output, 24, 24, 31);
+    masm.as_or_(output, offsetTemp, offsetTemp);
+#else
     masm.as_sthcx(value, r0, memTemp);
+#endif
   }
   masm.ma_b(Assembler::NotEqual, &again);
 
@@ -2643,6 +2671,16 @@ static void AtomicFetchOp(MacroAssembler& masm,
     masm.as_lharx(output, r0, memTemp);
   }
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  if (nbytes == 2) {
+    // wasm atomic memory is little-endian; byte-reverse the loaded halfword
+    // before the op (and the result before sthcx). offsetTemp is unused here.
+    masm.as_rlwinm(offsetTemp, output, 8, 16, 23);
+    masm.as_rlwinm(output, output, 24, 24, 31);
+    masm.as_or_(output, output, offsetTemp);
+  }
+#endif
+
   switch (op) {
     case AtomicOp::Add:
       masm.as_add(valueTemp, output, value);
@@ -2662,6 +2700,16 @@ static void AtomicFetchOp(MacroAssembler& masm,
     default:
       MOZ_CRASH();
   }
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  if (nbytes == 2) {
+    // Byte-reverse the little-endian result back to native; sthcx stores the
+    // low 16 bits.
+    masm.as_rlwinm(offsetTemp, valueTemp, 8, 16, 23);
+    masm.as_rlwinm(valueTemp, valueTemp, 24, 24, 31);
+    masm.as_or_(valueTemp, valueTemp, offsetTemp);
+  }
+#endif
 
   if (nbytes == 1) {
     masm.as_stbcx(valueTemp, r0, memTemp);
@@ -2858,6 +2906,16 @@ static void AtomicEffectOp(MacroAssembler& masm,
     masm.as_lharx(scratch2, r0, scratch);
   }
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  if (nbytes == 2) {
+    // wasm atomic memory is little-endian; byte-reverse the loaded halfword
+    // before the op and the result before sthcx. offsetTemp is unused here.
+    masm.as_rlwinm(offsetTemp, scratch2, 8, 16, 23);
+    masm.as_rlwinm(scratch2, scratch2, 24, 24, 31);
+    masm.as_or_(scratch2, scratch2, offsetTemp);
+  }
+#endif
+
   switch (op) {
     case AtomicOp::Add:
       masm.as_add(scratch2, scratch2, value);
@@ -2877,6 +2935,14 @@ static void AtomicEffectOp(MacroAssembler& masm,
     default:
       MOZ_CRASH();
   }
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  if (nbytes == 2) {
+    masm.as_rlwinm(offsetTemp, scratch2, 8, 16, 23);
+    masm.as_rlwinm(scratch2, scratch2, 24, 24, 31);
+    masm.as_or_(scratch2, scratch2, offsetTemp);
+  }
+#endif
 
   if (nbytes == 1) {
     masm.as_stbcx(scratch2, r0, scratch);
