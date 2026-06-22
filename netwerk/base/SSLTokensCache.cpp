@@ -1365,7 +1365,6 @@ SSLTokensCache::Observe(nsISupports* aSubject, const char* aTopic,
         if (!wantPersistence) {
           gInstance->mBackingFile = nullptr;
           gInstance->mWriteTaskQueue = nullptr;
-          gInstance->ClearCacheLocked();
         }
       }
     }
