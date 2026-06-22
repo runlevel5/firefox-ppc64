@@ -30,7 +30,6 @@ class Variant;
 
 namespace detail {
 
-// Nth<N, types...>::Type is the Nth type (0-based) in the list of types Ts.
 #if defined(__has_builtin)
 #  if __has_builtin(__type_pack_element)
 #    define MOZ_HAS_TYPE_PACK_ELEMENT
@@ -39,8 +38,16 @@ namespace detail {
 
 #ifdef MOZ_HAS_TYPE_PACK_ELEMENT
 
+// Note: not using __type_pack_element directly as a type alias to avoid builtin
+// leaking to the API, see
+// https://github.com/facebook/folly/issues/1991#issuecomment-1524063798
 template <size_t N, typename... Ts>
-using Nth = __type_pack_element<N, Ts...>;
+struct type_pack_element {
+  using type = __type_pack_element<N, Ts...>;
+};
+
+template <size_t N, typename... Ts>
+using Nth = typename type_pack_element<N, Ts...>::type;
 
 #else
 
