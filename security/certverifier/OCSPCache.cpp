@@ -146,7 +146,6 @@ static SECStatus CertIDHash(SHA384Buffer& buf, const CertID& certID,
 
 Result OCSPCache::Entry::Init(const CertID& aCertID,
                               const OriginAttributes& aOriginAttributes) {
-  mIsPrivateBrowsing = aOriginAttributes.IsPrivateBrowsing();
   SECStatus srv = CertIDHash(mIDHash, aCertID, aOriginAttributes);
   if (srv != SECSuccess) {
     return MapPRErrorCodeToResult(PR_GetError());
@@ -336,19 +335,6 @@ void OCSPCache::Clear() {
   }
   // Then remove the pointers themselves.
   mEntries.clearAndFree();
-}
-
-void OCSPCache::ClearPrivateBrowsing() {
-  MutexAutoLock lock(mMutex);
-  MOZ_LOG(gCertVerifierLog, LogLevel::Debug,
-          ("OCSPCache::ClearPrivateBrowsing: clearing private entries"));
-  mEntries.eraseIf([](Entry* aEntry) {
-    if (aEntry->mIsPrivateBrowsing) {
-      delete aEntry;
-      return true;
-    }
-    return false;
-  });
 }
 
 }  // namespace psm
