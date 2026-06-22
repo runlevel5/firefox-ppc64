@@ -30,7 +30,7 @@ describe("Smart Window model settings", () => {
     Services.prefs.clearUserPref("browser.smartwindow.endpoint");
     Services.prefs.clearUserPref("browser.smartwindow.firstrun.modelChoice");
     Services.prefs.clearUserPref("browser.smartwindow.model");
-    Services.prefs.clearUserPref("browser.smartwindow.preferences.endpoint");
+    Services.prefs.clearUserPref("browser.smartwindow.customEndpoint");
 
     await SpecialPowers.popPrefEnv();
   });
@@ -359,7 +359,7 @@ describe("Smart Window model settings", () => {
 
     // Reset for keyboard test
     Services.prefs.clearUserPref("browser.smartwindow.model");
-    Services.prefs.clearUserPref("browser.smartwindow.endpoint");
+    Services.prefs.clearUserPref("browser.smartwindow.customEndpoint");
     Services.prefs.clearUserPref("browser.smartwindow.apiKey");
 
     await BrowserTestUtils.waitForMutationCondition(
@@ -390,7 +390,7 @@ describe("Smart Window model settings", () => {
       "Model pref is saved via keyboard"
     );
     Assert.equal(
-      Services.prefs.getStringPref("browser.smartwindow.endpoint"),
+      Services.prefs.getStringPref("browser.smartwindow.customEndpoint"),
       "https://example.com",
       "Endpoint pref is saved via keyboard"
     );
@@ -398,9 +398,7 @@ describe("Smart Window model settings", () => {
 
   it("restores custom endpoint when switching back to custom", async () => {
     await SpecialPowers.pushPrefEnv({
-      set: [
-        ["browser.smartwindow.preferences.endpoint", "https://example.com"],
-      ],
+      set: [["browser.smartwindow.customEndpoint", "https://example.com"]],
     });
 
     ({ doc, win } = await openSmartWindowPanel());
@@ -457,7 +455,7 @@ describe("Smart Window model settings", () => {
   it("shows custom as selected when user has custom endpoint", async () => {
     await SpecialPowers.pushPrefEnv({
       set: [
-        ["browser.smartwindow.endpoint", "https://example.com"],
+        ["browser.smartwindow.customEndpoint", "https://example.com"],
         ["browser.smartwindow.firstrun.modelChoice", "0"],
       ],
     });
@@ -586,8 +584,7 @@ describe("Smart Window model settings", () => {
     await SpecialPowers.pushPrefEnv({
       set: [
         ["browser.smartwindow.model", "saved-model"],
-        ["browser.smartwindow.endpoint", "https://example.com"],
-        ["browser.smartwindow.preferences.endpoint", "https://example.com"],
+        ["browser.smartwindow.customEndpoint", "https://example.com"],
         ["browser.smartwindow.apiKey", "saved-token"],
         ["browser.smartwindow.firstrun.modelChoice", "0"],
       ],
@@ -643,9 +640,9 @@ describe("Smart Window model settings", () => {
       "firstrun.modelChoice is restored to '0' so the saved custom model is the active selection again"
     );
     Assert.equal(
-      Services.prefs.getStringPref("browser.smartwindow.endpoint"),
+      Services.prefs.getStringPref("browser.smartwindow.customEndpoint"),
       "https://example.com",
-      "smartwindow.endpoint is restored to the previously saved value"
+      "smartwindow.customEndpoint persists the previously saved value"
     );
     Assert.ok(
       BrowserTestUtils.isVisible(
@@ -659,7 +656,7 @@ describe("Smart Window model settings", () => {
     await SpecialPowers.pushPrefEnv({
       set: [
         ["browser.smartwindow.model", "saved-model"],
-        ["browser.smartwindow.endpoint", "https://example.com"],
+        ["browser.smartwindow.customEndpoint", "https://example.com"],
         ["browser.smartwindow.apiKey", "saved-token"],
         ["browser.smartwindow.firstrun.modelChoice", "0"],
       ],
