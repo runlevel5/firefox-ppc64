@@ -39,12 +39,18 @@ const { sinon } = ChromeUtils.importESModule(
 // Prefs for aiwindow
 const PREF_API_KEY = "browser.smartwindow.apiKey";
 const PREF_ENDPOINT = "browser.smartwindow.endpoint";
+const PREF_CUSTOM_ENDPOINT = "browser.smartwindow.customEndpoint";
 const PREF_MODEL = "browser.smartwindow.model";
 const PREF_MODEL_CHOICE = "browser.smartwindow.firstrun.modelChoice";
 
 // Clean prefs after all tests
 registerCleanupFunction(() => {
-  for (let pref of [PREF_API_KEY, PREF_ENDPOINT, PREF_MODEL]) {
+  for (let pref of [
+    PREF_API_KEY,
+    PREF_ENDPOINT,
+    PREF_CUSTOM_ENDPOINT,
+    PREF_MODEL,
+  ]) {
     if (Services.prefs.prefHasUserValue(pref)) {
       Services.prefs.clearUserPref(pref);
     }
@@ -94,7 +100,10 @@ add_task(async function test_Chat_real_tools_are_registered() {
 add_task(
   async function test_openAIEngine_build_with_chat_feature_and_nonexistent_model() {
     Services.prefs.setStringPref(PREF_API_KEY, "test-key-123");
-    Services.prefs.setStringPref(PREF_ENDPOINT, "https://example.test/v1");
+    Services.prefs.setStringPref(
+      PREF_CUSTOM_ENDPOINT,
+      "https://example.test/v1"
+    );
     Services.prefs.setStringPref(PREF_MODEL, "nonexistent-model");
     Services.prefs.setStringPref(PREF_MODEL_CHOICE, "0");
 
@@ -109,12 +118,15 @@ add_task(
         .stub(openAIEngine, "_createEngine")
         .resolves(fakeEngineInstance);
 
+      const { baseURL, apiKey } = openAIEngine.resolveEndpointConfig("0");
       const engine = await openAIEngine.build({
         model: "nonexistent-model",
         serviceType: SERVICE_TYPES.AI,
         purpose: PURPOSES.CHAT,
         flowId: null,
         feature: MODEL_FEATURES.CHAT,
+        baseURL,
+        apiKey,
       });
 
       Assert.ok(

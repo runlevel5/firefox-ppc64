@@ -35,7 +35,10 @@ describe("SmartWindowRequestResponseTelemetry", () => {
     sb = sinon.createSandbox();
     sb.stub(lazy.IntentClassifier, "getPromptIntent").resolves("chat");
     await SpecialPowers.pushPrefEnv({
-      set: [["browser.smartwindow.firstrun.modelChoice", "0"]],
+      set: [
+        ["browser.smartwindow.firstrun.modelChoice", "0"],
+        ["browser.smartwindow.customEndpoint", "http://localhost:0/v1"],
+      ],
     });
     Services.fog.testResetFOG();
   });

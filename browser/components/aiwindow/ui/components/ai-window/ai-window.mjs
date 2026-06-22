@@ -1787,12 +1787,17 @@ export class AIWindow extends MozLitElement {
       const callContext = await lazy.loadCallContext(lazy.MODEL_FEATURES.CHAT, {
         modelChoiceIdOverride: this.#selectedModelChoiceId,
       });
+      const { baseURL, apiKey } = lazy.openAIEngine.resolveEndpointConfig(
+        this.#selectedModelChoiceId
+      );
       const engineInstance = await lazy.openAIEngine.build({
         model: callContext.model,
         serviceType: callContext.serviceType,
         purpose: callContext.purpose,
         flowId: this.conversationId,
         feature: lazy.MODEL_FEATURES.CHAT,
+        baseURL,
+        apiKey,
       });
 
       if (inputText) {

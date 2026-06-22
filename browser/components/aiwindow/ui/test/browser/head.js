@@ -1542,7 +1542,10 @@ async function getUserMessageChipLabels(sidebarBrowser, messageIndex = 0) {
 async function withServer(serverOptions, task) {
   const { server, port } = startMockOpenAI(serverOptions);
   await SpecialPowers.pushPrefEnv({
-    set: [["browser.smartwindow.endpoint", `http://localhost:${port}/v1`]],
+    set: [
+      ["browser.smartwindow.endpoint", `http://localhost:${port}/v1`],
+      ["browser.smartwindow.customEndpoint", `http://localhost:${port}/v1`],
+    ],
   });
 
   const getFxAccountTokenStub = sinon

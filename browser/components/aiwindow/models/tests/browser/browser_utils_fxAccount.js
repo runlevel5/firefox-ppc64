@@ -242,16 +242,19 @@ add_task(async function test_runWithAuth_fails_after_retry_401() {
 // Test 401 error is thrown immediately when custom endpoint is set (no retry)
 add_task(async function test_runWithAuth_throws_401_with_custom_endpoint() {
   await SpecialPowers.pushPrefEnv({
-    set: [["browser.smartwindow.endpoint", "https://example.test/v1"]],
+    set: [["browser.smartwindow.customEndpoint", "https://example.test/v1"]],
   });
 
   try {
+    const { baseURL, apiKey } = openAIEngine.resolveEndpointConfig("0");
     const engine = await openAIEngine.build({
       model: TEST_MODEL,
       serviceType: SERVICE_TYPES.AI,
       purpose: PURPOSES.CHAT,
       flowId: null,
       feature: MODEL_FEATURES.CHAT,
+      baseURL,
+      apiKey,
     });
     const testContent = { messages: [{ role: "user", content: "test" }] };
     const expectedError = new Error("Request failed with 401 status code");
