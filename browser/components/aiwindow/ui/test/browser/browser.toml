@@ -108,6 +108,8 @@ skip-if = [
 
 ["browser_aiwindow_smartbar_keyboard_navigation.js"]
 
+["browser_aiwindow_smartbar_placeholder.js"]
+
 ["browser_aiwindow_smartbar_suggestions.js"]
 
 ["browser_aiwindow_smartbar_tab_switch.js"]
