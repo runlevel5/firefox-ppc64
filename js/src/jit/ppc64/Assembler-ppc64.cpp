@@ -1130,7 +1130,8 @@ DEF_MEMx(lbzx) DEF_MEMx(lhax) DEF_MEMx(lhzx) DEF_MEMx(lwax)
         DEF_MEMx(lharx) DEF_MEMx(ldx) DEF_MEMx(ldarx) DEF_MEMx(stbx)
             DEF_MEMx(stbcx) DEF_MEMx(stwx) DEF_MEMx(stwbrx) DEF_MEMx(sthx)
                 DEF_MEMx(sthcx) DEF_MEMx(stdx) DEF_MEMx(stdcx)
-                    DEF_MEMx(stwcx)
+                    DEF_MEMx(stwcx) DEF_MEMx(lhbrx) DEF_MEMx(lwbrx)
+                        DEF_MEMx(ldbrx) DEF_MEMx(sthbrx) DEF_MEMx(stdbrx)
 #undef DEF_MEMx
 
 // --- Integer select ---

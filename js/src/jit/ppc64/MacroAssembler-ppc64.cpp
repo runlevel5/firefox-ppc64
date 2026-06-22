@@ -3217,14 +3217,28 @@ void MacroAssemblerPPC64Compat::wasmLoadImpl(
       as_lbzx(output.gpr(), memoryBase, ptr);
       break;
     case Scalar::Int16:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      // wasm memory is little-endian; load byte-reversed then sign-extend.
+      as_lhbrx(output.gpr(), memoryBase, ptr);
+      as_extsh(output.gpr(), output.gpr());
+#else
       as_lhax(output.gpr(), memoryBase, ptr);
+#endif
       break;
     case Scalar::Uint16:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_lhbrx(output.gpr(), memoryBase, ptr);
+#else
       as_lhzx(output.gpr(), memoryBase, ptr);
+#endif
       break;
     case Scalar::Int32:
     case Scalar::Uint32:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_lwbrx(output.gpr(), memoryBase, ptr);
+#else
       as_lwzx(output.gpr(), memoryBase, ptr);
+#endif
       as_extsw(output.gpr(), output.gpr());
       break;
     case Scalar::Float64:
@@ -3268,7 +3282,16 @@ void MacroAssemblerPPC64Compat::wasmLoadImpl(
           }
         }
       } else {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+        // wasm memory is little-endian: load 8 bytes byte-reversed into a GPR,
+        // then move into the FPR (matches what lfdx would place in dw0).
+        UseScratchRegisterScope temps(asMasm());
+        Register tmp = temps.Acquire();
+        as_ldbrx(tmp, memoryBase, ptr);
+        as_mtvsrd(output.fpu(), tmp);
+#else
         as_lfdx(output.fpu(), memoryBase, ptr);
+#endif
       }
       break;
     case Scalar::Float32:
@@ -3326,7 +3349,16 @@ void MacroAssemblerPPC64Compat::wasmStoreImpl(
   // store, the faulting instruction (stxvd2x) is after a byte-swap
   // (xxpermdi), so we defer the trap site recording.
   // Flush pool first; see comment in wasmLoadImpl.
-  if (access.type() != Scalar::Simd128 || HasPOWER9()) {
+  bool deferTrapSite = (access.type() == Scalar::Simd128 && !HasPOWER9());
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // On BE, an f64 store moves FP->GPR before the byte-reversed store, so the
+  // faulting store is not the first emitted instruction; defer the trap-site
+  // record to just before stdbrx (same reason as the P8 Simd128 path).
+  if (access.type() == Scalar::Float64) {
+    deferTrapSite = true;
+  }
+#endif
+  if (!deferTrapSite) {
     m_buffer.flushPool();
     append(access,
            wasm::TrapMachineInsnForStore(Scalar::byteSize(access.type())),
@@ -3340,17 +3372,44 @@ void MacroAssemblerPPC64Compat::wasmStoreImpl(
       break;
     case Scalar::Int16:
     case Scalar::Uint16:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      // wasm memory is little-endian; store byte-reversed.
+      as_sthbrx(value.gpr(), memoryBase, ptr);
+#else
       as_sthx(value.gpr(), memoryBase, ptr);
+#endif
       break;
     case Scalar::Int32:
     case Scalar::Uint32:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_stwbrx(value.gpr(), memoryBase, ptr);
+#else
       as_stwx(value.gpr(), memoryBase, ptr);
+#endif
       break;
     case Scalar::Int64:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_stdbrx(value.gpr(), memoryBase, ptr);
+#else
       as_stdx(value.gpr(), memoryBase, ptr);
+#endif
       break;
     case Scalar::Float64:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    {
+      // wasm memory is little-endian: move the f64 bits to a GPR and store
+      // byte-reversed. Record the trap site at the faulting stdbrx.
+      UseScratchRegisterScope temps(asMasm());
+      Register tmp = temps.Acquire();
+      as_mfvsrd(tmp, value.fpu());
+      m_buffer.flushPool();
+      append(access, wasm::TrapMachineInsnForStore(8),
+             FaultingCodeOffset(currentOffset()));
+      as_stdbrx(tmp, memoryBase, ptr);
+    }
+#else
       as_stfdx(value.fpu(), memoryBase, ptr);
+#endif
       break;
     case Scalar::Float32:
       as_stfsx(value.fpu(), memoryBase, ptr);
@@ -3401,21 +3460,42 @@ void MacroAssemblerPPC64Compat::wasmLoadI64Impl(
       as_lbzx(output.reg, memoryBase, ptr);
       break;
     case Scalar::Int16:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_lhbrx(output.reg, memoryBase, ptr);
+      as_extsh(output.reg, output.reg);
+#else
       as_lhax(output.reg, memoryBase, ptr);
+#endif
       break;
     case Scalar::Uint16:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_lhbrx(output.reg, memoryBase, ptr);
+#else
       as_lhzx(output.reg, memoryBase, ptr);
+#endif
       break;
     case Scalar::Int32:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_lwbrx(output.reg, memoryBase, ptr);
+#else
       as_lwzx(output.reg, memoryBase, ptr);
+#endif
       as_extsw(output.reg, output.reg);
       break;
     case Scalar::Uint32:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_lwbrx(output.reg, memoryBase, ptr);  // zero-extended
+#else
       as_lwzx(output.reg, memoryBase, ptr);
       // Zero-extended by lwzx already
+#endif
       break;
     case Scalar::Int64:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_ldbrx(output.reg, memoryBase, ptr);
+#else
       as_ldx(output.reg, memoryBase, ptr);
+#endif
       break;
     default:
       MOZ_CRASH("unexpected array type");
@@ -3449,14 +3529,26 @@ void MacroAssemblerPPC64Compat::wasmStoreI64Impl(
       break;
     case Scalar::Int16:
     case Scalar::Uint16:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_sthbrx(value.reg, memoryBase, ptr);
+#else
       as_sthx(value.reg, memoryBase, ptr);
+#endif
       break;
     case Scalar::Int32:
     case Scalar::Uint32:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_stwbrx(value.reg, memoryBase, ptr);
+#else
       as_stwx(value.reg, memoryBase, ptr);
+#endif
       break;
     case Scalar::Int64:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_stdbrx(value.reg, memoryBase, ptr);
+#else
       as_stdx(value.reg, memoryBase, ptr);
+#endif
       break;
     default:
       MOZ_CRASH("unexpected array type");
