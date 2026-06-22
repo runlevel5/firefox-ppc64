@@ -11,6 +11,9 @@ const { _clearModelsDataCacheForTesting, FALLBACK_MODELS } =
   ChromeUtils.importESModule(
     "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs"
   );
+const { MockEngineManager } = ChromeUtils.importESModule(
+  "resource://testing-common/AIWindowTestUtils.sys.mjs"
+);
 
 const DEFAULT_MODEL_CHOICE_ID = "2";
 
@@ -22,6 +25,23 @@ add_setup(async function () {
     ],
   });
 });
+
+/**
+ * Waits for the expected model in the smartbar model select.
+ *
+ * @param {MozBrowser} browser - The browser element
+ * @param {string} expectedModel - The expected model name
+ */
+async function waitForSelectedModel(browser, expectedModel) {
+  await SpecialPowers.spawn(browser, [expectedModel], async expected => {
+    const aiWindowElement = content.document.querySelector("ai-window");
+    await ContentTaskUtils.waitForMutationCondition(
+      aiWindowElement,
+      { attributes: true },
+      () => aiWindowElement.selectedModelId === expected
+    );
+  });
+}
 
 add_task(async function test_smartbar_model_select_shows_default_model() {
   const { restore } = await stubEngineNetworkBoundaries({
@@ -382,6 +402,262 @@ add_task(async function test_model_choice_pref_change_updates_selected_model() {
     await BrowserTestUtils.closeWindow(win);
   } finally {
     await restore();
+    await SpecialPowers.popPrefEnv();
+  }
+});
+
+add_task(
+  async function test_model_choice_pref_change_updates_fullpage_and_sidebar_on_default() {
+    const mockEngineManager = new MockEngineManager();
+
+    try {
+      const win = await openAIWindow();
+      const browserFullpage = win.gBrowser.selectedBrowser;
+
+      // Open second tab with sidebar
+      await BrowserTestUtils.openNewForegroundTab(
+        win.gBrowser,
+        "https://example.com/"
+      );
+      Assert.ok(AIWindowUI.isSidebarOpen(win), "Sidebar should be open");
+      const browserSidebar = await waitForSidebarReady(win);
+
+      // Both tabs match the default
+      const defaultModel = FALLBACK_MODELS[DEFAULT_MODEL_CHOICE_ID].model;
+      await waitForSelectedModel(browserFullpage, defaultModel);
+      await waitForSelectedModel(browserSidebar, defaultModel);
+
+      // Change the default model
+      const newModel = FALLBACK_MODELS["1"].model;
+      await SpecialPowers.pushPrefEnv({
+        set: [["browser.smartwindow.firstrun.modelChoice", "1"]],
+      });
+      await waitForSelectedModel(browserFullpage, newModel);
+      await waitForSelectedModel(browserSidebar, newModel);
+
+      await BrowserTestUtils.closeWindow(win);
+    } finally {
+      mockEngineManager.cleanupMocks();
+      await SpecialPowers.popPrefEnv();
+    }
+  }
+);
+
+add_task(async function test_sidebar_model_switch_persists_across_tabs() {
+  const mockEngineManager = new MockEngineManager();
+
+  try {
+    const win = await openAIWindow();
+
+    const tabA = await BrowserTestUtils.openNewForegroundTab(
+      win.gBrowser,
+      "https://example.com/"
+    );
+    const tabB = await BrowserTestUtils.openNewForegroundTab(
+      win.gBrowser,
+      "https://example.org/"
+    );
+    Assert.ok(AIWindowUI.isSidebarOpen(win), "Sidebar should be open");
+    const browserSidebar = await waitForSidebarReady(win);
+
+    const defaultModel = FALLBACK_MODELS[DEFAULT_MODEL_CHOICE_ID].model;
+    const fastModel = FALLBACK_MODELS["1"].model;
+
+    // Tab B starts with the default and then overrides
+    await waitForSelectedModel(browserSidebar, defaultModel);
+    await switchSmartbarModel(browserSidebar, "1");
+
+    // Tab A stays on the default
+    await BrowserTestUtils.switchTab(win.gBrowser, tabA);
+    await waitForSelectedModel(browserSidebar, defaultModel);
+
+    // Tab B restores its override choice
+    await BrowserTestUtils.switchTab(win.gBrowser, tabB);
+    await waitForSelectedModel(browserSidebar, fastModel);
+
+    await BrowserTestUtils.closeWindow(win);
+  } finally {
+    mockEngineManager.cleanupMocks();
+  }
+});
+
+// Change default while override tab is focused: Override tab keeps model choice
+// and the background tab mirrors default when switching back to tab.
+add_task(async function test_default_change_with_override_tab_focused() {
+  const mockEngineManager = new MockEngineManager();
+
+  try {
+    const win = await openAIWindow();
+
+    // Tab A mirrors the default and tab B overrides model choice
+    const tabA = await BrowserTestUtils.openNewForegroundTab(
+      win.gBrowser,
+      "https://example.com/"
+    );
+    // Tab B stays focused as the override tab.
+    await BrowserTestUtils.openNewForegroundTab(
+      win.gBrowser,
+      "https://example.org/"
+    );
+    Assert.ok(AIWindowUI.isSidebarOpen(win), "Sidebar should be open");
+    const browserSidebar = await waitForSidebarReady(win);
+
+    await switchSmartbarModel(browserSidebar, "1");
+
+    // Change the default model
+    const newDefaultModel = FALLBACK_MODELS["3"].model;
+    await SpecialPowers.pushPrefEnv({
+      set: [["browser.smartwindow.firstrun.modelChoice", "3"]],
+    });
+
+    // Focused override tab B does not change
+    Assert.equal(
+      (await getSmartbarModelSelectData(browserSidebar)).selectedModelId,
+      FALLBACK_MODELS["1"].model,
+      "Override tab B should keep its picked model"
+    );
+
+    // Tab A updates to the new default on switching back
+    await BrowserTestUtils.switchTab(win.gBrowser, tabA);
+    await waitForSelectedModel(browserSidebar, newDefaultModel);
+
+    await BrowserTestUtils.closeWindow(win);
+  } finally {
+    mockEngineManager.cleanupMocks();
+    await SpecialPowers.popPrefEnv();
+  }
+});
+
+// Change default while tab without override is focused: Default tab choice
+// changes and the override tab restores its pick when switching back to the tab.
+add_task(async function test_default_change_with_default_tab_focused() {
+  const mockEngineManager = new MockEngineManager();
+
+  try {
+    const win = await openAIWindow();
+
+    // Tab A overrides the default model
+    const tabA = await BrowserTestUtils.openNewForegroundTab(
+      win.gBrowser,
+      "https://example.com/"
+    );
+    Assert.ok(AIWindowUI.isSidebarOpen(win), "Sidebar should be open");
+    const browserSidebar = await waitForSidebarReady(win);
+    await switchSmartbarModel(browserSidebar, "1");
+
+    // Tab B mirrors the default and stays focused while the default changes
+    await BrowserTestUtils.openNewForegroundTab(
+      win.gBrowser,
+      "https://example.org/"
+    );
+
+    // Change the default model
+    const newDefaultModel = FALLBACK_MODELS["3"].model;
+    await SpecialPowers.pushPrefEnv({
+      set: [["browser.smartwindow.firstrun.modelChoice", "3"]],
+    });
+
+    // Focused tab B changes to the new default
+    await waitForSelectedModel(browserSidebar, newDefaultModel);
+
+    // Background override tab A keeps its model when switching back
+    await BrowserTestUtils.switchTab(win.gBrowser, tabA);
+    await waitForSelectedModel(browserSidebar, FALLBACK_MODELS["1"].model);
+
+    await BrowserTestUtils.closeWindow(win);
+  } finally {
+    mockEngineManager.cleanupMocks();
+    await SpecialPowers.popPrefEnv();
+  }
+});
+
+// Model override persists even after the global default changes to match.
+add_task(async function test_override_persists_when_default_matches() {
+  const mockEngineManager = new MockEngineManager();
+
+  try {
+    const win = await openAIWindow();
+
+    // Tab A overrides the default model
+    const tabA = await BrowserTestUtils.openNewForegroundTab(
+      win.gBrowser,
+      "https://example.com/"
+    );
+    Assert.ok(AIWindowUI.isSidebarOpen(win), "Sidebar should be open");
+    const browserSidebar = await waitForSidebarReady(win);
+    await switchSmartbarModel(browserSidebar, "1");
+
+    // Tab B mirrors the default
+    await BrowserTestUtils.openNewForegroundTab(
+      win.gBrowser,
+      "https://example.org/"
+    );
+
+    // Move the default to match the override of tab A
+    await SpecialPowers.pushPrefEnv({
+      set: [["browser.smartwindow.firstrun.modelChoice", "1"]],
+    });
+
+    // Tab A keeps its override even though it now matches the default
+    await BrowserTestUtils.switchTab(win.gBrowser, tabA);
+    await waitForSelectedModel(browserSidebar, FALLBACK_MODELS["1"].model);
+
+    // Change the default model away again
+    await SpecialPowers.pushPrefEnv({
+      set: [["browser.smartwindow.firstrun.modelChoice", "3"]],
+    });
+    // Tab A keeps the overridden model instead of following the default
+    await waitForSelectedModel(browserSidebar, FALLBACK_MODELS["1"].model);
+
+    await BrowserTestUtils.closeWindow(win);
+  } finally {
+    mockEngineManager.cleanupMocks();
+    await SpecialPowers.popPrefEnv();
+    await SpecialPowers.popPrefEnv();
+  }
+});
+
+// Typing in the smartbar should not persist a model override.
+add_task(async function test_smartbar_input_does_not_persist_model_choice() {
+  const mockEngineManager = new MockEngineManager();
+
+  try {
+    const win = await openAIWindow();
+
+    // Tab A mirrors the default
+    const tabA = await BrowserTestUtils.openNewForegroundTab(
+      win.gBrowser,
+      "https://example.com/"
+    );
+    Assert.ok(AIWindowUI.isSidebarOpen(win), "Sidebar should be open");
+    const browserSidebar = await waitForSidebarReady(win);
+
+    // Type into the smartbar without picking a model from the select
+    const defaultModel = FALLBACK_MODELS[DEFAULT_MODEL_CHOICE_ID].model;
+    await waitForSelectedModel(browserSidebar, defaultModel);
+    await typeInSmartbar(browserSidebar, "Hello there");
+
+    // Open tab B and change the global default
+    const tabB = await BrowserTestUtils.openNewForegroundTab(
+      win.gBrowser,
+      "https://example.org/"
+    );
+    const newDefaultModel = FALLBACK_MODELS["3"].model;
+    await SpecialPowers.pushPrefEnv({
+      set: [["browser.smartwindow.firstrun.modelChoice", "3"]],
+    });
+    await waitForSelectedModel(browserSidebar, newDefaultModel);
+
+    // Tab A should mirror the new default
+    await BrowserTestUtils.switchTab(win.gBrowser, tabA);
+    await waitForSelectedModel(browserSidebar, newDefaultModel);
+
+    await BrowserTestUtils.switchTab(win.gBrowser, tabB);
+    await waitForSelectedModel(browserSidebar, newDefaultModel);
+
+    await BrowserTestUtils.closeWindow(win);
+  } finally {
+    mockEngineManager.cleanupMocks();
     await SpecialPowers.popPrefEnv();
   }
 });

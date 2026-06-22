@@ -29,7 +29,6 @@ const MODEL_CHOICE_PREF = "browser.smartwindow.firstrun.modelChoice";
 const lazy = XPCOMUtils.declareLazy({
   RemoteSettings: "resource://services-settings/remote-settings.sys.mjs",
   getFxAccountsSingleton: "resource://gre/modules/FxAccounts.sys.mjs",
-  modelChoice: { pref: MODEL_CHOICE_PREF, default: "" },
 });
 
 /**
@@ -837,7 +836,7 @@ export async function resolveChatModelChoice(
  * @param {string} choiceId - Model choice ID (e.g., "1", "2", "3", "0")
  * @returns {Promise<{model: string, ownerName: string}|null>} null if choiceId is falsy
  */
-export async function getModelForChoice(choiceId = lazy.modelChoice) {
+export async function getModelForChoice(choiceId = getCurrentModelChoiceId()) {
   if (!choiceId) {
     return null;
   }
@@ -901,11 +900,11 @@ export function getCachedModelsData() {
 }
 
 export function getCurrentModelName() {
-  return getCachedModelsData()[lazy.modelChoice]?.model ?? "";
+  return getCachedModelsData()[getCurrentModelChoiceId()]?.model ?? "";
 }
 
 export function getCurrentModelChoiceId() {
-  return lazy.modelChoice;
+  return Services.prefs.getStringPref(MODEL_CHOICE_PREF, "");
 }
 
 /**

@@ -172,6 +172,21 @@ async function openAIWindow({ waitForTabURL = AIWINDOW_URL } = {}) {
 }
 
 /**
+ * Waits for the sidebar ai-window element to connect.
+ *
+ * @param {Window} win - Window reference
+ * @returns {Promise<MozBrowser>} - The sidebar browser element
+ */
+async function waitForSidebarReady(win) {
+  const sidebarBrowser = win.document.getElementById("ai-window-browser");
+  await BrowserTestUtils.waitForCondition(
+    () => sidebarBrowser.contentDocument?.querySelector("ai-window:defined"),
+    "Sidebar ai-window should be loaded"
+  );
+  return sidebarBrowser;
+}
+
+/**
  * Opens a new AI Window with about:blank
  * and the chat assistant sidebar open
  *
@@ -190,11 +205,7 @@ async function openAIWindowWithSidebar() {
     info("Opening sidebar");
     AIWindowUI.toggleSidebar(win);
   }
-  const sidebarBrowser = win.document.getElementById("ai-window-browser");
-  await BrowserTestUtils.waitForCondition(
-    () => sidebarBrowser.contentDocument?.querySelector("ai-window:defined"),
-    "Sidebar ai-window should be loaded"
-  );
+  const sidebarBrowser = await waitForSidebarReady(win);
   return { win, sidebarBrowser };
 }
 
