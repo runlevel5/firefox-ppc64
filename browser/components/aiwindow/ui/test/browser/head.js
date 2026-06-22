@@ -954,13 +954,13 @@ async function getSmartbarModelSelectData(browser) {
 }
 
 /**
- * Switches to a different model in the smartbar.
+ * Switches to a model in the smartbar by choice ID.
  *
  * @param {MozBrowser} browser - The browser element
- * @param {number} modelIndex - Model index to switch to
+ * @param {string} modelChoiceId - Model choice id to switch to
  */
-async function switchSmartbarModel(browser, modelIndex) {
-  return SpecialPowers.spawn(browser, [modelIndex], async index => {
+async function switchSmartbarModel(browser, modelChoiceId) {
+  return SpecialPowers.spawn(browser, [modelChoiceId], async choiceId => {
     const aiWindowElement = content.document.querySelector("ai-window");
     const smartbar = aiWindowElement.shadowRoot.querySelector(
       "#ai-window-smartbar"
@@ -977,7 +977,11 @@ async function switchSmartbarModel(browser, modelIndex) {
     );
 
     const modelKeys = Object.keys(modelSelect.availableModels);
-    const targetModelId = modelSelect.availableModels[modelKeys[index]].model;
+    const index = modelKeys.indexOf(choiceId);
+    if (index === -1) {
+      throw new Error(`Model choice "${choiceId}" not available`);
+    }
+    const targetModelId = modelSelect.availableModels[choiceId].model;
     panelList.querySelectorAll("button.model-item")[index].click();
 
     await ContentTaskUtils.waitForMutationCondition(
