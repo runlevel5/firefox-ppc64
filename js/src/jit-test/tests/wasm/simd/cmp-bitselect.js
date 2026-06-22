@@ -46,8 +46,8 @@ for (let [laneSize, aty_s, aty_u] of [
             (func (export "run")
               (v128.store (i32.const 32)
                 (v128.bitselect (v128.load (i32.const 64)) (v128.load (i32.const 80)) (${ty}.${op} (v128.load (i32.const 0)) (v128.load (i32.const 16))))) ))`)));
-        const mem = new aty(ins.exports.memory.buffer);
-        const memI8 = new Uint8Array(ins.exports.memory.buffer);
+        const mem = memView(aty, ins.exports.memory.buffer);
+        const memI8 = memView(Uint8Array, ins.exports.memory.buffer);
         memI8.subarray(64, 96).set(checkPattern);
         verifyCodegen(ins.exports.run);
         for (let i = 0; i < testData.length; i++) {
@@ -82,8 +82,8 @@ for (let [laneSize, aty] of [[32, Float32Array], [64, Float64Array]]) {
             (func (export "run")
               (v128.store (i32.const 32)
                 (v128.bitselect (v128.load (i32.const 64)) (v128.load (i32.const 80)) (${ty}.${op} (v128.load (i32.const 0)) (v128.load (i32.const 16))))) ))`)));
-        const mem = new aty(ins.exports.memory.buffer);
-        const memI8 = new Uint8Array(ins.exports.memory.buffer);
+        const mem = memView(aty, ins.exports.memory.buffer);
+        const memI8 = memView(Uint8Array, ins.exports.memory.buffer);
         memI8.subarray(64, 96).set(checkPattern);
         verifyCodegen(ins.exports.run);        
         for (let i = 0; i < testData.length; i++) {

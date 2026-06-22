@@ -597,6 +597,57 @@ function interleave(xs, ys) {
     return res;
 }
 
+// A JS typed-array view of wasm linear memory reads/writes in platform byte
+// order, but wasm memory is little-endian by spec. On a big-endian host the two
+// disagree for every multi-byte element. memView wraps a view so that element
+// access byte-swaps to little-endian, matching what wasm sees. On a
+// little-endian host (or for byte-sized views) it returns the plain view, so
+// this is a no-op everywhere except big-endian.
+const bigEndian = (function () {
+  let b = new ArrayBuffer(2);
+  new Uint16Array(b)[0] = 1;
+  return new Uint8Array(b)[0] === 0;
+})();
+
+function memView(ctor, buffer) {
+  let arr = new ctor(buffer);
+  if (!bigEndian || arr.BYTES_PER_ELEMENT === 1) {
+    return arr;
+  }
+  let dv = new DataView(buffer);
+  let bpe = arr.BYTES_PER_ELEMENT;
+  let getE, setE;
+  if (ctor === Int16Array) {
+    getE = o => dv.getInt16(o, true); setE = (o, v) => dv.setInt16(o, v, true);
+  } else if (ctor === Uint16Array) {
+    getE = o => dv.getUint16(o, true); setE = (o, v) => dv.setUint16(o, v, true);
+  } else if (ctor === Int32Array) {
+    getE = o => dv.getInt32(o, true); setE = (o, v) => dv.setInt32(o, v, true);
+  } else if (ctor === Uint32Array) {
+    getE = o => dv.getUint32(o, true); setE = (o, v) => dv.setUint32(o, v, true);
+  } else if (ctor === Float32Array) {
+    getE = o => dv.getFloat32(o, true); setE = (o, v) => dv.setFloat32(o, v, true);
+  } else if (ctor === Float64Array) {
+    getE = o => dv.getFloat64(o, true); setE = (o, v) => dv.setFloat64(o, v, true);
+  } else if (ctor === BigInt64Array) {
+    getE = o => dv.getBigInt64(o, true); setE = (o, v) => dv.setBigInt64(o, BigInt(v), true);
+  } else if (ctor === BigUint64Array) {
+    getE = o => dv.getBigUint64(o, true); setE = (o, v) => dv.setBigUint64(o, BigInt(v), true);
+  } else {
+    return arr;
+  }
+  let isIndex = p =>
+    typeof p === "string" && p.length && p[0] >= "0" && p[0] <= "9" &&
+    Number.isInteger(+p) && String(+p) === p;
+  return new Proxy(arr, {
+    get(t, p) { return isIndex(p) ? getE(+p * bpe) : Reflect.get(t, p); },
+    set(t, p, v) {
+      if (isIndex(p)) { setE(+p * bpe, v); return true; }
+      return Reflect.set(t, p, v);
+    },
+  });
+}
+
 // assertSame([a,...],[b,...]) asserts that the two arrays have the same length
 // and that they element-wise assertEq IGNORING Number/BigInt differences.  This
 // predicate is in this file because it is wasm-specific.
