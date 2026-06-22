@@ -2219,6 +2219,18 @@ static void CompareExchange(MacroAssembler& masm,
 
   if (nbytes == 4) {
     masm.memoryBarrierBefore(sync);
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // wasm atomic memory is little-endian. Byte-reverse the replacement value
+    // to native once before the loop, and the loaded value to LE inside the
+    // loop (it is compared against the little-endian oldval and returned).
+    masm.as_rldicl(newval, newval, 0, 32);
+    masm.as_mtvsrd(ScratchDoubleReg, newval);
+    masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
+    masm.as_mfvsrd(newval, ScratchDoubleReg);
+    masm.x_srdi(newval, newval, 32);
+#endif
+
     masm.bind(&again);
 
     if (access) {
@@ -2228,6 +2240,12 @@ static void CompareExchange(MacroAssembler& masm,
     }
 
     masm.as_lwarx(output, r0, scratch);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    masm.as_mtvsrd(ScratchDoubleReg, output);
+    masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
+    masm.as_mfvsrd(output, ScratchDoubleReg);
+    masm.x_srdi(output, output, 32);
+#endif
     // ma_cmp(..., is32bit=true) emits cmpw, which compares only bits
     // 32:63 (low 32) of both operands per ISA v3.0B. The upper
     // 32 bits of oldval are ignored, so no canonicalising extsw needed.
@@ -2316,6 +2334,15 @@ static void CompareExchange64(MacroAssembler& masm,
 
   masm.memoryBarrierBefore(sync);
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // wasm atomic memory is little-endian. Byte-reverse the replacement to native
+  // once before the loop, and the loaded value to LE inside the loop (compared
+  // against the little-endian expect and returned). VSX scratch swap.
+  masm.as_mtvsrd(ScratchDoubleReg, replace.reg);
+  masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
+  masm.as_mfvsrd(replace.reg, ScratchDoubleReg);
+#endif
+
   masm.bind(&tryAgain);
 
   if (access) {
@@ -2325,6 +2352,12 @@ static void CompareExchange64(MacroAssembler& masm,
   }
 
   masm.as_ldarx(output.reg, r0, scratch);
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  masm.as_mtvsrd(ScratchDoubleReg, output.reg);
+  masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
+  masm.as_mfvsrd(output.reg, ScratchDoubleReg);
+#endif
 
   masm.ma_cmp(output.reg, expect.reg, Assembler::NotEqual);
   masm.ma_b(Assembler::NotEqual, &exit);
@@ -2367,6 +2400,18 @@ static void AtomicExchange(MacroAssembler& masm,
 
   if (nbytes == 4) {
     masm.memoryBarrierBefore(sync);
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // wasm atomic memory is little-endian. Byte-reverse the to-be-stored value
+    // to native once before the loop (it is constant across retries) and the
+    // loaded old value to LE after the loop. Swap via the VSX scratch.
+    masm.as_rldicl(value, value, 0, 32);
+    masm.as_mtvsrd(ScratchDoubleReg, value);
+    masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
+    masm.as_mfvsrd(value, ScratchDoubleReg);
+    masm.x_srdi(value, value, 32);
+#endif
+
     masm.bind(&again);
 
     if (access) {
@@ -2380,6 +2425,13 @@ static void AtomicExchange(MacroAssembler& masm,
     masm.ma_b(Assembler::NotEqual, &again);
 
     masm.memoryBarrierAfter(sync);
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    masm.as_mtvsrd(ScratchDoubleReg, output);
+    masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
+    masm.as_mfvsrd(output, ScratchDoubleReg);
+    masm.x_srdi(output, output, 32);
+#endif
     // lwarx zero-extends; sign-extend for 32-bit canonical form.
     masm.as_extsw(output, output);
 
@@ -2439,6 +2491,14 @@ static void AtomicExchange64(MacroAssembler& masm,
 
   masm.memoryBarrierBefore(sync);
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // wasm atomic memory is little-endian. Byte-reverse the to-be-stored value to
+  // native once before the loop and the loaded old value to LE after. VSX swap.
+  masm.as_mtvsrd(ScratchDoubleReg, value.reg);
+  masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
+  masm.as_mfvsrd(value.reg, ScratchDoubleReg);
+#endif
+
   masm.bind(&tryAgain);
 
   if (access) {
@@ -2453,6 +2513,12 @@ static void AtomicExchange64(MacroAssembler& masm,
   masm.ma_b(Assembler::NotEqual, &tryAgain);
 
   masm.memoryBarrierAfter(sync);
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  masm.as_mtvsrd(ScratchDoubleReg, output.reg);
+  masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
+  masm.as_mfvsrd(output.reg, ScratchDoubleReg);
+#endif
 }
 
 template <typename T>
@@ -2641,6 +2707,15 @@ static void AtomicFetchOp64(MacroAssembler& masm,
 
   masm.as_ldarx(output.reg, r0, scratch);
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // wasm atomic memory is little-endian; byte-reverse the natively-loaded
+  // value to LE before the op (and the result before stdcx). Swap via the VSX
+  // scratch: no GPR temp, no memory access (which would clear the reservation).
+  masm.as_mtvsrd(ScratchDoubleReg, output.reg);
+  masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
+  masm.as_mfvsrd(output.reg, ScratchDoubleReg);
+#endif
+
   switch (op) {
     case AtomicOp::Add:
       masm.as_add(temp.reg, output.reg, value.reg);
@@ -2660,6 +2735,12 @@ static void AtomicFetchOp64(MacroAssembler& masm,
     default:
       MOZ_CRASH();
   }
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  masm.as_mtvsrd(ScratchDoubleReg, temp.reg);
+  masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
+  masm.as_mfvsrd(temp.reg, ScratchDoubleReg);
+#endif
 
   masm.as_stdcx(temp.reg, r0, scratch);
   masm.ma_b(Assembler::NotEqual, &tryAgain);
