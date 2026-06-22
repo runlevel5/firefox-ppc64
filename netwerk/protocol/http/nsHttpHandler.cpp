@@ -282,6 +282,9 @@ nsHttpHandler::nsHttpHandler()
           StaticPrefs::network_http_http2_ping_timeout())) {
   LOG(("Creating nsHttpHandler [this=%p].\n", this));
 
+  mAuthCache->Init();
+  mPrivateAuthCache->Init();
+
   mUserAgentOverride.SetIsVoid(true);
 
   MOZ_ASSERT(!gHttpHandler, "HTTP handler already created!");
