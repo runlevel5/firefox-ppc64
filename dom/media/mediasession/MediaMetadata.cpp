@@ -6,9 +6,11 @@
 
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/MediaSessionBinding.h"
+#include "mozilla/dom/ReferrerInfo.h"
 #include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/dom/ToJSValue.h"
 #include "mozilla/image/FetchDecodedImage.h"
+#include "nsIHttpChannel.h"
 #include "nsNetUtil.h"
 
 extern mozilla::LazyLogModule gMediaControlLog;
@@ -167,6 +169,13 @@ RefPtr<MediaMetadataBasePromise> MediaMetadata::FetchArtwork(
                         nsILoadInfo::SEC_ALLOW_CROSS_ORIGIN_SEC_CONTEXT_IS_NULL,
                         nsIContentPolicy::TYPE_INTERNAL_IMAGE))) {
     return FetchArtwork(aMetadata, aDoc, aIndex + 1);
+  }
+
+  if (nsCOMPtr<nsIHttpChannel> httpChannel = do_QueryInterface(channel)) {
+    auto referrerInfo = MakeRefPtr<ReferrerInfo>(*aDoc);
+    if (NS_FAILED(httpChannel->SetReferrerInfo(referrerInfo))) {
+      return FetchArtwork(aMetadata, aDoc, aIndex + 1);
+    }
   }
 
   return image::FetchDecodedImage(uri, channel, gfx::IntSize{})
