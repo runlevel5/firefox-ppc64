@@ -13,6 +13,7 @@
 #include "ByteStreamsUtils.h"
 #include "ByteWriter.h"
 #include "MediaInfo.h"
+#include "mozilla/CheckedInt.h"
 #include "mozilla/EndianUtils.h"
 #include "mozilla/PodOperations.h"
 #include "mozilla/Result.h"
@@ -35,6 +36,14 @@
     }                            \
     aDest.var = uval;            \
   }
+
+#define CHECK_OR_RETURN(checked)                             \
+  do {                                                       \
+    if (!(checked).isValid()) {                              \
+      LOG("Aborting parsing, {} is out of range", #checked); \
+      return false;                                          \
+    }                                                        \
+  } while (0)
 
 mozilla::LazyLogModule gH264("H264");
 
@@ -511,12 +520,20 @@ class SPSNALIterator {
   return rbsp.forget();
 }
 
+// ConditionDimension and IsDimensionValid enforce a Firefox-internal
+// constraint, not an H.264 spec rule.
 static int32_t ConditionDimension(double aValue) {
   // This will exclude NaNs and too-big values.
   if (aValue > 1.0 && aValue <= double(INT32_MAX) / 2) {
     return int32_t(aValue);
   }
   return 0;
+}
+
+static bool IsDimensionValid(uint32_t aDimension) {
+  return aDimension <=
+         static_cast<uint32_t>(
+             std::numeric_limits<decltype(gfx::IntSize::width)>::max());
 }
 
 /* static */
@@ -606,13 +623,19 @@ bool H264::DecodeSPS(const mozilla::MediaByteBuffer* aSPS, SPSData& aDest) {
   }
   aDest.max_num_ref_frames = br.ReadUE();
   aDest.gaps_in_frame_num_allowed_flag = br.ReadBit();
+  // BitReader::ReadUE() returns at most 0xFFFFFFFE, so + 1 fits in uint32_t
+  // and pic_width_in_mbs can be written directly. pic_height_in_map_units is
+  // deferred to a CheckedUint32 local until the field-coded *= 2 step (whose
+  // doubled result must still fit in uint32_t) has been validated.
   aDest.pic_width_in_mbs = br.ReadUE() + 1;
-  aDest.pic_height_in_map_units = br.ReadUE() + 1;
+  CheckedUint32 picHeightInMapUnits = CheckedUint32(br.ReadUE()) + 1;
   aDest.frame_mbs_only_flag = br.ReadBit();
   if (!aDest.frame_mbs_only_flag) {
-    aDest.pic_height_in_map_units *= 2;
+    picHeightInMapUnits *= 2;
+    CHECK_OR_RETURN(picHeightInMapUnits);
     aDest.mb_adaptive_frame_field_flag = br.ReadBit();
   }
+  aDest.pic_height_in_map_units = picHeightInMapUnits.value();
   aDest.direct_8x8_inference_flag = br.ReadBit();
   aDest.frame_cropping_flag = br.ReadBit();
   if (aDest.frame_cropping_flag) {
@@ -648,8 +671,10 @@ bool H264::DecodeSPS(const mozilla::MediaByteBuffer* aSPS, SPSData& aDest) {
     CropUnitY *= SubHeightC;
   }
 
-  uint32_t width = aDest.pic_width_in_mbs * 16;
-  uint32_t height = aDest.pic_height_in_map_units * 16;
+  CheckedUint32 width = CheckedUint32(aDest.pic_width_in_mbs) * 16;
+  CHECK_OR_RETURN(width);
+  CheckedUint32 height = CheckedUint32(aDest.pic_height_in_map_units) * 16;
+  CHECK_OR_RETURN(height);
   if (aDest.frame_crop_left_offset <=
           std::numeric_limits<int32_t>::max() / 4 / CropUnitX &&
       aDest.frame_crop_right_offset <=
@@ -660,10 +685,10 @@ bool H264::DecodeSPS(const mozilla::MediaByteBuffer* aSPS, SPSData& aDest) {
           std::numeric_limits<int32_t>::max() / 4 / CropUnitY &&
       (aDest.frame_crop_left_offset + aDest.frame_crop_right_offset) *
               CropUnitX <
-          width &&
+          width.value() &&
       (aDest.frame_crop_top_offset + aDest.frame_crop_bottom_offset) *
               CropUnitY <
-          height) {
+          height.value()) {
     aDest.crop_left = aDest.frame_crop_left_offset * CropUnitX;
     aDest.crop_right = aDest.frame_crop_right_offset * CropUnitX;
     aDest.crop_top = aDest.frame_crop_top_offset * CropUnitY;
@@ -673,8 +698,8 @@ bool H264::DecodeSPS(const mozilla::MediaByteBuffer* aSPS, SPSData& aDest) {
     aDest.crop_left = aDest.crop_right = aDest.crop_top = aDest.crop_bottom = 0;
   }
 
-  aDest.pic_width = width - aDest.crop_left - aDest.crop_right;
-  aDest.pic_height = height - aDest.crop_top - aDest.crop_bottom;
+  aDest.pic_width = width.value() - aDest.crop_left - aDest.crop_right;
+  aDest.pic_height = height.value() - aDest.crop_top - aDest.crop_bottom;
 
   aDest.interlaced = !aDest.frame_mbs_only_flag;
 
@@ -689,6 +714,15 @@ bool H264::DecodeSPS(const mozilla::MediaByteBuffer* aSPS, SPSData& aDest) {
     aDest.display_width = aDest.pic_width;
     aDest.display_height = ConditionDimension(
         AssertedCast<double>(aDest.pic_height) / aDest.sample_ratio);
+  }
+
+  if (!IsDimensionValid(aDest.pic_width)) {
+    LOG("Aborting parsing, pic_width ({}) is out of range", aDest.pic_width);
+    return false;
+  }
+  if (!IsDimensionValid(aDest.pic_height)) {
+    LOG("Aborting parsing, pic_height ({}) is out of range", aDest.pic_height);
+    return false;
   }
 
   aDest.valid = true;
@@ -1522,6 +1556,7 @@ H264NALU::H264NALU(const uint8_t* aData, uint32_t aByteCount)
 
 #undef READUE
 #undef READSE
+#undef CHECK_OR_RETURN
 
 }  // namespace mozilla
 
