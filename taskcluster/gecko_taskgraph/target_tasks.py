@@ -580,8 +580,9 @@ def target_tasks_mozilla_release(full_task_graph, parameters, graph_config):
     ]
 
 
+@register_target_task("mozilla_esr153_tasks")
 @register_target_task("mozilla_esr140_tasks")
-def target_tasks_mozilla_esr140(full_task_graph, parameters, graph_config):
+def target_tasks_mozilla_esr(full_task_graph, parameters, graph_config):
     """Select the set of tasks required for a promotable beta or release build
     of desktop, without android CI. The candidates build process involves a pipeline
     of builds and signing, but does not include beetmover or balrog jobs."""
@@ -1302,6 +1303,7 @@ def _filter_by_release_project(parameters):
         "nightly": "mozilla-central",
         "beta": "mozilla-beta",
         "release": "mozilla-release",
+        "esr153": "mozilla-esr153",
         "esr140": "mozilla-esr140",
     }
     target_project = project_by_release.get(parameters["release_type"])
