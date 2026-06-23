@@ -3452,6 +3452,16 @@ void MacroAssemblerPPC64Compat::wasmLoadImpl(
         as_lfdx(dscratch, memoryBase, ptr);
         if (access.isZeroExtendSimd128Load()) {
           // Loaded value goes to BE dw1 (= LE dw0 = lane 0); BE dw0 = 0.
+          // wasm memory is little-endian, so reload the 8 bytes byte-reversed
+          // (the lfdx above is overwritten on big-endian).
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+          {
+            UseScratchRegisterScope temps(asMasm());
+            Register tmp = temps.Acquire();
+            as_ldbrx(tmp, memoryBase, ptr);
+            as_mtvsrd(dscratch, tmp);
+          }
+#endif
           as_xxlxor(ScratchSimd128Reg, ScratchSimd128Reg, ScratchSimd128Reg);
           as_xxpermdi(output.fpu(), ScratchSimd128Reg, dscratch, 0);
         } else if (access.isSplatSimd128Load()) {
@@ -3497,10 +3507,15 @@ void MacroAssemblerPPC64Compat::wasmLoadImpl(
       break;
     case Scalar::Float32:
       if (access.isZeroExtendSimd128Load()) {
-        // v128.load32_zero: load 32 raw bits into lane 0, zero the rest.
+        // v128.load32_zero: load 32 bits into lane 0, zero the rest. wasm
+        // memory is little-endian, so the scalar load is byte-reversed.
         UseScratchRegisterScope temps(asMasm());
         Register tmp = temps.Acquire();
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+        as_lwbrx(tmp, memoryBase, ptr);
+#else
         as_lwzx(tmp, memoryBase, ptr);
+#endif
         as_xxlxor(output.fpu(), output.fpu(), output.fpu());
         if (HasPOWER9()) {
           as_mtvsrws(ScratchSimd128Reg, tmp);
