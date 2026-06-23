@@ -10726,6 +10726,13 @@
   value: false
   mirror: always
 
+# Is support for closest/farthest-corner enabled in ellipse()?
+- name: layout.css.ellipse-corners.enabled
+  type: RelaxedAtomicBool
+  value: @IS_NIGHTLY_BUILD@
+  mirror: always
+  rust: true
+
 - name: layout.css.cross-fade.enabled
   type: RelaxedAtomicBool
   value: false
