@@ -74,6 +74,7 @@ import mozilla.components.support.utils.ext.navigateToDefaultBrowserAppsSettings
 import mozilla.telemetry.glean.private.NoExtras
 import org.mozilla.fenix.BrowserDirection
 import org.mozilla.fenix.GleanMetrics.HomeScreen
+import org.mozilla.fenix.GleanMetrics.Vpn
 import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.NavGraphDirections
 import org.mozilla.fenix.R
@@ -1219,6 +1220,7 @@ class HomeFragment : Fragment() {
             feature = IPProtectionWarningBinding(
                 store = requireComponents.ipProtection.store,
                 proxyUnavailable = {
+                    Vpn.errorEncountered.record()
                     findNavController().navigate(
                         HomeFragmentDirections.actionGlobalIpProtectionUnavailableDialog(),
                     )

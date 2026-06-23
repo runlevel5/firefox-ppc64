@@ -151,6 +151,7 @@ import org.mozilla.fenix.FeatureFlags
 import org.mozilla.fenix.GleanMetrics.EmailMask
 import org.mozilla.fenix.GleanMetrics.MediaState
 import org.mozilla.fenix.GleanMetrics.PullToRefreshInBrowser
+import org.mozilla.fenix.GleanMetrics.Vpn
 import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.IntentReceiverActivity
 import org.mozilla.fenix.NavGraphDirections
@@ -633,6 +634,7 @@ abstract class BaseBrowserFragment :
             feature = IPProtectionWarningBinding(
                 store = requireComponents.ipProtection.store,
                 proxyUnavailable = {
+                    Vpn.errorEncountered.record()
                     findNavController().navigate(
                         BrowserFragmentDirections.actionGlobalIpProtectionUnavailableDialog(),
                     )

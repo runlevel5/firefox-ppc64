@@ -16158,7 +16158,7 @@ vpn:
       entrypoint:
         description: >
           The surface from which the user started the flow.
-          Possible values: Homepage, Browser.
+          Possible values: Homepage, Browser, Settings.
         type: string
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2031198
@@ -16178,6 +16178,12 @@ vpn:
     type: event
     description:
       Triggered when the user taps on the VPN settings page.
+    extra_keys:
+      entrypoint:
+        description: >
+          The surface from which the user entered the VPN settings page.
+          Possible values: Settings, Menu, Trust Panel.
+        type: string
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2031198
     data_reviews:
@@ -16238,14 +16244,16 @@ vpn:
     metadata:
       tags:
         - Settings
-  menu_try_now_tapped:
+  menu_try_it_tapped:
     type: event
     description:
-      Triggered when the user taps "Try Now" for VPN from the menu option.
+      Triggered when the user taps "Try it" for VPN from the menu option.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2031198
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2032561
     data_reviews:
       - https://phabricator.services.mozilla.com/D293774
+      - https://phabricator.services.mozilla.com/D306452
     data_sensitivity:
       - interaction
     notification_emails:

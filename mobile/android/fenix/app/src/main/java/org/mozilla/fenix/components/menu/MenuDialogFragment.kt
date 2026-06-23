@@ -72,8 +72,10 @@ import mozilla.components.support.utils.ext.isLandscape
 import mozilla.components.support.utils.ext.top
 import mozilla.telemetry.glean.private.NoExtras
 import org.mozilla.fenix.GleanMetrics.Events
+import org.mozilla.fenix.GleanMetrics.Vpn
 import org.mozilla.fenix.R
 import org.mozilla.fenix.automotive.isAndroidAutomotiveAvailable
+import org.mozilla.fenix.components.Components
 import org.mozilla.fenix.components.appstate.SupportedMenuNotifications
 import org.mozilla.fenix.components.components
 import org.mozilla.fenix.components.menu.compose.Addons
@@ -89,6 +91,7 @@ import org.mozilla.fenix.components.menu.middleware.MenuNavigationMiddleware
 import org.mozilla.fenix.components.menu.middleware.MenuTelemetryMiddleware
 import org.mozilla.fenix.components.menu.store.BrowserMenuState
 import org.mozilla.fenix.components.menu.store.ExtensionMenuState
+import org.mozilla.fenix.components.menu.store.IPProtectionMenuState
 import org.mozilla.fenix.components.menu.store.IPProtectionMenuStatus
 import org.mozilla.fenix.components.menu.store.MenuAction
 import org.mozilla.fenix.components.menu.store.MenuState
@@ -774,13 +777,10 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
                                         }
                                     },
                                     onIPProtectionClick = {
-                                        if (ipProtectionMenuState.status == IPProtectionMenuStatus.AuthRequired) {
-                                            store.dispatch(MenuAction.Navigate.IPProtectionSettings)
-                                        } else {
-                                            components.ipProtection.store.dispatch(IPProtectionAction.Toggle)
-                                        }
+                                        handleIPProtectionClick(ipProtectionMenuState, components, store)
                                     },
                                     onIPProtectionNavigate = {
+                                        Vpn.settingsPageTapped.record(Vpn.SettingsPageTappedExtra(entrypoint = "Menu"))
                                         store.dispatch(MenuAction.Navigate.IPProtectionSettings)
                                     },
                                     moreSettingsSubmenu = {
@@ -995,6 +995,38 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
             view = view,
         )
     }
+
+    private fun handleIPProtectionClick(
+        ipProtectionMenuState: IPProtectionMenuState,
+        components: Components,
+        store: MenuStore,
+    ) {
+        when (ipProtectionMenuState.status) {
+            IPProtectionMenuStatus.Disabled -> {
+                Vpn.menuTurnedOn.record()
+                components.ipProtection.store.dispatch(IPProtectionAction.Toggle)
+            }
+
+            IPProtectionMenuStatus.Enabled -> {
+                Vpn.menuTurnedOff.record()
+                components.ipProtection.store.dispatch(IPProtectionAction.Toggle)
+            }
+
+            IPProtectionMenuStatus.AuthRequired -> {
+                // If authorization is required, the user clicked the "Try it" button.
+                Vpn.menuTryItTapped.record(NoExtras())
+                store.dispatch(MenuAction.Navigate.IPProtectionSettings)
+            }
+
+            IPProtectionMenuStatus.Activating,
+            IPProtectionMenuStatus.DataLimitReached,
+            IPProtectionMenuStatus.ConnectionError,
+                -> {
+                components.ipProtection.store.dispatch(IPProtectionAction.Toggle)
+            }
+        }
+    }
+
     private fun getExtensionsMenuItemDescription(
         isExtensionsProcessDisabled: Boolean,
         isAllWebExtensionsDisabled: Boolean,
