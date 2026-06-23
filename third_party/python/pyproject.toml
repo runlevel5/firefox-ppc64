@@ -33,7 +33,7 @@ dependencies = [
     "markdown-it-py==3.0.0",
     "moz-l10n~=0.11.3",
     "mozilla-repo-urls==0.1.1",
-    "mozilla-version~=4.1",
+    "mozilla-version~=5.1",
     # Needs >=6.7 for Python 3.14 wheels.
     "multidict~=6.7",
     "packaging~=25.0",

@@ -949,7 +949,7 @@ requires-dist = [
     { name = "markdown-it-py", specifier = "==3.0.0" },
     { name = "moz-l10n", specifier = "~=0.11.3" },
     { name = "mozilla-repo-urls", specifier = "==0.1.1" },
-    { name = "mozilla-version", specifier = "~=4.1" },
+    { name = "mozilla-version", specifier = "~=5.1" },
     { name = "multidict", specifier = "~=6.7" },
     { name = "packaging", specifier = "~=25.0" },
     { name = "pathspec", specifier = "~=0.9" },
@@ -985,14 +985,14 @@ requires-dist = [
 
 [[package]]
 name = "mozilla-version"
-version = "4.1.0"
+version = "5.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c2/91/a67deea35ec3a0c80bfa0142e72fc779d96544814067e99f39d78d90b754/mozilla_version-4.1.0.tar.gz", hash = "sha256:f32f6f5607c345bb4db0aba0077511b196cba80af70c83cfe606a913a478f7e8", size = 62685, upload-time = "2025-05-02T12:48:19.615Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/36/7c/c23a10f59db273ed3f0dc078a1b1263e9f9126c4e36af86021e5bfaf9e24/mozilla_version-5.1.0.tar.gz", hash = "sha256:b09d56f0d7e66fa2ff3df5ad1299df456afd8a63e6c2b9521a94b4616a6cb1e8", size = 99616, upload-time = "2026-06-17T09:58:57.812Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/83/d9/671361f42a55d8369d29bbb07ada1e884cc079c1e265ab5a826e2091cadb/mozilla_version-4.1.0-py3-none-any.whl", hash = "sha256:816b0cd03456105f49ad8661e47934e66118f84ddae38c4193082f297396a7ed", size = 132224, upload-time = "2025-05-02T12:48:17.819Z" },
+    { url = "https://files.pythonhosted.org/packages/e9/aa/cdf061be6b68f245c9405c17b899802b1ccc40eb77200579608936c14b33/mozilla_version-5.1.0-py3-none-any.whl", hash = "sha256:2e8de52712c3fbefac7f42f69319a664c6ba01d6e97bf07d5353a65ed34de94b", size = 44415, upload-time = "2026-06-17T09:58:56.595Z" },
 ]
 
 [[package]]
