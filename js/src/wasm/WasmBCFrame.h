@@ -879,7 +879,15 @@ class BaseStackFrame final : public BaseStackFrameAllocator {
   }
 
   void loadStackI32(int32_t offset, RegI32 dest) {
+    // An i32 is spilled into a pointer-sized (8-byte) stack slot by pushGPR, so
+    // on big-endian its value occupies the high-address low word at +4. Reading
+    // at +0 would pick up the always-zero high word.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    masm.load32(Address(sp_, stackOffset(offset) + int32_t(sizeof(int32_t))),
+                dest);
+#else
     masm.load32(Address(sp_, stackOffset(offset)), dest);
+#endif
   }
 
   void loadStackI64(int32_t offset, RegI64 dest) {
