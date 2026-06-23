@@ -1085,8 +1085,12 @@ cairo_cff_font_read_cid_fontdict (cairo_cff_font_t *font, unsigned char *ptr)
             goto fail;
         }
         operand = decode_integer (operand, &size);
+        if (unlikely (size < 0)) {
+            status = CAIRO_INT_STATUS_UNSUPPORTED;
+            goto fail;
+        }
         decode_integer (operand, &offset);
-        if (unlikely (offset < 0 || (unsigned long)offset > font->data_length)) {
+        if (unlikely (offset < 0 || (unsigned long)(size + offset) > font->data_length)) {
             status = CAIRO_INT_STATUS_UNSUPPORTED;
             goto fail;
         }
@@ -1251,9 +1255,11 @@ cairo_cff_font_read_top_dict (cairo_cff_font_t *font)
     } else {
         operand = cff_dict_get_operands (font->top_dict, PRIVATE_OP, &size);
         operand = decode_integer (operand, &size);
+        if (unlikely (size < 0))
+            return CAIRO_INT_STATUS_UNSUPPORTED;
         decode_integer (operand, &offset);
         p = font->data + offset;
-        if (unlikely (p < font->data || p > font->data_end))
+        if (unlikely (p < font->data || p + size > font->data_end))
             return CAIRO_INT_STATUS_UNSUPPORTED;
         status = cairo_cff_font_read_private_dict (font,
                                                    font->private_dict,
