@@ -108,3 +108,4 @@ tasks:
             build_platform: win64-aarch64-shippable
         extra:
             platform: win64-aarch64
+            last-watershed: "140.0esr"
