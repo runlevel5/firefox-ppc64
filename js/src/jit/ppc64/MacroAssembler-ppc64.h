@@ -140,7 +140,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
   // Allocates a 48-byte linkage area, loads the callee entry/TOC from the
   // descriptor, and restores our TOC afterwards. Used by the callWithABI ABI
   // sites (the only places we know the target is a C function, not JIT code).
-  void callABIDescriptorELFv1(Register descriptor);
+  CodeOffset callABIDescriptorELFv1(Register descriptor);
 #endif
 
   // ===============================================================

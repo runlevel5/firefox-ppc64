@@ -599,11 +599,21 @@ void MacroAssembler::call(ImmPtr target) {
 
 CodeOffset MacroAssembler::call(wasm::SymbolicAddress target) {
   movePtr(target, CallReg);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // ELFv1: a SymbolicAddress (a C function) resolves to a {entry,toc,env}
+  // function descriptor, not a raw code entry. call(Register) uses the ELFv2
+  // convention (branch straight to the address), which on ELFv1 would branch
+  // into the descriptor's non-executable data. Dereference it like the
+  // callWithABI sites do.
+  return callABIDescriptorELFv1(CallReg);
+#else
   return call(CallReg);
+#endif
 }
 
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-void MacroAssemblerPPC64Compat::callABIDescriptorELFv1(Register descriptor) {
+CodeOffset MacroAssemblerPPC64Compat::callABIDescriptorELFv1(
+    Register descriptor) {
   // On ELFv1 a C function pointer is a 24-byte descriptor {entry@0, toc@8,
   // env@16}, not a code entry (the ELFv2 convention call(Register) assumes).
   // Allocate the ELFv1 call frame: a 48-byte linkage area (the callee's LR
@@ -624,8 +634,11 @@ void MacroAssemblerPPC64Compat::callABIDescriptorELFv1(Register descriptor) {
   as_ld(r12, descriptor, 0);
   xs_mtctr(r12);
   as_bctr(LinkB);
+  // Return address (where the callee returns to) is the instruction after bctr.
+  CodeOffset callOffset(currentOffset());
   as_ld(r2, StackPointer, 24);
   as_addi(StackPointer, StackPointer, kELFv1FrameSize);
+  return callOffset;
 }
 #endif
 
