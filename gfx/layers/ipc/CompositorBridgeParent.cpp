@@ -351,11 +351,12 @@ void CompositorBridgeParent::StopAndClearResources() {
     indirectBridgeParents.clear();
 
     RefPtr<wr::WebRenderAPI> api = mWrBridge->GetWebRenderAPI();
-    {
-      StaticMonitorAutoLock lock(sIndirectLayerTreesLock);
-      EnsureLayerTreeStateUnderLock(mRootLayerTreeID, lock).mWebRenderAPI =
-          nullptr;
-    }
+    // Only clear it if the entry still exists. By shutdown the entry for
+    // mRootLayerTreeID may already have been erased, and inserting one here
+    // just to null this field would wrongly resurrect it.
+    CallWithLayerTreeState(mRootLayerTreeID, [](LayerTreeState& aState) {
+      aState.mWebRenderAPI = nullptr;
+    });
     // Ensure we are not holding the sIndirectLayerTreesLock here because we
     // are going to block on WR threads in order to shut it down properly.
     mWrBridge->Destroy();
