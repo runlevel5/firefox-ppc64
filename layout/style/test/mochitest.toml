@@ -18,6 +18,7 @@ prefs = [
   "layout.css.style-queries.enabled=true",
   "layout.css.text-box.enabled=true",
   "layout.css.link-parameters.enabled=true",
+  "layout.css.ellipse-corners.enabled=true"
 ]
 support-files = [
   "animation_utils.js",
