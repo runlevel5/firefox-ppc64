@@ -2178,10 +2178,13 @@ class FunctionCompiler {
                  ? constantI64(int64_t(table.initialLength()))
                  : constantI32(int32_t(table.initialLength()));
     }
-    return loadTableField(tableIndex, offsetof(TableInstanceData, length),
-                          table.addressType() == AddressType::I64
-                              ? MIRType::Int64
-                              : MIRType::Int32);
+    // The length is a uint64_t; a 32-bit load must read its low word, which is
+    // at +4 on big-endian (TableLength32ByteOffset()).
+    bool is64 = table.addressType() == AddressType::I64;
+    return loadTableField(
+        tableIndex,
+        is64 ? offsetof(TableInstanceData, length) : TableLength32ByteOffset(),
+        is64 ? MIRType::Int64 : MIRType::Int32);
   }
 
   MDefinition* loadTableElements(uint32_t tableIndex) {
