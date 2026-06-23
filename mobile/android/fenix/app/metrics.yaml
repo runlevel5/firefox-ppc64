@@ -16316,6 +16316,45 @@ vpn:
     notification_emails:
       - android-probes@mozilla.com
     expires: never
+  trust_panel_try_it_tapped:
+    type: event
+    description:
+      Triggered when the user taps "Try it" from the trust panel.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2032561
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D306489
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  trust_panel_turned_on:
+    type: event
+    description:
+      Triggered when the user turns the VPN on from the trust panel.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2032561
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D306489
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  trust_panel_turned_off:
+    type: event
+    description:
+      Triggered when the user turns the VPN off from the trust panel.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2032561
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D306489
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
 
 native_share_sheet:
   shown:
