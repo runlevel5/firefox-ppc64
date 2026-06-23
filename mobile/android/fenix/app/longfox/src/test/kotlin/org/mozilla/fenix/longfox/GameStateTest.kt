@@ -442,6 +442,18 @@ class GameStateTest {
     }
 
     @Test
+    fun `swipe gesture just below minDistance is ignored`() {
+        val state = state(direction = Direction.RIGHT).onSwipeGesture(dx = 0f, dy = 29f, minDistance = 30f)
+        assertEquals(Direction.RIGHT, state.direction)
+    }
+
+    @Test
+    fun `swipe gesture exactly at minDistance is applied`() {
+        val state = state(direction = Direction.RIGHT).onSwipeGesture(dx = 0f, dy = 30f, minDistance = 30f)
+        assertEquals(Direction.DOWN, state.direction)
+    }
+
+    @Test
     fun `swipe gesture right while moving left is ignored`() {
         val state = state(direction = Direction.LEFT).onSwipeGesture(dx = 100f, dy = 0f, minDistance = 30f)
         assertEquals(Direction.LEFT, state.direction)

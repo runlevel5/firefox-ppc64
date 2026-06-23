@@ -54,6 +54,11 @@ import org.mozilla.fenix.longfox.GameState.Companion.MAX_JUST_EATEN_COUNTDOWN
 import org.mozilla.fenix.longfox.GameState.Companion.MAX_SCORE_CELEBRATION_COUNTDOWN
 import org.mozilla.fenix.longfox.GleanMetrics.Longfox
 
+// Minimum drag distance (in dp) for a gesture to count as a swipe rather than a tap. Kept well
+// above the platform touch slop so ordinary taps with a little finger movement are not misread as
+// swipes (and therefore dropped) - see bug 2040618.
+private const val MIN_SWIPE_DISTANCE_DP = 16
+
 /**
  * The main composable container for the game.
  * Holds the game state and callbacks for resizing the screen, handling touch, playing sounds etc.
@@ -143,23 +148,24 @@ fun LongFoxGameScreen() {
             modifier = Modifier
                 .fillMaxSize()
                 .pointerInput(Unit) {
-                    val touchSlop = viewConfiguration.touchSlop
+                    val minSwipeDistance = MIN_SWIPE_DISTANCE_DP.dp.toPx()
                     awaitEachGesture {
                         val down = awaitFirstDown()
                         var totalDrag = Offset.Zero
                         var lifted = false
                         while (!lifted) {
                             val event = awaitPointerEvent()
-                            event.changes.forEach { change ->
-                                totalDrag += change.positionChange()
-                                if (!change.pressed) lifted = true
-                                change.consume()
-                            }
+                            // Only track the pointer that started the gesture, so a second finger
+                            // can't inflate the drag distance and turn a tap into a swipe.
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: continue
+                            totalDrag += change.positionChange()
+                            if (!change.pressed) lifted = true
+                            change.consume()
                         }
-                        if (totalDrag.getDistance() < touchSlop) {
+                        if (totalDrag.getDistance() < minSwipeDistance) {
                             onTap(down.position)
                         } else {
-                            onSwipe(totalDrag.x, totalDrag.y, touchSlop)
+                            onSwipe(totalDrag.x, totalDrag.y, minSwipeDistance)
                         }
                     }
                 },
