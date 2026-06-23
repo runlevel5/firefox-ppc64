@@ -94,10 +94,6 @@
     <color name="fx_mobile_icon_color_accent_green">@color/photonGreen60</color>
     <color name="fx_mobile_icon_color_accent_yellow">@color/photonYellow60</color>
 
-    <!-- Border -->
-    <!-- Active tab (Nav), Selected tab, Active form -->
-    <color name="fx_mobile_border_color_accent">@color/photonInk20</color>
-
     <!-- Private theme color variables -->
 
     <!-- Material3 color variables -->
