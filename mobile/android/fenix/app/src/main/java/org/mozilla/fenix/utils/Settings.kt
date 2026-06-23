@@ -2733,7 +2733,7 @@ class Settings(
      */
     var importBookmarksFeatureFlagEnabled by booleanPreference(
         key = appContext.getPreferenceKey(R.string.pref_key_enable_import_bookmarks),
-        default = Config.channel.isNightlyOrDebug,
+        default = { FxNimbus.features.importBookmarks.value().enabled },
     )
 
     /**
