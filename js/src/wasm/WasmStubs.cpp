@@ -2597,7 +2597,19 @@ bool wasm::GenerateBuiltinThunk(MacroAssembler& masm, ABIFunctionType abiType,
   // Call into the native builtin function
   masm.assertStackAlignment(ABIStackAlignment);
   MoveSPForJitABI(masm);
+#if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
+    __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // ELFv1: funcPtr is a C function pointer, i.e. a {entry,toc,env} descriptor,
+  // not a raw code entry. call(ImmPtr) would branch straight into the
+  // descriptor's data; dereference it like the callWithABI sites do. The thunk
+  // copied the builtin's arguments into registers (these builtins are
+  // register-arg only), so callABIDescriptorELFv1's register-arg convention and
+  // its mandatory parameter save area are exactly what's needed here.
+  masm.movePtr(ImmPtr(funcPtr, ImmPtr::NoCheckToken()), CallReg);
+  masm.callABIDescriptorELFv1(CallReg);
+#else
   masm.call(ImmPtr(funcPtr, ImmPtr::NoCheckToken()));
+#endif
 
 #if defined(JS_CODEGEN_X64)
   // No widening is required, as the caller will widen.
