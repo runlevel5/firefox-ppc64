@@ -10830,6 +10830,12 @@ void CodeGenerator::visitWasmLoadSlot(LWasmLoadSlot* ins) {
   if (type == MIRType::Simd128) {
     MOZ_ASSERT(wideningOp == MWideningOp::None);
     FaultingCodeOffset fco = masm.loadUnalignedSimd128(addr, dst.fpu());
+#  if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
+      __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // A wasm global cell holds the little-endian image; byte-reverse to the
+    // canonical SIMD register order.
+    masm.as_xxbrq(dst.fpu(), dst.fpu());
+#  endif
     EmitSignalNullCheckTrapSite(masm, ins, fco, wasm::TrapMachineInsn::Load128);
     return;
   }
@@ -10872,7 +10878,16 @@ void CodeGenerator::visitWasmStoreSlot(LWasmStoreSlot* ins) {
 
 #ifdef ENABLE_WASM_SIMD
   if (type == MIRType::Simd128) {
-    FaultingCodeOffset fco = masm.storeUnalignedSimd128(src.fpu(), addr);
+    FloatRegister v = src.fpu();
+#  if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
+      __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // A wasm global cell holds the little-endian image; byte-reverse the
+    // canonical register into a scratch (the input may be live) before storing.
+    ScratchSimd128Scope scratch(masm);
+    masm.as_xxbrq(scratch, v);
+    v = scratch;
+#  endif
+    FaultingCodeOffset fco = masm.storeUnalignedSimd128(v, addr);
     EmitSignalNullCheckTrapSite(masm, ins, fco,
                                 wasm::TrapMachineInsn::Store128);
     return;
