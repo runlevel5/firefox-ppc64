@@ -609,8 +609,10 @@ const bigEndian = (function () {
   return new Uint8Array(b)[0] === 0;
 })();
 
-function memView(ctor, buffer) {
-  let arr = new ctor(buffer);
+function memView(ctor, buffer, byteOffset, length) {
+  let off = byteOffset || 0;
+  let arr = length === undefined ? new ctor(buffer, off)
+                                 : new ctor(buffer, off, length);
   if (!bigEndian || arr.BYTES_PER_ELEMENT === 1) {
     return arr;
   }
@@ -640,9 +642,9 @@ function memView(ctor, buffer) {
     typeof p === "string" && p.length && p[0] >= "0" && p[0] <= "9" &&
     Number.isInteger(+p) && String(+p) === p;
   return new Proxy(arr, {
-    get(t, p) { return isIndex(p) ? getE(+p * bpe) : Reflect.get(t, p); },
+    get(t, p) { return isIndex(p) ? getE(off + (+p) * bpe) : Reflect.get(t, p); },
     set(t, p, v) {
-      if (isIndex(p)) { setE(+p * bpe, v); return true; }
+      if (isIndex(p)) { setE(off + (+p) * bpe, v); return true; }
       return Reflect.set(t, p, v);
     },
   });
