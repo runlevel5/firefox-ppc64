@@ -169,7 +169,7 @@ const {
   }
 }).exports;
 
-var view = new BigUint64Array(mem.buffer, 0, 2);
+var view = memView(BigUint64Array, mem.buffer);
 
 for (let i = 0; i < 100; ++i) {
   view[0] = 0n;
