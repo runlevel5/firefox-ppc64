@@ -1106,6 +1106,17 @@ class BaseStackFrame final : public BaseStackFrameAllocator {
     } bits{};
     static_assert(sizeof(bits) == 16);
     memcpy(bits.bytes, imm.bytes, 16);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // imm.bytes is the little-endian v128 image, but the stack results area
+    // holds the raw register byte order that storeUnalignedSimd128 writes, which
+    // on big-endian is the full byte-reverse of that image. Reverse all 16 bytes
+    // so the immediate matches the computed (register-spilled) result path.
+    for (unsigned i = 0; i < 8; i++) {
+      uint8_t t = bits.bytes[i];
+      bits.bytes[i] = bits.bytes[15 - i];
+      bits.bytes[15 - i] = t;
+    }
+#endif
     for (unsigned i = 0; i < 4; i++) {
       store32BitsToStack(bits.i32[i], destHeight - i * sizeof(int32_t), temp);
     }
