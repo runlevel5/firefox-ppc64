@@ -2366,10 +2366,13 @@ static void CompareExchange64(MacroAssembler& masm,
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
   // wasm atomic memory is little-endian. Byte-reverse the replacement to native
   // once before the loop, and the loaded value to LE inside the loop (compared
-  // against the little-endian expect and returned). VSX scratch swap.
-  masm.as_mtvsrd(ScratchDoubleReg, replace.reg);
-  masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
-  masm.as_mfvsrd(replace.reg, ScratchDoubleReg);
+  // against the little-endian expect and returned). VSX scratch swap. JS atomics
+  // (access == nullptr) are native byte order, so no swap.
+  if (access) {
+    masm.as_mtvsrd(ScratchDoubleReg, replace.reg);
+    masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
+    masm.as_mfvsrd(replace.reg, ScratchDoubleReg);
+  }
 #endif
 
   masm.bind(&tryAgain);
@@ -2383,9 +2386,11 @@ static void CompareExchange64(MacroAssembler& masm,
   masm.as_ldarx(output.reg, r0, scratch);
 
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-  masm.as_mtvsrd(ScratchDoubleReg, output.reg);
-  masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
-  masm.as_mfvsrd(output.reg, ScratchDoubleReg);
+  if (access) {
+    masm.as_mtvsrd(ScratchDoubleReg, output.reg);
+    masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
+    masm.as_mfvsrd(output.reg, ScratchDoubleReg);
+  }
 #endif
 
   masm.ma_cmp(output.reg, expect.reg, Assembler::NotEqual);
@@ -2535,9 +2540,12 @@ static void AtomicExchange64(MacroAssembler& masm,
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
   // wasm atomic memory is little-endian. Byte-reverse the to-be-stored value to
   // native once before the loop and the loaded old value to LE after. VSX swap.
-  masm.as_mtvsrd(ScratchDoubleReg, value.reg);
-  masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
-  masm.as_mfvsrd(value.reg, ScratchDoubleReg);
+  // JS atomics (access == nullptr) are native byte order, so no swap.
+  if (access) {
+    masm.as_mtvsrd(ScratchDoubleReg, value.reg);
+    masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
+    masm.as_mfvsrd(value.reg, ScratchDoubleReg);
+  }
 #endif
 
   masm.bind(&tryAgain);
@@ -2556,9 +2564,11 @@ static void AtomicExchange64(MacroAssembler& masm,
   masm.memoryBarrierAfter(sync);
 
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-  masm.as_mtvsrd(ScratchDoubleReg, output.reg);
-  masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
-  masm.as_mfvsrd(output.reg, ScratchDoubleReg);
+  if (access) {
+    masm.as_mtvsrd(ScratchDoubleReg, output.reg);
+    masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
+    masm.as_mfvsrd(output.reg, ScratchDoubleReg);
+  }
 #endif
 }
 
@@ -2772,9 +2782,12 @@ static void AtomicFetchOp64(MacroAssembler& masm,
   // wasm atomic memory is little-endian; byte-reverse the natively-loaded
   // value to LE before the op (and the result before stdcx). Swap via the VSX
   // scratch: no GPR temp, no memory access (which would clear the reservation).
-  masm.as_mtvsrd(ScratchDoubleReg, output.reg);
-  masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
-  masm.as_mfvsrd(output.reg, ScratchDoubleReg);
+  // JS atomics (access == nullptr) are native byte order, so no swap.
+  if (access) {
+    masm.as_mtvsrd(ScratchDoubleReg, output.reg);
+    masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
+    masm.as_mfvsrd(output.reg, ScratchDoubleReg);
+  }
 #endif
 
   switch (op) {
@@ -2798,9 +2811,11 @@ static void AtomicFetchOp64(MacroAssembler& masm,
   }
 
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-  masm.as_mtvsrd(ScratchDoubleReg, temp.reg);
-  masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
-  masm.as_mfvsrd(temp.reg, ScratchDoubleReg);
+  if (access) {
+    masm.as_mtvsrd(ScratchDoubleReg, temp.reg);
+    masm.as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
+    masm.as_mfvsrd(temp.reg, ScratchDoubleReg);
+  }
 #endif
 
   masm.as_stdcx(temp.reg, r0, scratch);
