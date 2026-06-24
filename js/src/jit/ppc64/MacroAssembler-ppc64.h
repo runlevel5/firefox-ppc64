@@ -143,6 +143,12 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
   CodeOffset callABIDescriptorELFv1(Register descriptor);
 #endif
 
+  // The wasm-module SymbolicAddress call (the call(CallSiteDesc,
+  // SymbolicAddress) path). Calls a builtin thunk's raw wasm-ABI entry straight
+  // and dereferences a C-function descriptor on big-endian ELFv1. See the
+  // definition for why this differs from the bare call(SymbolicAddress).
+  CodeOffset callWasmSymbolic(wasm::SymbolicAddress imm);
+
   // ===============================================================
   // Conversion functions
 

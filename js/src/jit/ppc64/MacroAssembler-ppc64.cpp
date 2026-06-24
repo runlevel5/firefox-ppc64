@@ -16,6 +16,7 @@
 #include "jit/ppc64/SharedICRegisters-ppc64.h"
 #include "vm/JitActivation.h"
 #include "vm/JSContext.h"
+#include "wasm/WasmBuiltins.h"
 #include "wasm/WasmStubs.h"
 
 #include "jit/MacroAssembler-inl.h"
@@ -641,6 +642,26 @@ CodeOffset MacroAssemblerPPC64Compat::callABIDescriptorELFv1(
   return callOffset;
 }
 #endif
+
+// The wasm-module SymbolicAddress call (the call(CallSiteDesc, SymbolicAddress)
+// path). StaticallyLink patches this access to SymbolicAddressTarget(): a symbol
+// that NeedsBuiltinThunk resolves to the builtin thunk's raw wasm-ABI code
+// entry, while a non-thunk symbol resolves to a C function pointer, which on
+// ELFv1 big-endian is a {entry,toc,env} descriptor. So call the thunk straight
+// and dereference the C function. (The bare call(SymbolicAddress) used by stubs
+// and the process-global thunks always targets a C function, so it always
+// dereferences.)
+CodeOffset MacroAssemblerPPC64Compat::callWasmSymbolic(wasm::SymbolicAddress imm) {
+  asMasm().movePtr(imm, CallReg);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  if (wasm::NeedsBuiltinThunk(imm)) {
+    return asMasm().call(CallReg);
+  }
+  return callABIDescriptorELFv1(CallReg);
+#else
+  return asMasm().call(CallReg);
+#endif
+}
 
 void MacroAssembler::callWithABINoProfiler(const Address& fun, ABIType result) {
   UseScratchRegisterScope temps(asMasm());
