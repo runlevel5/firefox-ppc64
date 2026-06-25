@@ -1068,6 +1068,10 @@ class BaseStackFrame final : public BaseStackFrameAllocator {
 #endif
   }
 
+  void storeImmediate32ToStack(int32_t imm, uint32_t destHeight, Register temp) {
+    store32BitsToStack(imm, destHeight, temp);
+  }
+
   void storeImmediateI64ToStack(int64_t imm, uint32_t destHeight,
                                 Register temp) {
     store64BitsToStack(imm, destHeight, temp);

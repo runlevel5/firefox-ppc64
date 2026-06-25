@@ -10902,7 +10902,15 @@ void CodeGenerator::visitWasmStoreStackResult(LWasmStoreStackResult* ins) {
 
   switch (ins->type()) {
     case MIRType::Int32:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      // Store an i32 stack result as 32 bits so the value lands at the slot
+      // offset the consumer reads (the low address word); a 64-bit store would
+      // place it in the high address word on big-endian and the matching 32-bit
+      // load would read 0.
+      masm.store32(ToRegister(value), addr);
+#else
       masm.storePtr(ToRegister(value), addr);
+#endif
       break;
     case MIRType::Float32:
       masm.storeFloat32(ToFloatRegister(value), addr);
