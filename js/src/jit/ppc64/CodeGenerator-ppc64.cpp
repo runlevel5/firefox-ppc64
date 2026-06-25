@@ -1920,12 +1920,26 @@ void CodeGenerator::visitAsmJSStoreHeap(LAsmJSStoreHeap* ins) {
 void CodeGenerator::visitWasmStackArg(LWasmStackArg* ins) {
   const MWasmStackArg* mir = ins->mir();
   if (ins->arg()->isConstant()) {
-    masm.storePtr(ImmWord(ToInt32(ins->arg())),
-                  Address(StackPointer, mir->spOffset()));
+    // An i32 stack arg must be stored as 32 bits: a 64-bit store places the
+    // value in the low half of the 8-byte slot, which on big-endian is the
+    // high address word, while the callee reads a 32-bit value at the slot
+    // offset (the low address word) and would see 0.
+    if (mir->input()->type() == MIRType::Int32) {
+      masm.store32(Imm32(ToInt32(ins->arg())),
+                   Address(StackPointer, mir->spOffset()));
+    } else {
+      masm.storePtr(ImmWord(ToInt32(ins->arg())),
+                    Address(StackPointer, mir->spOffset()));
+    }
   } else {
     if (ins->arg()->isGeneralReg()) {
-      masm.storePtr(ToRegister(ins->arg()),
-                    Address(StackPointer, mir->spOffset()));
+      if (mir->input()->type() == MIRType::Int32) {
+        masm.store32(ToRegister(ins->arg()),
+                     Address(StackPointer, mir->spOffset()));
+      } else {
+        masm.storePtr(ToRegister(ins->arg()),
+                      Address(StackPointer, mir->spOffset()));
+      }
     } else if (mir->input()->type() == MIRType::Double) {
       masm.storeDouble(ToFloatRegister(ins->arg()),
                        Address(StackPointer, mir->spOffset()));
