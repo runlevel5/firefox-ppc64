@@ -1395,22 +1395,11 @@ BEGIN_TEST(
   for (int32_t i = 0; i < nops; ++i) {
     masm.Nop();
   }
+  BufferOffset after_last_nop(masm.currentOffset());
 
   // tbz1 is still unbound after emitting nops.
   CHECK_EQUAL(masm.getInstructionAt(tbz1)->InstructionBits(),
               tbz(tbz1_bitpos, unbound));
-
-  // 30 determined through testing, but there's probably a way to compute it.
-  constexpr int32_t more_instr = 30;
-
-  // Minus one to leave room for the final tbz instruction.
-  constexpr int32_t more_nops = more_instr - 1;
-
-  // Insert more nops.
-  for (int32_t i = 0; i < more_nops; ++i) {
-    masm.Nop();
-  }
-  BufferOffset after_last_nop(masm.currentOffset());
 
   // Create the final tbz instruction.
   unsigned tbz2_bitpos = 1;

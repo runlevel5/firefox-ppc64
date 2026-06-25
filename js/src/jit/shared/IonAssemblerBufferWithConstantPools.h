@@ -925,9 +925,10 @@ struct AssemblerBufferWithConstantPools : public AssemblerBuffer<Inst> {
     // of flushPool, we have to check for overflow when comparing the deadline
     // with our expected reserved bytes.
     size_t deadline = branchDeadlines_.earliestDeadline().getOffset();
-    size_t current = this->nextOffset().getOffset();
+    size_t nextOffset = sizeExcludingCurrentPool();
+    size_t poolOffset = nextOffset + (GuardSize + HeaderSize) * InstSize;
     mozilla::CheckedInt<size_t> poolFreeSpace(reservedBytes);
-    auto future = (current + sizeOfSecondaryVeneers()) + poolFreeSpace;
+    auto future = (poolOffset + sizeOfSecondaryVeneers()) + poolFreeSpace;
     return !future.isValid() || deadline < future.value();
   }
 
