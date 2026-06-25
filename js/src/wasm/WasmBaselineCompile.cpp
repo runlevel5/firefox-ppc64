@@ -1365,8 +1365,8 @@ void BaseCompiler::popStackResults(ABIResultIter& iter, StackHeight stackBase) {
       if (srcHeight <= destHeight) {
         break;
       }
-      fr.shuffleStackResultsTowardFP(srcHeight, destHeight, result.size(),
-                                     temp);
+      fr.shuffleStackResultsTowardFP(srcHeight, destHeight, result.size(), temp,
+                                     result.type().kind() == ValType::I32);
     }
   }
 
@@ -1390,8 +1390,8 @@ void BaseCompiler::popStackResults(ABIResultIter& iter, StackHeight stackBase) {
       if (srcHeight >= destHeight) {
         break;
       }
-      fr.shuffleStackResultsTowardSP(srcHeight, destHeight, result.size(),
-                                     temp);
+      fr.shuffleStackResultsTowardSP(srcHeight, destHeight, result.size(), temp,
+                                     result.type().kind() == ValType::I32);
     }
   }
 
@@ -1445,6 +1445,12 @@ void BaseCompiler::popStackResults(ABIResultIter& iter, StackHeight stackBase) {
         break;
       default:
         MOZ_ASSERT(v.isMem());
+        // A non-shuffled (in-place) i32 stack result sits at offset +4 of its
+        // 8-byte slot on big-endian; the consumer reads offset 0, so move it.
+        if (result.type().kind() == ValType::I32 &&
+            uint32_t(v.offs()) == resultHeight) {
+          fr.normalizeI32StackResultInPlace(resultHeight, temp);
+        }
         break;
     }
     stk_.popBack();
