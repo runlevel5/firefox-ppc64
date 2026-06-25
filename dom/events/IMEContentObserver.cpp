@@ -258,8 +258,9 @@ bool IMEContentObserver::InitWithEditor(nsPresContext& aPresContext,
     return false;
   }
 
+  mRootElement = ComputeRootElement(presShell);
+
   if (mEditorBase->IsTextEditor()) {
-    mRootElement = mEditorBase->GetRoot();  // The anonymous <div>
     MOZ_ASSERT(mRootElement);
     MOZ_ASSERT(mRootElement->GetFirstChild());
     if (auto* text = Text::FromNodeOrNull(
@@ -267,32 +268,6 @@ bool IMEContentObserver::InitWithEditor(nsPresContext& aPresContext,
       mTextControlValueLength = ContentEventHandler::GetNativeTextLength(*text);
     }
     mIsTextControl = true;
-  } else if (const nsRange* selRange = selection->GetRangeAt(0)) {
-    MOZ_ASSERT(!mIsTextControl);
-    if (NS_WARN_IF(!selRange->GetStartContainer())) {
-      return false;
-    }
-
-    // If an editing host has focus, mRootElement is it.
-    // Otherwise, if we're in the design mode, mRootElement is the <body> if
-    // there is and startContainer is not outside of the <body>.  Otherwise, the
-    // document element is used instead.
-    nsCOMPtr<nsINode> startContainer = selRange->GetStartContainer();
-    mRootElement =
-        Element::FromNodeOrNull(startContainer->GetSelectionRootContent(
-            presShell, nsINode::IgnoreOwnIndependentSelection::Yes,
-            nsINode::AllowCrossShadowBoundary::No));
-  } else {
-    MOZ_ASSERT(!mIsTextControl);
-    // If an editing host has focus, mRootElement is it.
-    // Otherwise, if we're in the design mode, mRootElement is the <body> if
-    // there is.  Otherwise, the document element is used instead.
-    const OwningNonNull<nsINode> rootEditableNode(
-        *mRootEditableNodeOrTextControlElement);
-    mRootElement =
-        Element::FromNodeOrNull(rootEditableNode->GetSelectionRootContent(
-            presShell, nsINode::IgnoreOwnIndependentSelection::Yes,
-            nsINode::AllowCrossShadowBoundary::No));
   }
   if (!mRootElement && mRootEditableNodeOrTextControlElement->IsDocument()) {
     // The document node is editable, but there are no contents, this document
@@ -312,6 +287,58 @@ bool IMEContentObserver::InitWithEditor(nsPresContext& aPresContext,
   mDocumentObserver = new DocumentObserver(*this);
 
   return true;
+}
+
+Element* IMEContentObserver::ComputeRootElement(PresShell* aPresShell) const {
+  if (NS_WARN_IF(!aPresShell) ||
+      NS_WARN_IF(!mRootEditableNodeOrTextControlElement)) {
+    return nullptr;
+  }
+  Selection* const selection = GetSelection();
+  if (NS_WARN_IF(!selection)) {
+    return nullptr;
+  }
+
+  if (mEditorBase->IsTextEditor()) {
+    return mEditorBase->GetRoot();  // The anonymous <div>
+  }
+
+  // If there is a selection range, we should compute our root element from the
+  // first range.
+  if (const nsRange* selRange = selection->GetRangeAt(0)) {
+    MOZ_ASSERT(!mIsTextControl);
+    if (NS_WARN_IF(!selRange->GetStartContainer())) {
+      return nullptr;
+    }
+
+    // If an editing host has focus, our root element should be it.
+    // Otherwise, if we're in the design mode, the <body> should be the our root
+    // element if there is and startContainer is not outside of the <body>.
+    // Otherwise, the document element should be used instead.
+    return Element::FromNodeOrNull(
+        selRange->GetStartContainer()->GetSelectionRootContent(
+            aPresShell, nsINode::IgnoreOwnIndependentSelection::Yes,
+            nsINode::AllowCrossShadowBoundary::No));
+  }
+
+  // If there is no selection range in the design mode, we should use the <body>
+  // if there is. Otherwise, the document element.
+  if (mRootEditableNodeOrTextControlElement->IsInDesignMode()) {
+    MOZ_ASSERT(mRootEditableNodeOrTextControlElement->IsDocument());
+    Element* const bodyElement =
+        mRootEditableNodeOrTextControlElement->AsDocument()->GetBody();
+    if (bodyElement && bodyElement->IsEditable()) {
+      return bodyElement;
+    }
+    return mRootEditableNodeOrTextControlElement->AsDocument()
+        ->GetRootElement();
+  }
+
+  // If an editing host has focus, it should be the our root element.
+  return Element::FromNodeOrNull(
+      mRootEditableNodeOrTextControlElement->GetSelectionRootContent(
+          aPresShell, nsINode::IgnoreOwnIndependentSelection::Yes,
+          nsINode::AllowCrossShadowBoundary::No));
 }
 
 void IMEContentObserver::Clear() {
@@ -587,13 +614,21 @@ bool IMEContentObserver::IsObservingElement(const nsPresContext& aPresContext,
     return !aElement->IsInDesignMode() &&
            aElement == mRootEditableNodeOrTextControlElement;
   }
+  // In the design mode, GetMostDistantInclusiveEditableAncestorNode() returns
+  // the document so that we need to check whether mRootElement is the same.
+  if (mRootEditableNodeOrTextControlElement &&
+      mRootEditableNodeOrTextControlElement->IsInDesignMode()) {
+    return mRootElement && (!aElement || aElement->IsInDesignMode()) &&
+           mRootElement == ComputeRootElement(aPresContext.GetPresShell());
+  }
   // If this is initialized with an HTMLEditor,
   // mRootEditableNodeOrTextControlElement is an editing host when this is
   // initialized.  However, its ancestor may become editable.  Therefore, we
   // need to check whether it's still an editing host.
-  return mRootEditableNodeOrTextControlElement ==
-         IMEContentObserver::GetMostDistantInclusiveEditableAncestorNode(
-             aPresContext, aElement);
+  return mRootEditableNodeOrTextControlElement &&
+         mRootEditableNodeOrTextControlElement ==
+             IMEContentObserver::GetMostDistantInclusiveEditableAncestorNode(
+                 aPresContext, aElement);
 }
 
 // static

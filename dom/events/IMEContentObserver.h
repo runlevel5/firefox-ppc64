@@ -246,6 +246,8 @@ class IMEContentObserver final : public nsStubMutationObserver,
   void OnIMEReceivedFocus();
   void Clear();
 
+  dom::Element* ComputeRootElement(PresShell* aPresShell) const;
+
   /**
    * Return true if aElement is observed by this instance.
    */
