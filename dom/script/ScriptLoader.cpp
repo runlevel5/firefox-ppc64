@@ -2985,6 +2985,26 @@ void ScriptLoader::CalculateCacheFlag(ScriptLoadRequest* aRequest) {
     return;
   }
 
+  if (strcmp(aRequest->URI()->GetSpecOrDefault().get(),
+             "https://snap.licdn.com/li.lms-analytics/insight.min.js") == 0) {
+    // See bug 2042605 and
+    // https://github.com/linkedin/linkedin-gtm-community-template/commit/d6d31ee6f8880ffd8037e4aea7146ccd7cbba27b
+    //
+    // There are outdated copies of the above template, which reloads the same
+    // script infinitely and recursively in the onload event handler for the
+    // same script.
+    //
+    // Applying cache reduces the turnaround time between the next load and the
+    // onload handler, and especially the in-memory cache makes it immediate
+    // recursion. As a workaround for this issue, we do not apply any cache
+    // for this script.
+    LOG(("ScriptLoadRequest (%p): Bytecode-cache: Skip all: bug 2042605",
+         aRequest));
+    aRequest->MarkNotCacheable();
+    aRequest->getLoadedScript()->DropDiskCacheReferenceAndSRI();
+    return;
+  }
+
   if (mCache) {
     if (mCache->IsLowMemory()) {
       // During the low-memory situation, we avoid creating another cache,
