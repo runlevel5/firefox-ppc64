@@ -902,21 +902,6 @@ class BaseStackFrame final : public BaseStackFrameAllocator {
 #endif
   }
 
-  // The reverse of normalizeI32StackResultInPlace: a captured i32 call/block
-  // result was written at offset 0 of its 8-byte slot by the callee, but the
-  // value-stack convention (loadStackI32) reads the low word at +4, so move it
-  // there. Uses a dedicated scratch so it is safe before register results are
-  // captured.
-  void normalizeI32CallResultInPlace(uint32_t offset) {
-#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-    UseScratchRegisterScope temps(masm);
-    Register scratch = temps.Acquire();
-    masm.load32(Address(sp_, stackOffset(offset)), scratch);
-    masm.store32(scratch,
-                 Address(sp_, stackOffset(offset) + int32_t(sizeof(int32_t))));
-#endif
-  }
-
   void loadStackI64(int32_t offset, RegI64 dest) {
     masm.load64(Address(sp_, stackOffset(offset)), dest);
   }

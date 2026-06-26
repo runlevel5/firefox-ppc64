@@ -1541,20 +1541,6 @@ bool BaseCompiler::pushResults(ResultType type, StackHeight resultsBase) {
     iter.next();
   }
   uint32_t stackResultBytes = iter.stackBytesConsumedSoFar();
-#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-  // The callee writes an i32 stack result at offset 0 of its 8-byte slot, but
-  // once captured it is read through loadStackI32 (which reads the low word at
-  // +4). Move each i32 stack result to +4 before capturing. This runs before any
-  // register results are captured, so it must not allocate a value register;
-  // normalizeI32CallResultInPlace uses a dedicated scratch.
-  for (iter.reset(); !iter.done(); iter.next()) {
-    const ABIResult& result = iter.cur();
-    if (result.onStack() && result.type().kind() == ValType::I32) {
-      fr.normalizeI32CallResultInPlace(
-          fr.locateStackResult(result, resultsBase, stackResultBytes));
-    }
-  }
-#endif
   for (iter.switchToPrev(); !iter.done(); iter.prev()) {
     const ABIResult& result = iter.cur();
     if (!result.onStack()) {
