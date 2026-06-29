@@ -377,11 +377,15 @@ void BaseCompiler::tableSwitch(Label* theTable, RegI32 switchValue,
   masm.ma_ldr(DTRAddr(scratch, DtrRegImmShift(switchValue, LSL, 2)), pc, Offset,
               Assembler::Always);
 #elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
-    defined(JS_CODEGEN_RISCV64)
+    defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
   ScratchI32 scratch(*this);
   CodeLabel tableCl;
 
+#  if defined(JS_CODEGEN_PPC64)
+  masm.mov(&tableCl, scratch);
+#  else
   masm.ma_li(scratch, &tableCl);
+#  endif
 
   tableCl.target()->bind(theTable->offset());
   masm.addCodeLabel(tableCl);
@@ -899,7 +903,7 @@ void BaseCompiler::insertBreakablePoint(CallSiteKind kind) {
   masm.append(CallSiteDesc(iter_.lastOpcodeOffset(), kind),
               CodeOffset(masm.currentOffset()));
 #elif defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_MIPS64) || \
-    defined(JS_CODEGEN_RISCV64)
+    defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
   ScratchPtr scratch(*this);
   Label L;
   masm.loadPtr(Address(InstanceReg, Instance::offsetOfDebugStub()), scratch);
@@ -975,7 +979,7 @@ void BaseCompiler::insertPerFunctionDebugStub() {
     masm.ma_bx(lr, Assembler::Zero);
   }
 #elif defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_MIPS64) || \
-    defined(JS_CODEGEN_RISCV64)
+    defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
   {
     ScratchPtr scratch(*this);
 
@@ -1407,7 +1411,7 @@ void BaseCompiler::popStackResults(ABIResultIter& iter, StackHeight stackBase) {
     switch (v.kind()) {
       case Stk::ConstI32:
 #if defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
-    defined(JS_CODEGEN_RISCV64)
+    defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
         fr.storeImmediatePtrToStack(v.i32val_, resultHeight, temp);
 #else
         fr.storeImmediatePtrToStack(uint32_t(v.i32val_), resultHeight, temp);
@@ -1727,6 +1731,13 @@ void BaseCompiler::passArg(ValType type, const Stk& arg, FunctionCall* call) {
                                       argLoc.offsetFromArgBase()));
       } else {
         loadI32(arg, RegI32(argLoc.gpr()));
+#ifdef JS_CODEGEN_PPC64
+        // addi can sign-extend, which yields wrong values when the C++
+        // callee expects a uint32_t. Clear the upper 32 bits.
+        if (call->abiKind == ABIKind::System) {
+          masm.as_rldicl(argLoc.gpr(), argLoc.gpr(), 0, 32);
+        }
+#endif
       }
       break;
     }
@@ -2376,9 +2387,10 @@ void BaseCompiler::finishTryNote(size_t tryNoteIndex) {
 RegI32 BaseCompiler::needRotate64Temp() {
 #if defined(JS_CODEGEN_X86)
   return needI32();
-#elif defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM) ||    \
-    defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS64) || \
-    defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64)
+#elif defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM) ||       \
+    defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS64) ||    \
+    defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64) || \
+    defined(JS_CODEGEN_PPC64)
   return RegI32::Invalid();
 #else
   MOZ_CRASH("BaseCompiler platform hook: needRotate64Temp");
@@ -2436,6 +2448,8 @@ void BaseCompiler::popAndAllocateForMulI64(RegI64* r0, RegI64* r1,
 #elif defined(JS_CODEGEN_LOONG64)
   pop2xI64(r0, r1);
 #elif defined(JS_CODEGEN_RISCV64)
+  pop2xI64(r0, r1);
+#elif defined(JS_CODEGEN_PPC64)
   pop2xI64(r0, r1);
 #else
   MOZ_CRASH("BaseCompiler porting interface: popAndAllocateForMulI64");
@@ -2870,6 +2884,9 @@ static RegI32 PopcntTemp(BaseCompiler& bc) {
     defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
     defined(JS_CODEGEN_RISCV64)
   return bc.needI32();
+#elif defined(JS_CODEGEN_PPC64)
+  // PPC64 has native popcntd/popcntw; no temp register needed.
+  return RegI32::Invalid();
 #else
   MOZ_CRASH("BaseCompiler platform hook: PopcntTemp");
 #endif
@@ -9356,6 +9373,11 @@ static void MulI64x2(MacroAssembler& masm, RegV128 rs, RegV128 rsd,
                      RegV128 temp1, RegV128 temp2) {
   masm.mulInt64x2(rsd, rs, rsd, temp1, temp2);
 }
+#  elif defined(JS_CODEGEN_PPC64)
+static void MulI64x2(MacroAssembler& masm, RegV128 rs, RegV128 rsd,
+                     RegV128 temp1, RegV128 temp2) {
+  masm.mulInt64x2(rsd, rs, rsd, temp1, temp2);
+}
 #  endif
 
 static void MulF64x2(MacroAssembler& masm, RegV128 rs, RegV128 rsd) {
@@ -9370,7 +9392,8 @@ static void DivF64x2(MacroAssembler& masm, RegV128 rs, RegV128 rsd) {
   masm.divFloat64x2(rsd, rs, rsd);
 }
 
-#  if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)
+#  if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64) || \
+      defined(JS_CODEGEN_PPC64)
 static void MinF32x4(MacroAssembler& masm, RegV128 rs, RegV128 rsd,
                      RegV128 temp1, RegV128 temp2) {
   masm.minFloat32x4(rsd, rs, rsd, temp1, temp2);
@@ -9391,6 +9414,22 @@ static void MaxF64x2(MacroAssembler& masm, RegV128 rs, RegV128 rsd,
   masm.maxFloat64x2(rsd, rs, rsd, temp1, temp2);
 }
 
+#  if defined(JS_CODEGEN_PPC64)
+// PPC64: use non-RhsDestOp convention (first=rhs, second=lhsDest),
+// matching the pseudoMin/Max function signature.
+static void PMinF32x4(MacroAssembler& masm, RegV128 rs, RegV128 rsd) {
+  masm.pseudoMinFloat32x4(rs, rsd);
+}
+static void PMinF64x2(MacroAssembler& masm, RegV128 rs, RegV128 rsd) {
+  masm.pseudoMinFloat64x2(rs, rsd);
+}
+static void PMaxF32x4(MacroAssembler& masm, RegV128 rs, RegV128 rsd) {
+  masm.pseudoMaxFloat32x4(rs, rsd);
+}
+static void PMaxF64x2(MacroAssembler& masm, RegV128 rs, RegV128 rsd) {
+  masm.pseudoMaxFloat64x2(rs, rsd);
+}
+#  else
 static void PMinF32x4(MacroAssembler& masm, RegV128 rsd, RegV128 rs,
                       RhsDestOp) {
   masm.pseudoMinFloat32x4(rsd, rs);
@@ -9410,6 +9449,7 @@ static void PMaxF64x2(MacroAssembler& masm, RegV128 rsd, RegV128 rs,
                       RhsDestOp) {
   masm.pseudoMaxFloat64x2(rsd, rs);
 }
+#  endif
 #  elif defined(JS_CODEGEN_ARM64)
 static void MinF32x4(MacroAssembler& masm, RegV128 rs, RegV128 rsd) {
   masm.minFloat32x4(rs, rsd);
@@ -9805,6 +9845,68 @@ static void ShiftRightUI64x2(MacroAssembler& masm, RegI32 rs, RegV128 rsd,
   ShiftOpMask(masm, SimdOp::I64x2ShrU, rs, temp);
   masm.unsignedRightShiftInt64x2(rsd, temp, rsd);
 }
+#  elif defined(JS_CODEGEN_PPC64)
+// PPC64: same as ARM64 pattern (shift amount in GPR, result in vector reg)
+static void ShiftLeftI8x16(MacroAssembler& masm, RegI32 rs, RegV128 rsd,
+                           RegI32 temp) {
+  ShiftOpMask(masm, SimdOp::I8x16Shl, rs, temp);
+  masm.leftShiftInt8x16(rsd, temp, rsd);
+}
+static void ShiftLeftI16x8(MacroAssembler& masm, RegI32 rs, RegV128 rsd,
+                           RegI32 temp) {
+  ShiftOpMask(masm, SimdOp::I16x8Shl, rs, temp);
+  masm.leftShiftInt16x8(rsd, temp, rsd);
+}
+static void ShiftLeftI32x4(MacroAssembler& masm, RegI32 rs, RegV128 rsd,
+                           RegI32 temp) {
+  ShiftOpMask(masm, SimdOp::I32x4Shl, rs, temp);
+  masm.leftShiftInt32x4(rsd, temp, rsd);
+}
+static void ShiftLeftI64x2(MacroAssembler& masm, RegI32 rs, RegV128 rsd,
+                           RegI32 temp) {
+  ShiftOpMask(masm, SimdOp::I64x2Shl, rs, temp);
+  masm.leftShiftInt64x2(rsd, temp, rsd);
+}
+static void ShiftRightI8x16(MacroAssembler& masm, RegI32 rs, RegV128 rsd,
+                            RegI32 temp) {
+  ShiftOpMask(masm, SimdOp::I8x16ShrS, rs, temp);
+  masm.rightShiftInt8x16(rsd, temp, rsd);
+}
+static void ShiftRightUI8x16(MacroAssembler& masm, RegI32 rs, RegV128 rsd,
+                             RegI32 temp) {
+  ShiftOpMask(masm, SimdOp::I8x16ShrU, rs, temp);
+  masm.unsignedRightShiftInt8x16(rsd, temp, rsd);
+}
+static void ShiftRightI16x8(MacroAssembler& masm, RegI32 rs, RegV128 rsd,
+                            RegI32 temp) {
+  ShiftOpMask(masm, SimdOp::I16x8ShrS, rs, temp);
+  masm.rightShiftInt16x8(rsd, temp, rsd);
+}
+static void ShiftRightUI16x8(MacroAssembler& masm, RegI32 rs, RegV128 rsd,
+                             RegI32 temp) {
+  ShiftOpMask(masm, SimdOp::I16x8ShrU, rs, temp);
+  masm.unsignedRightShiftInt16x8(rsd, temp, rsd);
+}
+static void ShiftRightI32x4(MacroAssembler& masm, RegI32 rs, RegV128 rsd,
+                            RegI32 temp) {
+  ShiftOpMask(masm, SimdOp::I32x4ShrS, rs, temp);
+  masm.rightShiftInt32x4(rsd, temp, rsd);
+}
+static void ShiftRightUI32x4(MacroAssembler& masm, RegI32 rs, RegV128 rsd,
+                             RegI32 temp) {
+  ShiftOpMask(masm, SimdOp::I32x4ShrU, rs, temp);
+  masm.unsignedRightShiftInt32x4(rsd, temp, rsd);
+}
+static void ShiftRightI64x2(MacroAssembler& masm, RegI32 rs, RegV128 rsd,
+                            RegI32 temp) {
+  ShiftOpMask(masm, SimdOp::I64x2ShrS, rs, temp);
+  masm.rightShiftInt64x2(rsd, temp, rsd);
+}
+static void ShiftRightUI64x2(MacroAssembler& masm, RegI32 rs, RegV128 rsd,
+                             RegI32 temp) {
+  ShiftOpMask(masm, SimdOp::I64x2ShrU, rs, temp);
+  masm.unsignedRightShiftInt64x2(rsd, temp, rsd);
+}
 #  endif
 
 static void AverageUI8x16(MacroAssembler& masm, RegV128 rs, RegV128 rsd) {
@@ -10105,6 +10207,23 @@ static void BitmaskI64x2(MacroAssembler& masm, RegV128 rs, RegI32 rd,
                          RegV128 temp) {
   masm.bitmaskInt64x2(rs, rd, temp);
 }
+#  elif defined(JS_CODEGEN_PPC64)
+static void BitmaskI8x16(MacroAssembler& masm, RegV128 rs, RegI32 rd,
+                         RegV128 temp) {
+  masm.bitmaskInt8x16(rs, rd, temp);
+}
+static void BitmaskI16x8(MacroAssembler& masm, RegV128 rs, RegI32 rd,
+                         RegV128 temp) {
+  masm.bitmaskInt16x8(rs, rd, temp);
+}
+static void BitmaskI32x4(MacroAssembler& masm, RegV128 rs, RegI32 rd,
+                         RegV128 temp) {
+  masm.bitmaskInt32x4(rs, rd, temp);
+}
+static void BitmaskI64x2(MacroAssembler& masm, RegV128 rs, RegI32 rd,
+                         RegV128 temp) {
+  masm.bitmaskInt64x2(rs, rd, temp);
+}
 #  endif
 
 static void Swizzle(MacroAssembler& masm, RegV128 rs, RegV128 rsd) {
@@ -10172,6 +10291,13 @@ static void BitselectV128(MacroAssembler& masm, RegV128 rhs, RegV128 control,
                           RegV128 lhsDest, RegV128 temp) {
   // The masm interface is not great for the baseline compiler here, but it's
   // optimal for Ion, so just work around it.
+  masm.moveSimd128(control, temp);
+  masm.bitwiseSelectSimd128(lhsDest, rhs, temp);
+  masm.moveSimd128(temp, lhsDest);
+}
+#  elif defined(JS_CODEGEN_PPC64)
+static void BitselectV128(MacroAssembler& masm, RegV128 rhs, RegV128 control,
+                          RegV128 lhsDest, RegV128 temp) {
   masm.moveSimd128(control, temp);
   masm.bitwiseSelectSimd128(lhsDest, rhs, temp);
   masm.moveSimd128(temp, lhsDest);
@@ -10251,7 +10377,7 @@ void BaseCompiler::emitDotI8x16I7x16AddS() {
   RegV128 rsd = popV128();
   RegV128 rs0, rs1;
   pop2xV128(&rs0, &rs1);
-#    if defined(JS_CODEGEN_ARM64)
+#    if defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_PPC64)
   RegV128 temp = needV128();
   masm.dotInt8x16Int7x16ThenAdd(rs0, rs1, rsd, temp);
   freeV128(temp);
@@ -10457,7 +10583,7 @@ bool BaseCompiler::emitVectorLaneSelect() {
   freeV128(lhs);
   freeV128(mask);
   pushV128(rhsDest);
-#    elif defined(JS_CODEGEN_ARM64)
+#    elif defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_PPC64)
   RegV128 maskDest = popV128();
   RegV128 rhs = popV128();
   RegV128 lhs = popV128();
@@ -12622,7 +12748,7 @@ bool js::wasm::BaselinePlatformSupport() {
 #if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_X86) ||        \
     defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_ARM64) ||      \
     defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
-    defined(JS_CODEGEN_RISCV64)
+    defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
   return true;
 #else
   return false;

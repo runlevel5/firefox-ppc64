@@ -57,6 +57,22 @@ bool MoveResolver::addMove(const MoveOperand& from, const MoveOperand& to,
                            MoveOp::Type type) {
   // Assert that we're not doing no-op moves.
   MOZ_ASSERT(!(from == to));
+#ifdef JS_CODEGEN_PPC64
+  // PPC64 FloatRegisters expose Single/Double kinds that have distinct code()
+  // values but share one physical register. The register allocator can emit a
+  // move between two such kind-views of the same FPR (e.g. f2-Double to
+  // f2-Single); these are no-ops on the hardware, are not caught by the
+  // (from == to) assert above, and would otherwise trip the
+  // !from().aliases(to()) invariant the resolver relies on later. Drop them.
+  //
+  // This would be correct for any backend whose FloatRegister has multiple
+  // kinds aliasing one physical register, and could be un-gated if another
+  // such backend needs it, but it is scoped to PPC64 so move resolution on
+  // tier-1 platforms is left unchanged.
+  if (from.aliases(to)) {
+    return true;
+  }
+#endif
   PendingMove* pm = movePool_.allocate(from, to, type);
   if (!pm) {
     return false;

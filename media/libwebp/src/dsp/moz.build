@@ -117,6 +117,20 @@ elif CONFIG['TARGET_CPU'].startswith('mips'):
         'yuv_mips32.c',
         'yuv_mips_dsp_r2.c',
     ]
+elif CONFIG['TARGET_CPU'] == 'ppc64':
+    SOURCES += [
+        'alpha_processing_vsx.c',
+        'dec_vsx.c',
+        'filters_vsx.c',
+        'lossless_vsx.c',
+        'rescaler_vsx.c',
+        'upsampling_vsx.c',
+        'yuv_vsx.c',
+    ]
+    DEFINES['WEBP_HAVE_VSX'] = 1;
+    for f in SOURCES:
+      if f.endswith('vsx.c'):
+        SOURCES[f].flags += ['-mvsx']
 
 if CONFIG['CC_TYPE'] in ('clang', 'clang-cl'):
     CFLAGS += ['-Wno-unreachable-code']
