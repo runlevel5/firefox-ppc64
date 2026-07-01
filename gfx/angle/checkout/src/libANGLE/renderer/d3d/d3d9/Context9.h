@@ -11,6 +11,7 @@
 #define LIBANGLE_RENDERER_D3D_D3D9_CONTEXT9_H_
 
 #include <stack>
+#include "image_util/loadimage.h"
 #include "libANGLE/renderer/d3d/ContextD3D.h"
 
 namespace rx
@@ -23,13 +24,15 @@ class Context9 : public ContextD3D
     Context9(const gl::State &state, gl::ErrorSet *errorSet, Renderer9 *renderer);
     ~Context9() override;
 
-    angle::Result initialize() override;
+    angle::Result initialize(const angle::ImageLoadContext &imageLoadContext) override;
     void onDestroy(const gl::Context *context) override;
 
     // Shader creation
     CompilerImpl *createCompiler() override;
     ShaderImpl *createShader(const gl::ShaderState &data) override;
     ProgramImpl *createProgram(const gl::ProgramState &data) override;
+    ProgramExecutableImpl *createProgramExecutable(
+        const gl::ProgramExecutable *executable) override;
 
     // Framebuffer creation
     FramebufferImpl *createFramebuffer(const gl::FramebufferState &data) override;
@@ -44,12 +47,13 @@ class Context9 : public ContextD3D
     BufferImpl *createBuffer(const gl::BufferState &state) override;
 
     // Vertex Array creation
-    VertexArrayImpl *createVertexArray(const gl::VertexArrayState &data) override;
+    VertexArrayImpl *createVertexArray(const gl::VertexArrayState &data,
+                                       const gl::VertexArrayBuffers &vertexArrayBuffers) override;
 
     // Query and Fence creation
     QueryImpl *createQuery(gl::QueryType type) override;
     FenceNVImpl *createFenceNV() override;
-    SyncImpl *createSync() override;
+    SyncImpl *createSync(const gl::Context *context) override;
 
     // Transform Feedback creation
     TransformFeedbackImpl *createTransformFeedback(
@@ -215,8 +219,10 @@ class Context9 : public ContextD3D
 
     // State sync with dirty bits.
     angle::Result syncState(const gl::Context *context,
-                            const gl::State::DirtyBits &dirtyBits,
-                            const gl::State::DirtyBits &bitMask,
+                            const gl::state::DirtyBits dirtyBits,
+                            const gl::state::DirtyBits bitMask,
+                            const gl::state::ExtendedDirtyBits extendedDirtyBits,
+                            const gl::state::ExtendedDirtyBits extendedBitMask,
                             gl::Command command) override;
 
     // Disjoint timer queries
@@ -231,7 +237,7 @@ class Context9 : public ContextD3D
     const gl::TextureCapsMap &getNativeTextureCaps() const override;
     const gl::Extensions &getNativeExtensions() const override;
     const gl::Limitations &getNativeLimitations() const override;
-    ShPixelLocalStorageType getNativePixelLocalStorageType() const override;
+    const ShPixelLocalStorageOptions &getNativePixelLocalStorageOptions() const override;
 
     angle::Result dispatchCompute(const gl::Context *context,
                                   GLuint numGroupsX,
@@ -243,6 +249,7 @@ class Context9 : public ContextD3D
     angle::Result memoryBarrierByRegion(const gl::Context *context, GLbitfield barriers) override;
 
     Renderer9 *getRenderer() const { return mRenderer; }
+    const angle::ImageLoadContext &getImageLoadContext() const { return mImageLoadContext; }
 
     angle::Result getIncompleteTexture(const gl::Context *context,
                                        gl::TextureType type,
@@ -256,6 +263,7 @@ class Context9 : public ContextD3D
 
   private:
     Renderer9 *mRenderer;
+    angle::ImageLoadContext mImageLoadContext;
     IncompleteTextureSet mIncompleteTextures;
     std::stack<std::string> mMarkerStack;
 };

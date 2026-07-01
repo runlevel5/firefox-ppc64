@@ -4,7 +4,12 @@
 // found in the LICENSE file.
 //
 
-// angletypes.h : Defines a variety of structures and enum types that are used throughout libGLESv2
+// angletypes.cpp : Defines a variety of structures and enum types that are used throughout
+// libGLESv2
+
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
 
 #include "libANGLE/angletypes.h"
 #include "libANGLE/Program.h"
@@ -14,10 +19,19 @@
 
 #include <limits>
 
+#define USE_SYSTEM_ZLIB
+#include "compression_utils_portable.h"
+
 namespace gl
 {
 namespace
 {
+bool IsStencilWriteMaskedOut(GLuint stencilWritemask, GLuint framebufferStencilSize)
+{
+    const GLuint framebufferMask = angle::BitMask<GLuint>(framebufferStencilSize);
+    return (stencilWritemask & framebufferMask) == 0;
+}
+
 bool IsStencilNoOp(GLenum stencilFunc,
                    GLenum stencilFail,
                    GLenum stencilPassDepthFail,
@@ -42,21 +56,32 @@ bool IsAdvancedBlendEquation(gl::BlendEquationType blendEquation)
     return blendEquation >= gl::BlendEquationType::Multiply &&
            blendEquation <= gl::BlendEquationType::HslLuminosity;
 }
+
+bool IsExtendedBlendFactor(gl::BlendFactorType blendFactor)
+{
+    return blendFactor >= gl::BlendFactorType::Src1Alpha &&
+           blendFactor <= gl::BlendFactorType::OneMinusSrc1Alpha;
+}
 }  // anonymous namespace
 
 RasterizerState::RasterizerState()
 {
     memset(this, 0, sizeof(RasterizerState));
 
-    rasterizerDiscard   = false;
     cullFace            = false;
     cullMode            = CullFaceMode::Back;
     frontFace           = GL_CCW;
+    polygonMode         = PolygonMode::Fill;
+    polygonOffsetPoint  = false;
+    polygonOffsetLine   = false;
     polygonOffsetFill   = false;
     polygonOffsetFactor = 0.0f;
     polygonOffsetUnits  = 0.0f;
+    polygonOffsetClamp  = 0.0f;
+    depthClamp          = false;
     pointDrawMode       = false;
     multiSample         = false;
+    rasterizerDiscard   = false;
     dither              = true;
 }
 
@@ -151,21 +176,20 @@ bool DepthStencilState::isDepthMaskedOut() const
     return !depthMask;
 }
 
-bool DepthStencilState::isStencilMaskedOut() const
+bool DepthStencilState::isStencilMaskedOut(GLuint framebufferStencilSize) const
 {
-    return (stencilMask & stencilWritemask) == 0;
+    return IsStencilWriteMaskedOut(stencilWritemask, framebufferStencilSize);
 }
 
-bool DepthStencilState::isStencilNoOp() const
+bool DepthStencilState::isStencilNoOp(GLuint framebufferStencilSize) const
 {
-    return isStencilMaskedOut() ||
+    return isStencilMaskedOut(framebufferStencilSize) ||
            IsStencilNoOp(stencilFunc, stencilFail, stencilPassDepthFail, stencilPassDepthPass);
 }
 
-bool DepthStencilState::isStencilBackNoOp() const
+bool DepthStencilState::isStencilBackNoOp(GLuint framebufferStencilSize) const
 {
-    const bool isStencilBackMaskedOut = (stencilBackMask & stencilBackWritemask) == 0;
-    return isStencilBackMaskedOut ||
+    return IsStencilWriteMaskedOut(stencilBackWritemask, framebufferStencilSize) ||
            IsStencilNoOp(stencilBackFunc, stencilBackFail, stencilBackPassDepthFail,
                          stencilBackPassDepthPass);
 }
@@ -358,6 +382,94 @@ ImageUnit::ImageUnit(const ImageUnit &other) = default;
 
 ImageUnit::~ImageUnit() = default;
 
+namespace
+{
+// Conversion functions between indices in the SupportedSampleSet bitfield and actual sample count.
+// The first bit stores the '0' sample count, bits 1 though N store each power-of-two sample count.
+size_t SampleCountToBitfieldIndex(GLuint sampleCount)
+{
+    if (sampleCount == 0)
+    {
+        return 0;
+    }
+
+    ASSERT(isPow2(sampleCount));
+    return log2(sampleCount) + 1;
+}
+
+GLuint BitfieldIndexToSampleCount(size_t bitfieldIndex)
+{
+    if (bitfieldIndex == 0)
+    {
+        return 0;
+    }
+
+    return 1 << (bitfieldIndex - 1);
+}
+}  // namespace
+
+void SupportedSampleSet::insert(GLuint sampleCount)
+{
+    mSupportedSamples.set(SampleCountToBitfieldIndex(sampleCount));
+}
+
+void SupportedSampleSet::clear()
+{
+    mSupportedSamples.reset();
+}
+
+GLuint SupportedSampleSet::getNearestSamples(GLuint requestedSamples) const
+{
+    if (requestedSamples == 0)
+    {
+        return 0;
+    }
+
+    for (size_t sampleIndex : mSupportedSamples)
+    {
+        GLuint sampleCount = BitfieldIndexToSampleCount(sampleIndex);
+        if (sampleCount >= requestedSamples)
+        {
+            return sampleCount;
+        }
+    }
+
+    return 0;
+}
+
+GLuint SupportedSampleSet::getMaxSamples() const
+{
+    if (!mSupportedSamples.any())
+    {
+        return 0;
+    }
+
+    return BitfieldIndexToSampleCount(mSupportedSamples.last());
+}
+
+size_t SupportedSampleSet::size() const
+{
+    return mSupportedSamples.count();
+}
+
+std::vector<GLint> SupportedSampleSet::sampleCounts() const
+{
+    std::vector<GLint> sampleCounts;
+    sampleCounts.reserve(size());
+    for (size_t sampleIndex : mSupportedSamples)
+    {
+        sampleCounts.push_back(BitfieldIndexToSampleCount(sampleIndex));
+    }
+    return sampleCounts;
+}
+
+SupportedSampleSet SupportedSampleSet::operator&(const SupportedSampleSet &other) const
+{
+    SupportedSampleSet result;
+    result.mSupportedSamples = mSupportedSamples & other.mSupportedSamples;
+    return result;
+}
+
 BlendStateExt::BlendStateExt(const size_t drawBufferCount)
     : mParameterMask(FactorStorage::GetMask(drawBufferCount)),
       mSrcColor(FactorStorage::GetReplicatedValue(BlendFactorType::One, mParameterMask)),
@@ -529,18 +641,6 @@ void BlendStateExt::setEquationsIndexed(const size_t index,
     mUsesAdvancedBlendEquationMask.set(index, IsAdvancedBlendEquation(colorEquation));
 }
 
-GLenum BlendStateExt::getEquationColorIndexed(size_t index) const
-{
-    ASSERT(index < mDrawBufferCount);
-    return ToGLenum(EquationStorage::GetValueIndexed(index, mEquationColor));
-}
-
-GLenum BlendStateExt::getEquationAlphaIndexed(size_t index) const
-{
-    ASSERT(index < mDrawBufferCount);
-    return ToGLenum(EquationStorage::GetValueIndexed(index, mEquationAlpha));
-}
-
 DrawBufferMask BlendStateExt::compareEquations(const EquationStorage::Type color,
                                                const EquationStorage::Type alpha) const
 {
@@ -551,6 +651,12 @@ DrawBufferMask BlendStateExt::compareEquations(const EquationStorage::Type color
 BlendStateExt::FactorStorage::Type BlendStateExt::expandFactorValue(const GLenum func) const
 {
     return FactorStorage::GetReplicatedValue(FromGLenum<BlendFactorType>(func), mParameterMask);
+}
+
+BlendStateExt::FactorStorage::Type BlendStateExt::expandFactorValue(
+    const gl::BlendFactorType func) const
+{
+    return FactorStorage::GetReplicatedValue(func, mParameterMask);
 }
 
 BlendStateExt::FactorStorage::Type BlendStateExt::expandSrcColorIndexed(const size_t index) const
@@ -586,10 +692,44 @@ void BlendStateExt::setFactors(const GLenum srcColor,
                                const GLenum srcAlpha,
                                const GLenum dstAlpha)
 {
-    mSrcColor = expandFactorValue(srcColor);
-    mDstColor = expandFactorValue(dstColor);
-    mSrcAlpha = expandFactorValue(srcAlpha);
-    mDstAlpha = expandFactorValue(dstAlpha);
+    const gl::BlendFactorType srcColorFactor = FromGLenum<BlendFactorType>(srcColor);
+    const gl::BlendFactorType dstColorFactor = FromGLenum<BlendFactorType>(dstColor);
+    const gl::BlendFactorType srcAlphaFactor = FromGLenum<BlendFactorType>(srcAlpha);
+    const gl::BlendFactorType dstAlphaFactor = FromGLenum<BlendFactorType>(dstAlpha);
+
+    mSrcColor = expandFactorValue(srcColorFactor);
+    mDstColor = expandFactorValue(dstColorFactor);
+    mSrcAlpha = expandFactorValue(srcAlphaFactor);
+    mDstAlpha = expandFactorValue(dstAlphaFactor);
+
+    if (IsExtendedBlendFactor(srcColorFactor) || IsExtendedBlendFactor(dstColorFactor) ||
+        IsExtendedBlendFactor(srcAlphaFactor) || IsExtendedBlendFactor(dstAlphaFactor))
+    {
+        mUsesExtendedBlendFactorMask = mAllEnabledMask;
+    }
+    else
+    {
+        mUsesExtendedBlendFactorMask.reset();
+    }
+}
+
+void BlendStateExt::setFactorsIndexed(const size_t index,
+                                      const gl::BlendFactorType srcColorFactor,
+                                      const gl::BlendFactorType dstColorFactor,
+                                      const gl::BlendFactorType srcAlphaFactor,
+                                      const gl::BlendFactorType dstAlphaFactor)
+{
+    ASSERT(index < mDrawBufferCount);
+
+    FactorStorage::SetValueIndexed(index, srcColorFactor, &mSrcColor);
+    FactorStorage::SetValueIndexed(index, dstColorFactor, &mDstColor);
+    FactorStorage::SetValueIndexed(index, srcAlphaFactor, &mSrcAlpha);
+    FactorStorage::SetValueIndexed(index, dstAlphaFactor, &mDstAlpha);
+
+    const bool isExtended =
+        IsExtendedBlendFactor(srcColorFactor) || IsExtendedBlendFactor(dstColorFactor) ||
+        IsExtendedBlendFactor(srcAlphaFactor) || IsExtendedBlendFactor(dstAlphaFactor);
+    mUsesExtendedBlendFactorMask.set(index, isExtended);
 }
 
 void BlendStateExt::setFactorsIndexed(const size_t index,
@@ -598,11 +738,12 @@ void BlendStateExt::setFactorsIndexed(const size_t index,
                                       const GLenum srcAlpha,
                                       const GLenum dstAlpha)
 {
-    ASSERT(index < mDrawBufferCount);
-    FactorStorage::SetValueIndexed(index, FromGLenum<BlendFactorType>(srcColor), &mSrcColor);
-    FactorStorage::SetValueIndexed(index, FromGLenum<BlendFactorType>(dstColor), &mDstColor);
-    FactorStorage::SetValueIndexed(index, FromGLenum<BlendFactorType>(srcAlpha), &mSrcAlpha);
-    FactorStorage::SetValueIndexed(index, FromGLenum<BlendFactorType>(dstAlpha), &mDstAlpha);
+    const gl::BlendFactorType srcColorFactor = FromGLenum<BlendFactorType>(srcColor);
+    const gl::BlendFactorType dstColorFactor = FromGLenum<BlendFactorType>(dstColor);
+    const gl::BlendFactorType srcAlphaFactor = FromGLenum<BlendFactorType>(srcAlpha);
+    const gl::BlendFactorType dstAlphaFactor = FromGLenum<BlendFactorType>(dstAlpha);
+
+    setFactorsIndexed(index, srcColorFactor, dstColorFactor, srcAlphaFactor, dstAlphaFactor);
 }
 
 void BlendStateExt::setFactorsIndexed(const size_t index,
@@ -611,38 +752,25 @@ void BlendStateExt::setFactorsIndexed(const size_t index,
 {
     ASSERT(index < mDrawBufferCount);
     ASSERT(sourceIndex < source.mDrawBufferCount);
-    FactorStorage::SetValueIndexed(
-        index, FactorStorage::GetValueIndexed(sourceIndex, source.mSrcColor), &mSrcColor);
-    FactorStorage::SetValueIndexed(
-        index, FactorStorage::GetValueIndexed(sourceIndex, source.mDstColor), &mDstColor);
-    FactorStorage::SetValueIndexed(
-        index, FactorStorage::GetValueIndexed(sourceIndex, source.mSrcAlpha), &mSrcAlpha);
-    FactorStorage::SetValueIndexed(
-        index, FactorStorage::GetValueIndexed(sourceIndex, source.mDstAlpha), &mDstAlpha);
-}
 
-GLenum BlendStateExt::getSrcColorIndexed(size_t index) const
-{
-    ASSERT(index < mDrawBufferCount);
-    return ToGLenum(FactorStorage::GetValueIndexed(index, mSrcColor));
-}
+    const gl::BlendFactorType srcColorFactor =
+        FactorStorage::GetValueIndexed(sourceIndex, source.mSrcColor);
+    const gl::BlendFactorType dstColorFactor =
+        FactorStorage::GetValueIndexed(sourceIndex, source.mDstColor);
+    const gl::BlendFactorType srcAlphaFactor =
+        FactorStorage::GetValueIndexed(sourceIndex, source.mSrcAlpha);
+    const gl::BlendFactorType dstAlphaFactor =
+        FactorStorage::GetValueIndexed(sourceIndex, source.mDstAlpha);
 
-GLenum BlendStateExt::getDstColorIndexed(size_t index) const
-{
-    ASSERT(index < mDrawBufferCount);
-    return ToGLenum(FactorStorage::GetValueIndexed(index, mDstColor));
-}
+    FactorStorage::SetValueIndexed(index, srcColorFactor, &mSrcColor);
+    FactorStorage::SetValueIndexed(index, dstColorFactor, &mDstColor);
+    FactorStorage::SetValueIndexed(index, srcAlphaFactor, &mSrcAlpha);
+    FactorStorage::SetValueIndexed(index, dstAlphaFactor, &mDstAlpha);
 
-GLenum BlendStateExt::getSrcAlphaIndexed(size_t index) const
-{
-    ASSERT(index < mDrawBufferCount);
-    return ToGLenum(FactorStorage::GetValueIndexed(index, mSrcAlpha));
-}
-
-GLenum BlendStateExt::getDstAlphaIndexed(size_t index) const
-{
-    ASSERT(index < mDrawBufferCount);
-    return ToGLenum(FactorStorage::GetValueIndexed(index, mDstAlpha));
+    const bool isExtended =
+        IsExtendedBlendFactor(srcColorFactor) || IsExtendedBlendFactor(dstColorFactor) ||
+        IsExtendedBlendFactor(srcAlphaFactor) || IsExtendedBlendFactor(dstAlphaFactor);
+    mUsesExtendedBlendFactorMask.set(index, isExtended);
 }
 
 DrawBufferMask BlendStateExt::compareFactors(const FactorStorage::Type srcColor,
@@ -960,30 +1088,10 @@ void Box::extend(const Box &other)
     depth  = z1 - z0;
 }
 
-bool operator==(const Offset &a, const Offset &b)
-{
-    return a.x == b.x && a.y == b.y && a.z == b.z;
-}
-
-bool operator!=(const Offset &a, const Offset &b)
-{
-    return !(a == b);
-}
-
-bool operator==(const Extents &lhs, const Extents &rhs)
-{
-    return lhs.width == rhs.width && lhs.height == rhs.height && lhs.depth == rhs.depth;
-}
-
-bool operator!=(const Extents &lhs, const Extents &rhs)
-{
-    return !(lhs == rhs);
-}
-
-bool ValidateComponentTypeMasks(unsigned long outputTypes,
-                                unsigned long inputTypes,
-                                unsigned long outputMask,
-                                unsigned long inputMask)
+bool ValidateComponentTypeMasks(uint64_t outputTypes,
+                                uint64_t inputTypes,
+                                uint64_t outputMask,
+                                uint64_t inputMask)
 {
     static_assert(IMPLEMENTATION_MAX_DRAW_BUFFERS <= kMaxComponentTypeMaskIndex,
                   "Output/input masks should fit into 16 bits - 1 bit per draw buffer. The "
@@ -1037,3 +1145,126 @@ GLsizeiptr GetBoundBufferAvailableSize(const OffsetBindingPointer<Buffer> &bindi
 }
 
 }  // namespace gl
+   //
+namespace angle
+{
+bool CompressBlob(const size_t cacheSize, const uint8_t *cacheData, MemoryBuffer *compressedData)
+{
+    uLong uncompressedSize       = static_cast<uLong>(cacheSize);
+    uLong expectedCompressedSize = zlib_internal::GzipExpectedCompressedSize(uncompressedSize);
+    uLong actualCompressedSize   = expectedCompressedSize;
+
+    // Clear previous contents and reserve enough memory.
+    if (!compressedData->clearAndReserve(expectedCompressedSize))
+    {
+        ERR() << "Failed to allocate memory for compression";
+        return false;
+    }
+
+    int zResult = zlib_internal::GzipCompressHelper(compressedData->data(), &actualCompressedSize,
+                                                    cacheData, uncompressedSize, nullptr, nullptr);
+
+    if (zResult != Z_OK)
+    {
+        ERR() << "Failed to compress cache data: " << zResult;
+        return false;
+    }
+
+    // Trim to actual size.
+    ASSERT(actualCompressedSize <= expectedCompressedSize);
+    compressedData->setSize(actualCompressedSize);
+
+    return true;
+}
+
+bool DecompressBlob(const uint8_t *compressedData,
+                    const size_t compressedSize,
+                    size_t maxUncompressedDataSize,
+                    MemoryBuffer *uncompressedData)
+{
+    // Call zlib function to decompress.
+    uint32_t uncompressedSize =
+        zlib_internal::GetGzipUncompressedSize(compressedData, compressedSize);
+
+    if (uncompressedSize == 0)
+    {
+        ERR() << "Decompressed data size is zero. Wrong or corrupted data? (compressed size is: "
+              << compressedSize << ")";
+        return false;
+    }
+
+    if (uncompressedSize > maxUncompressedDataSize)
+    {
+        ERR() << "Decompressed data size is larger than the maximum supported (" << uncompressedSize
+              << " vs " << maxUncompressedDataSize << ")";
+        return false;
+    }
+
+    // Clear previous contents and reserve enough memory.
+    if (!uncompressedData->clearAndReserve(uncompressedSize))
+    {
+        ERR() << "Failed to allocate memory for decompression";
+        return false;
+    }
+
+    uLong destLen = uncompressedSize;
+    int zResult   = zlib_internal::GzipUncompressHelper(
+        uncompressedData->data(), &destLen, compressedData, static_cast<uLong>(compressedSize));
+
+    if (zResult != Z_OK)
+    {
+        WARN() << "Failed to decompress data: " << zResult << "\n";
+        return false;
+    }
+
+    // Trim to actual size.
+    ASSERT(destLen <= uncompressedSize);
+    uncompressedData->setSize(destLen);
+
+    return true;
+}
+
+uint32_t GenerateCRC32(const uint8_t *data, size_t size)
+{
+    return UpdateCRC32(InitCRC32(), data, size);
+}
+
+uint32_t InitCRC32()
+{
+    // To get required initial value for the crc, need to pass nullptr into buf.
+    return static_cast<uint32_t>(crc32_z(0u, nullptr, 0u));
+}
+
+uint32_t UpdateCRC32(uint32_t prevCrc32, const uint8_t *data, size_t size)
+{
+    return static_cast<uint32_t>(crc32_z(static_cast<uLong>(prevCrc32), data, size));
+}
+
+UnlockedTailCall::UnlockedTailCall() = default;
+
+UnlockedTailCall::~UnlockedTailCall()
+{
+    ASSERT(mCalls.empty());
+}
+
+void UnlockedTailCall::add(CallType &&call)
+{
+    mCalls.push_back(std::move(call));
+}
+
+void UnlockedTailCall::runImpl(void *resultOut)
+{
+    if (mCalls.empty())
+    {
+        return;
+    }
+    // Clear `mCalls` before calling, because Android sometimes calls back into ANGLE through EGL
+    // calls which don't expect there to be any pre-existing tail calls.
+    auto calls(std::move(mCalls));
+    ASSERT(mCalls.empty());
+    for (CallType &call : calls)
+    {
+        call(resultOut);
+    }
+}
+}  // namespace angle

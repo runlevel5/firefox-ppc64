@@ -3,9 +3,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
-// MonomorphizeUnsupportedFunctions: Monomorphize functions that are called with
-// parameters that are incompatible with both Vulkan GLSL and Metal.
-//
 
 #include "compiler/translator/tree_ops/MonomorphizeUnsupportedFunctions.h"
 
@@ -200,12 +197,12 @@ const TFunction *MonomorphizeFunction(TSymbolTable *symbolTable,
                               originalParam->symbolType());
             // Not replaced, add an identical parameter.
             substituteFunction->addParameter(substituteArgument);
-            (*argumentMapOut)[originalParam] = new TIntermSymbol(substituteArgument);
+            (*argumentMapOut)[originalParam->uniqueId()] = new TIntermSymbol(substituteArgument);
         }
         else
         {
             TIntermTyped *substituteArgument = (*replacedArguments)[nextReplacedArg].argument;
-            (*argumentMapOut)[originalParam] = substituteArgument;
+            (*argumentMapOut)[originalParam->uniqueId()] = substituteArgument;
 
             // Iterate over indices of the argument and create a new parameter for every non-const
             // index (which may be an expression).  Replace the symbol in the argument with a
@@ -242,12 +239,10 @@ class MonomorphizeTraverser final : public TIntermTraverser
   public:
     explicit MonomorphizeTraverser(TCompiler *compiler,
                                    TSymbolTable *symbolTable,
-                                   const ShCompileOptions &compileOptions,
                                    UnsupportedFunctionArgsBitSet unsupportedFunctionArgs,
                                    FunctionMap *functionMap)
         : TIntermTraverser(true, false, false, symbolTable),
           mCompiler(compiler),
-          mCompileOptions(compileOptions),
           mUnsupportedFunctionArgs(unsupportedFunctionArgs),
           mFunctionMap(functionMap)
     {}
@@ -341,16 +336,6 @@ class MonomorphizeTraverser final : public TIntermTraverser
             }
         }
 
-        if (mUnsupportedFunctionArgs[UnsupportedFunctionArgs::SamplerCubeEmulation])
-        {
-            // Monomorphize if the opaque uniform is a samplerCube and ES2's cube sampling emulation
-            // is requested.
-            if (type.isSamplerCube() && mCompileOptions.emulateSeamfulCubeMapSampling)
-            {
-                return true;
-            }
-        }
-
         if (mUnsupportedFunctionArgs[UnsupportedFunctionArgs::Image])
         {
             if (type.isImage())
@@ -403,6 +388,8 @@ class MonomorphizeTraverser final : public TIntermTraverser
 
         mAnyMonomorphized = true;
 
+        // Note: this is not correct, as it will move side effects before a short-circuiting
+        // expression.
         insertStatementsInParentBlock(replacementIndices);
 
         // Create the arguments for the substitute function call.  Done before monomorphizing the
@@ -434,7 +421,6 @@ class MonomorphizeTraverser final : public TIntermTraverser
     }
 
     TCompiler *mCompiler;
-    const ShCompileOptions &mCompileOptions;
     UnsupportedFunctionArgsBitSet mUnsupportedFunctionArgs;
     bool mAnyMonomorphized = false;
 
@@ -467,7 +453,7 @@ class UpdateFunctionsDefinitionsTraverser final : public TIntermTraverser
         // If nothing to do, leave it be.
         if (data.monomorphizedDefinitions.empty())
         {
-            ASSERT(data.isOriginalUsed);
+            ASSERT(data.isOriginalUsed || function->isMain());
             return;
         }
 
@@ -498,7 +484,7 @@ class UpdateFunctionsDefinitionsTraverser final : public TIntermTraverser
         // If nothing to do, leave it be.
         if (data.monomorphizedDefinitions.empty())
         {
-            ASSERT(data.isOriginalUsed || function->name() == "main");
+            ASSERT(data.isOriginalUsed || function->isMain());
             return false;
         }
 
@@ -548,13 +534,12 @@ void SortDeclarations(TIntermBlock *root)
     replacement.insert(replacement.end(), functionDefs.begin(), functionDefs.end());
 
     // Replace root's sequence with |replacement|.
-    root->replaceAllChildren(replacement);
+    root->replaceAllChildren(std::move(replacement));
 }
 
 bool MonomorphizeUnsupportedFunctionsImpl(TCompiler *compiler,
                                           TIntermBlock *root,
                                           TSymbolTable *symbolTable,
-                                          const ShCompileOptions &compileOptions,
                                           UnsupportedFunctionArgsBitSet unsupportedFunctionArgs)
 {
     // First, sort out the declarations such that all non-function declarations are placed before
@@ -567,8 +552,8 @@ bool MonomorphizeUnsupportedFunctionsImpl(TCompiler *compiler,
         FunctionMap functionMap;
         InitializeFunctionMap(root, &functionMap);
 
-        MonomorphizeTraverser monomorphizer(compiler, symbolTable, compileOptions,
-                                            unsupportedFunctionArgs, &functionMap);
+        MonomorphizeTraverser monomorphizer(compiler, symbolTable, unsupportedFunctionArgs,
+                                            &functionMap);
         root->traverse(&monomorphizer);
 
         if (!monomorphizer.getAnyMonomorphized())
@@ -597,15 +582,14 @@ bool MonomorphizeUnsupportedFunctionsImpl(TCompiler *compiler,
 bool MonomorphizeUnsupportedFunctions(TCompiler *compiler,
                                       TIntermBlock *root,
                                       TSymbolTable *symbolTable,
-                                      const ShCompileOptions &compileOptions,
                                       UnsupportedFunctionArgsBitSet unsupportedFunctionArgs)
 {
     // This function actually applies multiple transformation, and the AST may not be valid until
     // the transformations are entirely done.  Some validation is momentarily disabled.
     bool enableValidateFunctionCall = compiler->disableValidateFunctionCall();
 
-    bool result = MonomorphizeUnsupportedFunctionsImpl(compiler, root, symbolTable, compileOptions,
-                                                       unsupportedFunctionArgs);
+    bool result =
+        MonomorphizeUnsupportedFunctionsImpl(compiler, root, symbolTable, unsupportedFunctionArgs);
 
     compiler->restoreValidateFunctionCall(enableValidateFunctionCall);
     return result && compiler->validateAST(root);

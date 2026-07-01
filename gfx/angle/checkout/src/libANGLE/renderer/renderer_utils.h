@@ -10,6 +10,10 @@
 #ifndef LIBANGLE_RENDERER_RENDERER_UTILS_H_
 #define LIBANGLE_RENDERER_RENDERER_UTILS_H_
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include <cstdint>
 
 #include <limits>
@@ -18,19 +22,22 @@
 #include "GLSLANG/ShaderLang.h"
 #include "common/angleutils.h"
 #include "common/utilities.h"
+#include "libANGLE/ImageIndex.h"
 #include "libANGLE/angletypes.h"
 
 namespace angle
 {
 struct FeatureSetBase;
 struct Format;
-enum class FormatID;
+struct ImageLoadContext;
+enum class FormatID : uint8_t;
 }  // namespace angle
 
 namespace gl
 {
 struct FormatType;
 struct InternalFormat;
+class ProgramExecutable;
 class State;
 }  // namespace gl
 
@@ -39,6 +46,11 @@ namespace egl
 class AttributeMap;
 struct DisplayState;
 }  // namespace egl
+
+namespace sh
+{
+struct BlockMemberInfo;
+}
 
 namespace rx
 {
@@ -65,10 +77,10 @@ bool IsRotatedAspectRatio(SurfaceRotation rotation);
 
 using SpecConstUsageBits = angle::PackedEnumBitSet<sh::vk::SpecConstUsage, uint32_t>;
 
-void RotateRectangle(const SurfaceRotation rotation,
-                     const bool flipY,
-                     const int framebufferWidth,
-                     const int framebufferHeight,
+void RotateRectangle(SurfaceRotation rotation,
+                     bool flipY,
+                     int framebufferWidth,
+                     int framebufferHeight,
                      const gl::Rectangle &incoming,
                      gl::Rectangle *outgoing);
 
@@ -139,6 +151,15 @@ void PackPixels(const PackPixelsParams &params,
                 const uint8_t *source,
                 uint8_t *destination);
 
+angle::Result GetPackPixelsParams(const gl::InternalFormat &sizedFormatInfo,
+                                  GLuint outputPitch,
+                                  const gl::PixelPackState &packState,
+                                  gl::Buffer *packBuffer,
+                                  const gl::Rectangle &area,
+                                  const gl::Rectangle &clippedArea,
+                                  rx::PackPixelsParams *paramsOut,
+                                  GLuint *skipBytesOut);
+
 using InitializeTextureDataFunction = void (*)(size_t width,
                                                size_t height,
                                                size_t depth,
@@ -146,7 +167,8 @@ using InitializeTextureDataFunction = void (*)(size_t width,
                                                size_t outputRowPitch,
                                                size_t outputDepthPitch);
 
-using LoadImageFunction = void (*)(size_t width,
+using LoadImageFunction = void (*)(const angle::ImageLoadContext &context,
+                                   size_t width,
                                    size_t height,
                                    size_t depth,
                                    const uint8_t *input,
@@ -208,8 +230,8 @@ class MultisampleTextureInitializer
 class IncompleteTextureSet final : angle::NonCopyable
 {
   public:
-    IncompleteTextureSet();
-    ~IncompleteTextureSet();
+    IncompleteTextureSet()  = default;
+    ~IncompleteTextureSet() = default;
 
     void onDestroy(const gl::Context *context);
 
@@ -223,7 +245,6 @@ class IncompleteTextureSet final : angle::NonCopyable
     using TextureMapWithSamplerFormat = angle::PackedEnumMap<gl::SamplerFormat, gl::TextureMap>;
 
     TextureMapWithSamplerFormat mIncompleteTextures;
-    gl::Buffer *mIncompleteTextureBufferAttachment;
 };
 
 // Helpers to set a matrix uniform value based on GLSL or HLSL semantics.
@@ -236,7 +257,8 @@ struct SetFloatUniformMatrixGLSL
                     GLsizei countIn,
                     GLboolean transpose,
                     const GLfloat *value,
-                    uint8_t *targetData);
+                    uint8_t *targetData,
+                    bool isFloat16);
 };
 
 template <int cols, int rows>
@@ -247,14 +269,81 @@ struct SetFloatUniformMatrixHLSL
                     GLsizei countIn,
                     GLboolean transpose,
                     const GLfloat *value,
-                    uint8_t *targetData);
+                    uint8_t *targetData,
+                    bool isFloat16);
 };
 
 // Helper method to de-tranpose a matrix uniform for an API query.
-void GetMatrixUniform(GLenum type, GLfloat *dataOut, const GLfloat *source, bool transpose);
+void GetMatrixUniform(GLenum type,
+                      GLfloat *dataOut,
+                      const GLfloat *source,
+                      bool transpose,
+                      bool isFloat16);
 
 template <typename NonFloatT>
-void GetMatrixUniform(GLenum type, NonFloatT *dataOut, const NonFloatT *source, bool transpose);
+void GetMatrixUniform(GLenum type,
+                      NonFloatT *dataOut,
+                      const NonFloatT *source,
+                      bool transpose,
+                      bool isFloat16);
+
+// Contains a CPU-side buffer and its data layout, used as a shadow buffer for default uniform
+// blocks in VK and WGPU backends.
+struct BufferAndLayout final : private angle::NonCopyable
+{
+    BufferAndLayout();
+    ~BufferAndLayout();
+
+    // Shadow copies of the shader uniform data.
+    angle::MemoryBuffer uniformData;
+
+    // Tells us where to write on a call to a setUniform method. They are arranged in uniform
+    // location order.
+    std::vector<sh::BlockMemberInfo> uniformLayout;
+};
+
+template <typename T>
+void UpdateBufferWithLayout(GLsizei count,
+                            uint32_t arrayIndex,
+                            int componentCount,
+                            const T *v,
+                            const sh::BlockMemberInfo &layoutInfo,
+                            angle::MemoryBuffer *uniformData);
+
+template <typename T>
+void ReadFromBufferWithLayout(int componentCount,
+                              uint32_t arrayIndex,
+                              T *dst,
+                              const sh::BlockMemberInfo &layoutInfo,
+                              const angle::MemoryBuffer *uniformData,
+                              bool isFloat16);
+
+using DefaultUniformBlockMap = gl::ShaderMap<std::shared_ptr<BufferAndLayout>>;
+
+template <typename T>
+void SetUniform(const gl::ProgramExecutable *executable,
+                GLint location,
+                GLsizei count,
+                const T *v,
+                GLenum entryPointType,
+                DefaultUniformBlockMap *defaultUniformBlocks,
+                gl::ShaderBitSet *defaultUniformBlocksDirty);
+
+template <int cols, int rows>
+void SetUniformMatrixfv(const gl::ProgramExecutable *executable,
+                        GLint location,
+                        GLsizei count,
+                        GLboolean transpose,
+                        const GLfloat *value,
+                        DefaultUniformBlockMap *defaultUniformBlocks,
+                        gl::ShaderBitSet *defaultUniformBlocksDirty);
+
+template <typename T>
+void GetUniform(const gl::ProgramExecutable *executable,
+                GLint location,
+                T *v,
+                GLenum entryPointType,
+                const DefaultUniformBlockMap *defaultUniformBlocks);
 
 const angle::Format &GetFormatFromFormatType(GLenum format, GLenum type);
 
@@ -275,7 +364,8 @@ angle::Result GetVertexRangeInfo(const gl::Context *context,
 gl::Rectangle ClipRectToScissor(const gl::State &glState, const gl::Rectangle &rect, bool invertY);
 
 // Helper method to intialize a FeatureSet with overrides from the DisplayState
-void ApplyFeatureOverrides(angle::FeatureSetBase *features, const egl::DisplayState &state);
+void ApplyFeatureOverrides(angle::FeatureSetBase *features,
+                           const angle::FeatureOverrides &overrides);
 
 template <typename In>
 uint32_t LineLoopRestartIndexCountHelper(GLsizei indexCount, const uint8_t *srcPtr)
@@ -297,12 +387,16 @@ uint32_t LineLoopRestartIndexCountHelper(GLsizei indexCount, const uint8_t *srcP
         {
             if (curIndex > loopStartIndex)
             {
-                numIndices += 2;
+                if (curIndex > (loopStartIndex + 1))
+                {
+                    numIndices += 1;
+                }
+                numIndices += 1;
             }
             loopStartIndex = curIndex + 1;
         }
     }
-    if (indexCount > loopStartIndex)
+    if (indexCount > (loopStartIndex + 1))
     {
         numIndices++;
     }
@@ -329,8 +423,9 @@ inline uint32_t GetLineLoopWithRestartIndexCount(gl::DrawElementsType glIndexTyp
 
 // Writes the line-strip vertices for a line loop to outPtr,
 // where outLimit is calculated as in GetPrimitiveRestartIndexCount.
+// Returns number of vertices written.
 template <typename In, typename Out>
-void CopyLineLoopIndicesWithRestart(GLsizei indexCount, const uint8_t *srcPtr, uint8_t *outPtr)
+size_t CopyLineLoopIndicesWithRestart(GLsizei indexCount, const uint8_t *srcPtr, uint8_t *outPtr)
 {
     constexpr In restartIndex     = gl::GetPrimitiveRestartIndexFromType<In>();
     constexpr Out outRestartIndex = gl::GetPrimitiveRestartIndexFromType<Out>();
@@ -348,20 +443,30 @@ void CopyLineLoopIndicesWithRestart(GLsizei indexCount, const uint8_t *srcPtr, u
         {
             if (curIndex > loopStartIndex)
             {
-                // Emit an extra vertex only if the loop is not empty.
-                *(outIndices++) = inIndices[loopStartIndex];
+                if (curIndex > (loopStartIndex + 1))
+                {
+                    // Emit an extra vertex only if the loop has more than one vertex.
+                    *(outIndices++) = inIndices[loopStartIndex];
+                }
                 // Then restart the strip.
                 *(outIndices++) = outRestartIndex;
             }
             loopStartIndex = curIndex + 1;
         }
     }
-    if (indexCount > loopStartIndex)
+    if (indexCount > (loopStartIndex + 1))
     {
-        // Close the last loop if not empty.
+        // Close the last loop if it has more than one vertex.
         *(outIndices++) = inIndices[loopStartIndex];
     }
+    return static_cast<size_t>(outIndices - reinterpret_cast<Out *>(outPtr));
 }
+
+void StreamEmulatedLineLoopIndices(gl::DrawElementsType glIndexType,
+                                   GLsizei indexCount,
+                                   const uint8_t *srcPtr,
+                                   uint8_t *outPtr,
+                                   bool shouldConvertUint8);
 
 void GetSamplePosition(GLsizei sampleCount, size_t index, GLfloat *xy);
 
@@ -429,14 +534,14 @@ angle::Result MultiDrawElementsInstancedBaseVertexBaseInstanceGeneral(ContextImp
 class ResetBaseVertexBaseInstance : angle::NonCopyable
 {
   public:
-    ResetBaseVertexBaseInstance(gl::Program *programObject,
+    ResetBaseVertexBaseInstance(gl::ProgramExecutable *executable,
                                 bool resetBaseVertex,
                                 bool resetBaseInstance);
 
     ~ResetBaseVertexBaseInstance();
 
   private:
-    gl::Program *mProgramObject;
+    gl::ProgramExecutable *mExecutable;
     bool mResetBaseVertex;
     bool mResetBaseInstance;
 };
@@ -444,6 +549,69 @@ class ResetBaseVertexBaseInstance : angle::NonCopyable
 angle::FormatID ConvertToSRGB(angle::FormatID formatID);
 angle::FormatID ConvertToLinear(angle::FormatID formatID);
 bool IsOverridableLinearFormat(angle::FormatID formatID);
+
+template <bool swizzledLuma = true>
+const gl::ColorGeneric AdjustBorderColor(const angle::ColorGeneric &borderColorGeneric,
+                                         const angle::Format &format,
+                                         bool stencilMode);
+
+template <typename LargerInt>
+GLint LimitToInt(const LargerInt physicalDeviceValue)
+{
+    static_assert(sizeof(LargerInt) >= sizeof(int32_t), "Incorrect usage of LimitToInt");
+    return static_cast<GLint>(
+        std::min(physicalDeviceValue, static_cast<LargerInt>(std::numeric_limits<int32_t>::max())));
+}
+
+template <typename LargerInt>
+GLint LimitToIntAnd(const LargerInt physicalDeviceValue, const uint64_t cap)
+{
+    LargerInt result = LimitToInt(physicalDeviceValue);
+    return static_cast<GLint>(std::min(static_cast<uint64_t>(result), cap));
+}
+
+bool TextureHasAnyRedefinedLevels(const gl::CubeFaceArray<gl::TexLevelMask> &redefinedLevels);
+bool IsTextureLevelRedefined(const gl::CubeFaceArray<gl::TexLevelMask> &redefinedLevels,
+                             gl::TextureType textureType,
+                             gl::LevelIndex level);
+
+enum class TextureLevelDefinition
+{
+    Compatible   = 0,
+    Incompatible = 1,
+
+    InvalidEnum = 2
+};
+
+enum class TextureLevelAllocation
+{
+    WithinAllocatedImage  = 0,
+    OutsideAllocatedImage = 1,
+
+    InvalidEnum = 2
+};
+// Returns true if the image should be released after the level is redefined, false otherwise.
+bool TextureRedefineLevel(const TextureLevelAllocation levelAllocation,
+                          const TextureLevelDefinition levelDefinition,
+                          bool immutableFormat,
+                          uint32_t levelCount,
+                          const uint32_t layerIndex,
+                          const gl::ImageIndex &index,
+                          gl::LevelIndex imageFirstAllocatedLevel,
+                          gl::CubeFaceArray<gl::TexLevelMask> *redefinedLevels);
+
+void TextureRedefineGenerateMipmapLevels(gl::LevelIndex baseLevel,
+                                         gl::LevelIndex maxLevel,
+                                         gl::LevelIndex firstGeneratedLevel,
+                                         gl::CubeFaceArray<gl::TexLevelMask> *redefinedLevels);
+
+enum class ImageMipLevels
+{
+    EnabledLevels                 = 0,
+    FullMipChainForGenerateMipmap = 1,
+
+    InvalidEnum = 2,
+};
 
 enum class PipelineType
 {
@@ -453,6 +621,22 @@ enum class PipelineType
     InvalidEnum = 2,
     EnumCount   = 2,
 };
+
+// Return the log of samples.  Assumes |sampleCount| is a power of 2.  The result can be used to
+// index an array based on sample count.
+inline size_t PackSampleCount(int32_t sampleCount)
+{
+    if (sampleCount == 0)
+    {
+        sampleCount = 1;
+    }
+
+    // We currently only support up to 16xMSAA.
+    ASSERT(1 <= sampleCount && sampleCount <= 16);
+    ASSERT(gl::isPow2(sampleCount));
+    return gl::ScanForward(static_cast<uint32_t>(sampleCount));
+}
+
 }  // namespace rx
 
 // MultiDraw macro patterns
@@ -461,18 +645,18 @@ enum class PipelineType
 // in the header as we want to share with specialized context impl on some platforms for multidraw
 #define ANGLE_SET_DRAW_ID_UNIFORM_0(drawID) \
     {}
-#define ANGLE_SET_DRAW_ID_UNIFORM_1(drawID) programObject->setDrawIDUniform(drawID)
+#define ANGLE_SET_DRAW_ID_UNIFORM_1(drawID) executable->setDrawIDUniform(drawID)
 #define ANGLE_SET_DRAW_ID_UNIFORM(cond) ANGLE_SET_DRAW_ID_UNIFORM_##cond
 
 #define ANGLE_SET_BASE_VERTEX_UNIFORM_0(baseVertex) \
     {}
-#define ANGLE_SET_BASE_VERTEX_UNIFORM_1(baseVertex) programObject->setBaseVertexUniform(baseVertex);
+#define ANGLE_SET_BASE_VERTEX_UNIFORM_1(baseVertex) executable->setBaseVertexUniform(baseVertex);
 #define ANGLE_SET_BASE_VERTEX_UNIFORM(cond) ANGLE_SET_BASE_VERTEX_UNIFORM_##cond
 
 #define ANGLE_SET_BASE_INSTANCE_UNIFORM_0(baseInstance) \
     {}
 #define ANGLE_SET_BASE_INSTANCE_UNIFORM_1(baseInstance) \
-    programObject->setBaseInstanceUniform(baseInstance)
+    executable->setBaseInstanceUniform(baseInstance)
 #define ANGLE_SET_BASE_INSTANCE_UNIFORM(cond) ANGLE_SET_BASE_INSTANCE_UNIFORM_##cond
 
 #define ANGLE_NOOP_DRAW_ context->noopDraw(mode, counts[drawID])
@@ -486,14 +670,5 @@ enum class PipelineType
     gl::MarkTransformFeedbackBufferUsage(context, counts[drawID], instanceCounts[drawID])
 #define ANGLE_MARK_TRANSFORM_FEEDBACK_USAGE(instanced) \
     ANGLE_MARK_TRANSFORM_FEEDBACK_USAGE##instanced
-
-// Helper macro that casts to a bitfield type then verifies no bits were dropped.
-#define SetBitField(lhs, rhs)                                                         \
-    do                                                                                \
-    {                                                                                 \
-        auto ANGLE_LOCAL_VAR = rhs;                                                   \
-        lhs = static_cast<typename std::decay<decltype(lhs)>::type>(ANGLE_LOCAL_VAR); \
-        ASSERT(static_cast<decltype(ANGLE_LOCAL_VAR)>(lhs) == ANGLE_LOCAL_VAR);       \
-    } while (0)
 
 #endif  // LIBANGLE_RENDERER_RENDERER_UTILS_H_

@@ -29,18 +29,23 @@ class Context;
 
 namespace egl
 {
-class Sync final : public angle::RefCountObject<Display, angle::Result>, public LabeledObject
+class Sync final : public LabeledObject
 {
   public:
-    Sync(rx::EGLImplFactory *factory, EGLenum type, const AttributeMap &attribs);
+    Sync(rx::EGLImplFactory *factory, EGLenum type);
     ~Sync() override;
 
     void setLabel(EGLLabelKHR label) override;
     EGLLabelKHR getLabel() const override;
 
-    void onDestroy(const Display *display) override;
+    const SyncID &id() const { return mId; }
 
-    Error initialize(const Display *display, const gl::Context *context);
+    void onDestroy(const Display *display);
+
+    Error initialize(const Display *display,
+                     const gl::Context *context,
+                     const SyncID &id,
+                     const AttributeMap &attribs);
     Error clientWait(const Display *display,
                      const gl::Context *context,
                      EGLint flags,
@@ -54,6 +59,7 @@ class Sync final : public angle::RefCountObject<Display, angle::Result>, public 
     Error dupNativeFenceFD(const Display *display, EGLint *result) const;
 
     EGLenum getType() const { return mType; }
+    const AttributeMap &getAttributeMap() const { return mAttributeMap; }
     EGLint getCondition() const { return mCondition; }
     EGLint getNativeFenceFD() const { return mNativeFenceFD; }
 
@@ -62,7 +68,9 @@ class Sync final : public angle::RefCountObject<Display, angle::Result>, public 
 
     EGLLabelKHR mLabel;
 
+    SyncID mId;
     EGLenum mType;
+    AttributeMap mAttributeMap;
     EGLint mCondition;
     EGLint mNativeFenceFD;
 };

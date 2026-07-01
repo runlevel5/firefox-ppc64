@@ -19,7 +19,8 @@ class VertexArray;
 
 //
 // Implementation of Generic Vertex Attribute Bindings for ES3.1. The members are intentionally made
-// private in order to hide implementation details.
+// private in order to hide implementation details. Shared object like gl::Buffer should not be
+// stored here since this data structure will be accessed without shared context lock.
 //
 class VertexBinding final : angle::NonCopyable
 {
@@ -39,18 +40,6 @@ class VertexBinding final : angle::NonCopyable
     GLintptr getOffset() const { return mOffset; }
     void setOffset(GLintptr offsetIn) { mOffset = offsetIn; }
 
-    const BindingPointer<Buffer> &getBuffer() const { return mBuffer; }
-
-    ANGLE_INLINE void setBuffer(const gl::Context *context, Buffer *bufferIn)
-    {
-        mBuffer.set(context, bufferIn);
-    }
-
-    // Skips ref counting for better inlined performance.
-    ANGLE_INLINE void assignBuffer(Buffer *bufferIn) { mBuffer.assign(bufferIn); }
-
-    void onContainerBindingChanged(const Context *context, int incr) const;
-
     const AttributesMask &getBoundAttributesMask() const { return mBoundAttributesMask; }
 
     void setBoundAttribute(size_t index) { mBoundAttributesMask.set(index); }
@@ -61,8 +50,6 @@ class VertexBinding final : angle::NonCopyable
     GLuint mStride;
     GLuint mDivisor;
     GLintptr mOffset;
-
-    BindingPointer<Buffer> mBuffer;
 
     // Mapping from this binding to all of the attributes that are using this binding.
     AttributesMask mBoundAttributesMask;
@@ -78,7 +65,7 @@ struct VertexAttribute final : private angle::NonCopyable
     VertexAttribute &operator=(VertexAttribute &&attrib);
 
     // Called from VertexArray.
-    void updateCachedElementLimit(const VertexBinding &binding);
+    void updateCachedElementLimit(const VertexBinding &binding, GLint64 bufferSize);
     GLint64 getCachedElementLimit() const { return mCachedElementLimit; }
 
     bool enabled;  // For glEnable/DisableVertexAttribArray
@@ -95,6 +82,9 @@ struct VertexAttribute final : private angle::NonCopyable
 
   private:
     // This is kept in sync by the VertexArray. It is used to optimize draw call validation.
+    // |mCachedElementLimit| defines the number of elements in the vertex attribute that are
+    // accessible in a draw call.  For instanced attributes in instanced draw calls, the number of
+    // possible instances is |VertexBinding::mDivisor| times this limit.
     GLint64 mCachedElementLimit;
 };
 
@@ -110,7 +100,7 @@ size_t ComputeVertexAttributeStride(const VertexAttribute &attrib, const VertexB
 // Warning: you should ensure binding really matches attrib.bindingIndex before using this function.
 GLintptr ComputeVertexAttributeOffset(const VertexAttribute &attrib, const VertexBinding &binding);
 
-size_t ComputeVertexBindingElementCount(GLuint divisor, size_t drawCount, size_t instanceCount);
+size_t ComputeVertexBindingElementCount(GLuint divisor, uint64_t drawCount, size_t instanceCount);
 
 struct VertexAttribCurrentValueData
 {

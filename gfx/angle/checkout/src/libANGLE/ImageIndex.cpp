@@ -4,6 +4,10 @@
 // found in the LICENSE file.
 //
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 // ImageIndex.cpp: Implementation for ImageIndex methods.
 
 #include "libANGLE/ImageIndex.h"
@@ -317,7 +321,8 @@ ImageIndexIterator ImageIndexIterator::MakeGeneric(TextureType type,
                                                    GLint minLayer,
                                                    GLint maxLayer)
 {
-    if (type == TextureType::CubeMap)
+    if (type == TextureType::CubeMap && minLayer == ImageIndex::kEntireLevel &&
+        maxLayer == ImageIndex::kEntireLevel)
     {
         return MakeCube(minMip, maxMip);
     }

@@ -20,10 +20,12 @@
 #include <GLSLANG/ShaderLang.h>
 #include "angle_gl.h"
 
+#include "common/BinaryStream.h"
+#include "common/CompiledShaderState.h"
 #include "common/MemoryBuffer.h"
 #include "common/Optional.h"
 #include "common/angleutils.h"
-#include "libANGLE/BinaryStream.h"
+#include "libANGLE/BlobCache.h"
 #include "libANGLE/Caps.h"
 #include "libANGLE/Compiler.h"
 #include "libANGLE/Debug.h"
@@ -45,7 +47,6 @@ class WorkerThreadPool;
 
 namespace gl
 {
-class CompileTask;
 class Context;
 class ShaderProgramManager;
 class State;
@@ -55,10 +56,22 @@ class BinaryOutputStream;
 // We defer the compile until link time, or until properties are queried.
 enum class CompileStatus
 {
+    // Compilation never done, or has failed.
     NOT_COMPILED,
+    // Compile is in progress.
     COMPILE_REQUESTED,
+    // Compilation job is done, but is being resolved.  This enum value is there to allow access to
+    // compiled state during resolve without triggering threading-related assertions (which ensure
+    // no compile job is in progress).
+    IS_RESOLVING,
+    // Compilation was successful.
     COMPILED,
 };
+
+// A representation of the compile job.  The program's link job can wait on this while the shader is
+// free to recompile (and generate other compile jobs).
+struct CompileJob;
+using SharedCompileJob = std::shared_ptr<CompileJob>;
 
 class ShaderState final : angle::NonCopyable
 {
@@ -68,100 +81,29 @@ class ShaderState final : angle::NonCopyable
 
     const std::string &getLabel() const { return mLabel; }
 
-    const std::string &getSource() const { return mSource; }
-    bool isCompiledToBinary() const { return !mCompiledBinary.empty(); }
-    const std::string &getTranslatedSource() const { return mTranslatedSource; }
-    const sh::BinaryBlob &getCompiledBinary() const { return mCompiledBinary; }
-
-    ShaderType getShaderType() const { return mShaderType; }
-    int getShaderVersion() const { return mShaderVersion; }
-
-    const std::vector<sh::ShaderVariable> &getInputVaryings() const { return mInputVaryings; }
-    const std::vector<sh::ShaderVariable> &getOutputVaryings() const { return mOutputVaryings; }
-    const std::vector<sh::ShaderVariable> &getUniforms() const { return mUniforms; }
-    const std::vector<sh::InterfaceBlock> &getUniformBlocks() const { return mUniformBlocks; }
-    const std::vector<sh::InterfaceBlock> &getShaderStorageBlocks() const
-    {
-        return mShaderStorageBlocks;
-    }
-    const std::vector<sh::ShaderVariable> &getActiveAttributes() const { return mActiveAttributes; }
-    const std::vector<sh::ShaderVariable> &getAllAttributes() const { return mAllAttributes; }
-    const std::vector<sh::ShaderVariable> &getActiveOutputVariables() const
-    {
-        return mActiveOutputVariables;
-    }
-
+    const std::string &getSource() const { return *mSource; }
     bool compilePending() const { return mCompileStatus == CompileStatus::COMPILE_REQUESTED; }
-
-    const sh::WorkGroupSize &getLocalSize() const { return mLocalSize; }
-
-    bool hasDiscard() const { return mHasDiscard; }
-    bool enablesPerSampleShading() const { return mEnablesPerSampleShading; }
-    rx::SpecConstUsageBits getSpecConstUsageBits() const { return mSpecConstUsageBits; }
-
-    int getNumViews() const { return mNumViews; }
-
-    Optional<PrimitiveMode> getGeometryShaderInputPrimitiveType() const
-    {
-        return mGeometryShaderInputPrimitiveType;
-    }
-
-    Optional<PrimitiveMode> getGeometryShaderOutputPrimitiveType() const
-    {
-        return mGeometryShaderOutputPrimitiveType;
-    }
-
-    Optional<GLint> geoGeometryShaderMaxVertices() const { return mGeometryShaderMaxVertices; }
-
-    Optional<GLint> getGeometryShaderInvocations() const { return mGeometryShaderInvocations; }
-
     CompileStatus getCompileStatus() const { return mCompileStatus; }
+
+    ShaderType getShaderType() const { return mCompiledState->shaderType; }
+
+    const SharedCompiledShaderState &getCompiledState() const
+    {
+        ASSERT(!compilePending());
+        return mCompiledState;
+    }
 
   private:
     friend class Shader;
 
     std::string mLabel;
+    std::shared_ptr<const std::string> mSource;
+    size_t mSourceHash = 0;
 
-    ShaderType mShaderType;
-    int mShaderVersion;
-    std::string mTranslatedSource;
-    sh::BinaryBlob mCompiledBinary;
-    std::string mSource;
-
-    sh::WorkGroupSize mLocalSize;
-
-    std::vector<sh::ShaderVariable> mInputVaryings;
-    std::vector<sh::ShaderVariable> mOutputVaryings;
-    std::vector<sh::ShaderVariable> mUniforms;
-    std::vector<sh::InterfaceBlock> mUniformBlocks;
-    std::vector<sh::InterfaceBlock> mShaderStorageBlocks;
-    std::vector<sh::ShaderVariable> mAllAttributes;
-    std::vector<sh::ShaderVariable> mActiveAttributes;
-    std::vector<sh::ShaderVariable> mActiveOutputVariables;
-
-    bool mHasDiscard;
-    bool mEnablesPerSampleShading;
-    BlendEquationBitSet mAdvancedBlendEquations;
-    rx::SpecConstUsageBits mSpecConstUsageBits;
-
-    // ANGLE_multiview.
-    int mNumViews;
-
-    // Geometry Shader.
-    Optional<PrimitiveMode> mGeometryShaderInputPrimitiveType;
-    Optional<PrimitiveMode> mGeometryShaderOutputPrimitiveType;
-    Optional<GLint> mGeometryShaderMaxVertices;
-    int mGeometryShaderInvocations;
-
-    // Tessellation Shader
-    int mTessControlShaderVertices;
-    GLenum mTessGenMode;
-    GLenum mTessGenSpacing;
-    GLenum mTessGenVertexOrder;
-    GLenum mTessGenPointMode;
+    SharedCompiledShaderState mCompiledState;
 
     // Indicates if this shader has been successfully compiled
-    CompileStatus mCompileStatus;
+    CompileStatus mCompileStatus = CompileStatus::NOT_COMPILED;
 };
 
 class Shader final : angle::NonCopyable, public LabeledObject
@@ -178,12 +120,15 @@ class Shader final : angle::NonCopyable, public LabeledObject
     angle::Result setLabel(const Context *context, const std::string &label) override;
     const std::string &getLabel() const override;
 
-    ShaderType getType() const { return mType; }
+    ShaderType getType() const { return mState.getShaderType(); }
     ShaderProgramID getHandle() const;
 
     rx::ShaderImpl *getImplementation() const { return mImplementation.get(); }
 
-    void setSource(GLsizei count, const char *const *string, const GLint *length);
+    void setSource(const Context *context,
+                   GLsizei count,
+                   const char *const *string,
+                   const GLint *length);
     int getInfoLogLength(const Context *context);
     void getInfoLog(const Context *context, GLsizei bufSize, GLsizei *length, char *infoLog);
     std::string getInfoLogString() const { return mInfoLog; }
@@ -201,105 +146,96 @@ class Shader final : angle::NonCopyable, public LabeledObject
                                           GLsizei bufSize,
                                           GLsizei *length,
                                           char *buffer);
-    const sh::BinaryBlob &getCompiledBinary(const Context *context);
 
-    void compile(const Context *context);
+    size_t getSourceHash() const;
+
+    void compile(const Context *context, angle::JobResultExpectancy resultExpectancy);
     bool isCompiled(const Context *context);
     bool isCompleted();
+
+    // Return the compilation job, which will be used by the program link job to wait for the
+    // completion of compilation.  If compilation has already finished, a placeholder job is
+    // returned which can be used to retrieve the status of compilation.
+    SharedCompileJob getCompileJob(SharedCompiledShaderState *compiledStateOut);
+
+    // Return the compiled shader state for the program.  The program holds a reference to this
+    // state, so the shader is free to recompile, get deleted, etc.
+    const SharedCompiledShaderState &getCompiledState() const { return mState.getCompiledState(); }
 
     void addRef();
     void release(const Context *context);
     unsigned int getRefCount() const;
     bool isFlaggedForDeletion() const;
     void flagForDeletion();
-    bool hasDiscard() const { return mState.mHasDiscard; }
-    bool enablesPerSampleShading() const { return mState.mEnablesPerSampleShading; }
-    BlendEquationBitSet getAdvancedBlendEquations() const { return mState.mAdvancedBlendEquations; }
-    rx::SpecConstUsageBits getSpecConstUsageBits() const { return mState.mSpecConstUsageBits; }
-
-    int getShaderVersion(const Context *context);
-
-    const std::vector<sh::ShaderVariable> &getInputVaryings(const Context *context);
-    const std::vector<sh::ShaderVariable> &getOutputVaryings(const Context *context);
-    const std::vector<sh::ShaderVariable> &getUniforms(const Context *context);
-    const std::vector<sh::InterfaceBlock> &getUniformBlocks(const Context *context);
-    const std::vector<sh::InterfaceBlock> &getShaderStorageBlocks(const Context *context);
-    const std::vector<sh::ShaderVariable> &getActiveAttributes(const Context *context);
-    const std::vector<sh::ShaderVariable> &getAllAttributes(const Context *context);
-    const std::vector<sh::ShaderVariable> &getActiveOutputVariables(const Context *context);
-
-    // Returns mapped name of a transform feedback varying. The original name may contain array
-    // brackets with an index inside, which will get copied to the mapped name. The varying must be
-    // known to be declared in the shader.
-    std::string getTransformFeedbackVaryingMappedName(const Context *context,
-                                                      const std::string &tfVaryingName);
-
-    const sh::WorkGroupSize &getWorkGroupSize(const Context *context);
-
-    int getNumViews(const Context *context);
-
-    Optional<PrimitiveMode> getGeometryShaderInputPrimitiveType(const Context *context);
-    Optional<PrimitiveMode> getGeometryShaderOutputPrimitiveType(const Context *context);
-    int getGeometryShaderInvocations(const Context *context);
-    Optional<GLint> getGeometryShaderMaxVertices(const Context *context);
-    int getTessControlShaderVertices(const Context *context);
-    GLenum getTessGenMode(const Context *context);
-    GLenum getTessGenSpacing(const Context *context);
-    GLenum getTessGenVertexOrder(const Context *context);
-    GLenum getTessGenPointMode(const Context *context);
-
-    const std::string &getCompilerResourcesString() const;
 
     const ShaderState &getState() const { return mState; }
 
-    GLuint getCurrentMaxComputeWorkGroupInvocations() const
-    {
-        return mCurrentMaxComputeWorkGroupInvocations;
-    }
-
-    unsigned int getMaxComputeSharedMemory() const { return mMaxComputeSharedMemory; }
     bool hasBeenDeleted() const { return mDeleteStatus; }
 
-    // Block until compiling is finished and resolve it.
+    // Block until compilation is finished and resolve it.
     void resolveCompile(const Context *context);
 
     // Writes a shader's binary to the output memory buffer.
     angle::Result serialize(const Context *context, angle::MemoryBuffer *binaryOut) const;
-    angle::Result deserialize(const Context *context, BinaryInputStream &stream);
-    angle::Result loadBinary(const Context *context, const void *binary, GLsizei length);
+    bool deserialize(BinaryInputStream &stream);
+
+    // Load a binary from shader cache.
+    bool loadBinary(const Context *context,
+                    const void *binary,
+                    GLsizei length,
+                    angle::JobResultExpectancy resultExpectancy);
+    // Load a binary from a glShaderBinary call.
+    bool loadShaderBinary(const Context *context,
+                          const void *binary,
+                          GLsizei length,
+                          angle::JobResultExpectancy resultExpectancy);
+
+    void writeShaderKey(BinaryOutputStream *streamOut) const { streamOut->writeBytes(mShaderHash); }
+    const egl::BlobCache::Key &getShaderHash() const { return mShaderHash; }
 
   private:
-    struct CompilingState;
-
     ~Shader() override;
-    static void GetSourceImpl(const std::string &source,
-                              GLsizei bufSize,
-                              GLsizei *length,
-                              char *buffer);
+
+    bool loadBinaryImpl(const Context *context,
+                        const void *binary,
+                        GLsizei length,
+                        angle::JobResultExpectancy resultExpectancy,
+                        bool generatedWithOfflineCompiler);
+
+    void passthroughCompile(const Context *context,
+                            ShCompileOptions *compileOptions,
+                            angle::JobResultExpectancy resultExpectancy);
+
+    // Compute a key to uniquely identify the shader object in memory caches.
+    void setShaderKey(const Context *context,
+                      const ShCompileOptions &compileOptions,
+                      const ShShaderOutput &outputType,
+                      const ShBuiltInResources &resources);
 
     ShaderState mState;
     std::unique_ptr<rx::ShaderImpl> mImplementation;
     const gl::Limitations mRendererLimitations;
     const ShaderProgramID mHandle;
-    const ShaderType mType;
     unsigned int mRefCount;  // Number of program objects this shader is attached to
     bool mDeleteStatus;  // Flag to indicate that the shader can be deleted when no longer in use
     std::string mInfoLog;
 
     // We keep a reference to the translator in order to defer compiles while preserving settings.
     BindingPointer<Compiler> mBoundCompiler;
-    std::unique_ptr<CompilingState> mCompilingState;
-    std::string mCompilerResourcesString;
+    SharedCompileJob mCompileJob;
+    egl::BlobCache::Key mShaderHash;
 
     ShaderProgramManager *mResourceManager;
-
-    GLuint mCurrentMaxComputeWorkGroupInvocations;
-    unsigned int mMaxComputeSharedMemory;
 };
 
-bool CompareShaderVar(const sh::ShaderVariable &x, const sh::ShaderVariable &y);
-
 const char *GetShaderTypeString(ShaderType type);
+std::string GetShaderDumpFileDirectory();
+std::string GetShaderDumpFileName(size_t shaderHash);
+
+// Block until the compilation job is finished.  This can be used by the program link job to wait
+// for shader compilation.  As such, it may be called by multiple threads without holding a lock and
+// must therefore be thread-safe.  It returns true if shader compilation has succeeded.
+bool WaitCompileJobUnlocked(const SharedCompileJob &compileJob);
 }  // namespace gl
 
 #endif  // LIBANGLE_SHADER_H_

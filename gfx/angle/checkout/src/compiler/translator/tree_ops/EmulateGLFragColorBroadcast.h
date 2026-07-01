@@ -23,11 +23,11 @@ class TSymbolTable;
 
 // Replace all gl_FragColor with gl_FragData[0], and in the end of main() function,
 // assign gl_FragData[1] ... gl_FragData[maxDrawBuffers - 1] with gl_FragData[0].
-// If gl_FragColor is in outputVariables, it is replaced by gl_FragData.
+// Similarly replace all gl_SecondaryFragColorEXT with gl_SecondaryFragDataEXT[0].
 [[nodiscard]] bool EmulateGLFragColorBroadcast(TCompiler *compiler,
                                                TIntermBlock *root,
                                                int maxDrawBuffers,
-                                               std::vector<ShaderVariable> *outputVariables,
+                                               int maxDualSourceDrawBuffers,
                                                TSymbolTable *symbolTable,
                                                int shaderVersion);
 }  // namespace sh

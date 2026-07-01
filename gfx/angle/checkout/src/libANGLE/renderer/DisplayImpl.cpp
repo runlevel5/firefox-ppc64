@@ -25,12 +25,7 @@ class MockDevice : public DeviceImpl
     egl::Error getAttribute(const egl::Display *display, EGLint attribute, void **outValue) override
     {
         UNREACHABLE();
-        return egl::EglBadAttribute();
-    }
-    EGLint getType() override
-    {
-        UNREACHABLE();
-        return EGL_NONE;
+        return egl::Error(EGL_BAD_ATTRIBUTE);
     }
     void generateExtensions(egl::DeviceExtensions *outExtensions) const override
     {
@@ -45,7 +40,7 @@ DisplayImpl::DisplayImpl(const egl::DisplayState &state)
 
 DisplayImpl::~DisplayImpl()
 {
-    ASSERT(mState.surfaceSet.empty());
+    ASSERT(mState.surfaceMap.empty());
 }
 
 egl::Error DisplayImpl::prepareForCall()
@@ -79,13 +74,18 @@ egl::Error DisplayImpl::forceGPUSwitch(EGLint gpuIDHigh, EGLint gpuIDLow)
     return egl::NoError();
 }
 
+egl::Error DisplayImpl::waitUntilWorkScheduled()
+{
+    return egl::NoError();
+}
+
 egl::Error DisplayImpl::validateClientBuffer(const egl::Config *configuration,
                                              EGLenum buftype,
                                              EGLClientBuffer clientBuffer,
                                              const egl::AttributeMap &attribs) const
 {
     UNREACHABLE();
-    return egl::EglBadDisplay() << "DisplayImpl::validateClientBuffer unimplemented.";
+    return egl::Error(EGL_BAD_DISPLAY, "DisplayImpl::validateClientBuffer unimplemented.");
 }
 
 egl::Error DisplayImpl::validateImageClientBuffer(const gl::Context *context,
@@ -94,7 +94,7 @@ egl::Error DisplayImpl::validateImageClientBuffer(const gl::Context *context,
                                                   const egl::AttributeMap &attribs) const
 {
     UNREACHABLE();
-    return egl::EglBadDisplay() << "DisplayImpl::validateImageClientBuffer unimplemented.";
+    return egl::Error(EGL_BAD_DISPLAY, "DisplayImpl::validateImageClientBuffer unimplemented.");
 }
 
 egl::Error DisplayImpl::validatePixmap(const egl::Config *config,
@@ -102,7 +102,7 @@ egl::Error DisplayImpl::validatePixmap(const egl::Config *config,
                                        const egl::AttributeMap &attributes) const
 {
     UNREACHABLE();
-    return egl::EglBadDisplay() << "DisplayImpl::valdiatePixmap unimplemented.";
+    return egl::Error(EGL_BAD_DISPLAY, "DisplayImpl::valdiatePixmap unimplemented.");
 }
 
 const egl::Caps &DisplayImpl::getCaps() const
@@ -121,22 +121,12 @@ DeviceImpl *DisplayImpl::createDevice()
     return new MockDevice();
 }
 
-bool DisplayImpl::isX11() const
+angle::NativeWindowSystem DisplayImpl::getWindowSystem() const
 {
-    return false;
+    return angle::NativeWindowSystem::Other;
 }
 
-bool DisplayImpl::isWayland() const
-{
-    return false;
-}
-
-bool DisplayImpl::isGBM() const
-{
-    return false;
-}
-
-bool DisplayImpl::supportsDmaBufFormat(EGLint format) const
+bool DisplayImpl::supportsDmaBufFormat(EGLint format)
 {
     UNREACHABLE();
     return false;
@@ -158,11 +148,13 @@ egl::Error DisplayImpl::queryDmaBufModifiers(EGLint format,
     return egl::NoError();
 }
 
-GLuint DisplayImpl::getNextSurfaceID()
+egl::Error DisplayImpl::querySupportedCompressionRates(const egl::Config *configuration,
+                                                       const egl::AttributeMap &attributes,
+                                                       EGLint *rates,
+                                                       EGLint rate_size,
+                                                       EGLint *num_rates) const
 {
-    uint64_t id = mNextSurfaceID.generate().getValue();
-    ASSERT(id <= 0xfffffffful);
-    return static_cast<GLuint>(id);
+    UNREACHABLE();
+    return egl::NoError();
 }
-
 }  // namespace rx

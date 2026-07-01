@@ -24,6 +24,13 @@ struct ValidationContext;
 using AttributeValidationFunc =
     std::function<bool(const ValidationContext *, const Display *, EGLAttrib)>;
 
+enum AttributeMapType
+{
+    Invalid,
+    Attrib,
+    Int,
+};
+
 class AttributeMap final
 {
   public:
@@ -70,11 +77,13 @@ class AttributeMap final
                                 const egl::Display *display,
                                 AttributeValidationFunc validationFunc) const;
 
-    // TODO: remove this and validate at every call site. http://anglebug.com/6671
+    // TODO: remove this and validate at every call site. http://anglebug.com/42265167
     void initializeWithoutValidation() const;
 
     static AttributeMap CreateFromIntArray(const EGLint *attributes);
     static AttributeMap CreateFromAttribArray(const EGLAttrib *attributes);
+
+    AttributeMapType getType() const { return mMapType; }
 
   private:
     bool isValidated() const;
@@ -94,6 +103,7 @@ class AttributeMap final
     mutable const EGLint *mIntPointer       = nullptr;
     mutable const EGLAttrib *mAttribPointer = nullptr;
     mutable Map mValidatedAttributes;
+    mutable AttributeMapType mMapType = AttributeMapType::Invalid;
 };
 }  // namespace egl
 

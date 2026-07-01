@@ -11,8 +11,10 @@
 #define LIBANGLE_RENDERER_D3D_D3D11_CONTEXT11_H_
 
 #include <stack>
+#include "image_util/loadimage.h"
 #include "libANGLE/renderer/ContextImpl.h"
 #include "libANGLE/renderer/d3d/ContextD3D.h"
+#include "libANGLE/renderer/d3d/d3d11/ResourceManager11.h"
 
 namespace rx
 {
@@ -24,13 +26,15 @@ class Context11 : public ContextD3D, public MultisampleTextureInitializer
     Context11(const gl::State &state, gl::ErrorSet *errorSet, Renderer11 *renderer);
     ~Context11() override;
 
-    angle::Result initialize() override;
+    angle::Result initialize(const angle::ImageLoadContext &imageLoadContext) override;
     void onDestroy(const gl::Context *context) override;
 
     // Shader creation
     CompilerImpl *createCompiler() override;
     ShaderImpl *createShader(const gl::ShaderState &data) override;
     ProgramImpl *createProgram(const gl::ProgramState &data) override;
+    ProgramExecutableImpl *createProgramExecutable(
+        const gl::ProgramExecutable *executable) override;
 
     // Framebuffer creation
     FramebufferImpl *createFramebuffer(const gl::FramebufferState &data) override;
@@ -45,12 +49,13 @@ class Context11 : public ContextD3D, public MultisampleTextureInitializer
     BufferImpl *createBuffer(const gl::BufferState &state) override;
 
     // Vertex Array creation
-    VertexArrayImpl *createVertexArray(const gl::VertexArrayState &data) override;
+    VertexArrayImpl *createVertexArray(const gl::VertexArrayState &data,
+                                       const gl::VertexArrayBuffers &vertexArrayBuffers) override;
 
     // Query and Fence creation
     QueryImpl *createQuery(gl::QueryType type) override;
     FenceNVImpl *createFenceNV() override;
-    SyncImpl *createSync() override;
+    SyncImpl *createSync(const gl::Context *context) override;
 
     // Transform Feedback creation
     TransformFeedbackImpl *createTransformFeedback(
@@ -216,8 +221,10 @@ class Context11 : public ContextD3D, public MultisampleTextureInitializer
 
     // State sync with dirty bits.
     angle::Result syncState(const gl::Context *context,
-                            const gl::State::DirtyBits &dirtyBits,
-                            const gl::State::DirtyBits &bitMask,
+                            const gl::state::DirtyBits dirtyBits,
+                            const gl::state::DirtyBits bitMask,
+                            const gl::state::ExtendedDirtyBits extendedDirtyBits,
+                            const gl::state::ExtendedDirtyBits extendedBitMask,
                             gl::Command command) override;
 
     // Disjoint timer queries
@@ -232,9 +239,10 @@ class Context11 : public ContextD3D, public MultisampleTextureInitializer
     const gl::TextureCapsMap &getNativeTextureCaps() const override;
     const gl::Extensions &getNativeExtensions() const override;
     const gl::Limitations &getNativeLimitations() const override;
-    ShPixelLocalStorageType getNativePixelLocalStorageType() const override;
+    const ShPixelLocalStorageOptions &getNativePixelLocalStorageOptions() const override;
 
     Renderer11 *getRenderer() const { return mRenderer; }
+    const angle::ImageLoadContext &getImageLoadContext() const { return mImageLoadContext; }
 
     angle::Result dispatchCompute(const gl::Context *context,
                                   GLuint numGroupsX,
@@ -247,7 +255,6 @@ class Context11 : public ContextD3D, public MultisampleTextureInitializer
 
     angle::Result triggerDrawCallProgramRecompilation(const gl::Context *context,
                                                       gl::PrimitiveMode drawMode);
-    angle::Result triggerDispatchCallProgramRecompilation(const gl::Context *context);
     angle::Result getIncompleteTexture(const gl::Context *context,
                                        gl::TextureType type,
                                        gl::Texture **textureOut);
@@ -260,6 +267,12 @@ class Context11 : public ContextD3D, public MultisampleTextureInitializer
                       const char *file,
                       const char *function,
                       unsigned int line) override;
+
+    void setGPUDisjoint();
+    angle::Result checkDisjointQuery();
+    HRESULT checkDisjointQueryStatus();
+    UINT64 getDisjointFrequency();
+    void setDisjointFrequency(UINT64 frequency);
 
   private:
     angle::Result drawElementsImpl(const gl::Context *context,
@@ -274,8 +287,13 @@ class Context11 : public ContextD3D, public MultisampleTextureInitializer
                                    bool isInstancedDraw);
 
     Renderer11 *mRenderer;
+    angle::ImageLoadContext mImageLoadContext;
     IncompleteTextureSet mIncompleteTextures;
     std::stack<std::string> mMarkerStack;
+    d3d11::Query mDisjointQuery;
+    bool mDisjointQueryStarted;
+    bool mDisjoint;
+    UINT64 mFrequency;
 };
 }  // namespace rx
 

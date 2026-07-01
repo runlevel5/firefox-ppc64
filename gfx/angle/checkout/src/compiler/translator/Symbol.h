@@ -9,6 +9,10 @@
 #ifndef COMPILER_TRANSLATOR_SYMBOL_H_
 #define COMPILER_TRANSLATOR_SYMBOL_H_
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "common/angleutils.h"
 #include "compiler/translator/ExtensionBehavior.h"
 #include "compiler/translator/ImmutableString.h"
@@ -46,6 +50,10 @@ class TSymbol : angle::NonCopyable
     ImmutableString name() const;
     // Don't call getMangledName() for empty symbols (symbolType == SymbolType::Empty).
     ImmutableString getMangledName() const;
+
+    // Return whether this will generate a temporary name in `name()`.  Not to be confused with
+    // SymbolType::Empty, which shouldn't call `name()`.
+    bool isNameless() const { return mSymbolType == SymbolType::AngleInternal && mName.empty(); }
 
     bool isFunction() const { return mSymbolClass == SymbolClass::Function; }
     bool isVariable() const { return mSymbolClass == SymbolClass::Variable; }
@@ -232,6 +240,12 @@ class TInterfaceBlock : public TSymbol, public TFieldListCollection
 
     TLayoutBlockStorage blockStorage() const { return mBlockStorage; }
     int blockBinding() const { return mBinding; }
+    bool isDefaultUniformBlock() const { return mIsDefaultUniformBlock; }
+    void setDefaultUniformBlock() { mIsDefaultUniformBlock = true; }
+
+    // For IR->AST translation only
+    void setBlockStorage(TLayoutBlockStorage blockStorage) { mBlockStorage = blockStorage; }
+    void setBlockBinding(int binding) { mBinding = binding; }
 
   private:
     friend class TSymbolTable;
@@ -263,6 +277,7 @@ class TInterfaceBlock : public TSymbol, public TFieldListCollection
 
     TLayoutBlockStorage mBlockStorage;
     int mBinding;
+    bool mIsDefaultUniformBlock;
 
     // Note that we only record matrix packing on a per-field granularity.
 };
@@ -276,15 +291,14 @@ struct TParameter
     const TVariable *createVariable(TSymbolTable *symbolTable)
     {
         const ImmutableString constName(name);
-        const TType *constType = type;
+        const TType *constType = new TType(type);
         name                   = nullptr;
-        type                   = nullptr;
         return new TVariable(symbolTable, constName, constType,
                              constName.empty() ? SymbolType::Empty : SymbolType::UserDefined);
     }
 
     const char *name;  // either pool allocated or static.
-    TType *type;
+    TPublicType type;
 };
 
 // The function sub-class of a symbol.

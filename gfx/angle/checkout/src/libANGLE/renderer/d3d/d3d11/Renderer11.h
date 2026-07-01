@@ -15,6 +15,7 @@
 #include "libANGLE/angletypes.h"
 #include "libANGLE/renderer/d3d/HLSLCompiler.h"
 #include "libANGLE/renderer/d3d/ProgramD3D.h"
+#include "libANGLE/renderer/d3d/ProgramExecutableD3D.h"
 #include "libANGLE/renderer/d3d/RenderTargetD3D.h"
 #include "libANGLE/renderer/d3d/RendererD3D.h"
 #include "libANGLE/renderer/d3d/d3d11/DebugAnnotator11.h"
@@ -48,7 +49,6 @@ struct Renderer11DeviceCaps
     Renderer11DeviceCaps();
 
     D3D_FEATURE_LEVEL featureLevel;
-    bool supportsDXGI1_2;                         // Support for DXGI 1.2
     bool supportsClearView;                       // Support for ID3D11DeviceContext1::ClearView
     bool supportsConstantBufferOffsets;           // Support for Constant buffer offset
     bool supportsVpRtIndexWriteFromVertexShader;  // VP/RT can be selected in the Vertex Shader
@@ -58,6 +58,8 @@ struct Renderer11DeviceCaps
                                                  // when multisampled.  Textures will need to be
                                                  // resolved before reading. crbug.com/656989
     bool supportsTypedUAVLoadAdditionalFormats;  //
+    // https://learn.microsoft.com/en-us/windows/win32/direct3d11/typed-unordered-access-view-loads
+    bool supportsUAVLoadStoreCommonFormats;  // Do the common additional formats support load/store?
     bool supportsRasterizerOrderViews;
     bool allowES3OnFL10_0;
     UINT B5G6R5support;     // Bitfield of D3D11_FORMAT_SUPPORT values for DXGI_FORMAT_B5G6R5_UNORM
@@ -299,12 +301,12 @@ class Renderer11 : public RendererD3D
                                                        const egl::AttributeMap &attribs) override;
 
     // D3D11-renderer specific methods
-    ID3D11Device *getDevice() { return mDevice; }
-    ID3D11Device1 *getDevice1() { return mDevice1; }
+    ID3D11Device *getDevice() { return mDevice.Get(); }
+    ID3D11Device1 *getDevice1() { return mDevice1.Get(); }
     void *getD3DDevice() override;
-    ID3D11DeviceContext *getDeviceContext() { return mDeviceContext; }
-    ID3D11DeviceContext1 *getDeviceContext1IfSupported() { return mDeviceContext1; }
-    IDXGIFactory *getDxgiFactory() { return mDxgiFactory; }
+    ID3D11DeviceContext *getDeviceContext() { return mDeviceContext.Get(); }
+    ID3D11DeviceContext1 *getDeviceContext1IfSupported() { return mDeviceContext1.Get(); }
+    IDXGIFactory *getDxgiFactory() { return mDxgiFactory.Get(); }
 
     angle::Result getBlendState(const gl::Context *context,
                                 const d3d11::BlendStateKey &key,
@@ -383,7 +385,6 @@ class Renderer11 : public RendererD3D
     RendererClass getRendererClass() const override;
     StateManager11 *getStateManager() { return &mStateManager; }
 
-    void onSwap();
     void onBufferCreate(const Buffer11 *created);
     void onBufferDelete(const Buffer11 *deleted);
 
@@ -418,12 +419,6 @@ class Renderer11 : public RendererD3D
 
     gl::Version getMaxSupportedESVersion() const override;
     gl::Version getMaxConformantESVersion() const override;
-
-    angle::Result dispatchCompute(const gl::Context *context,
-                                  GLuint numGroupsX,
-                                  GLuint numGroupsY,
-                                  GLuint numGroupsZ);
-    angle::Result dispatchComputeIndirect(const gl::Context *context, GLintptr indirect);
 
     angle::Result createStagingTexture(const gl::Context *context,
                                        ResourceType textureType,
@@ -501,11 +496,18 @@ class Renderer11 : public RendererD3D
     std::string getVendorString() const override;
     std::string getVersionString(bool includeFullVersion) const override;
 
+    angle::Result resolveMultisampledTexture(const gl::Context *context,
+                                             RenderTarget11 *renderTarget,
+                                             bool depth,
+                                             bool stencil,
+                                             TextureHelper11 *textureOut);
+
   private:
     void generateCaps(gl::Caps *outCaps,
                       gl::TextureCapsMap *outTextureCaps,
                       gl::Extensions *outExtensions,
-                      gl::Limitations *outLimitations) const override;
+                      gl::Limitations *outLimitations,
+                      ShPixelLocalStorageOptions *outPLSOptions) const override;
 
     void initializeFeatures(angle::FeaturesD3D *features) const override;
 
@@ -523,12 +525,6 @@ class Renderer11 : public RendererD3D
                                   const void *indices,
                                   int baseVertex,
                                   int instances);
-
-    angle::Result resolveMultisampledTexture(const gl::Context *context,
-                                             RenderTarget11 *renderTarget,
-                                             bool depth,
-                                             bool stencil,
-                                             TextureHelper11 *textureOut);
 
     void populateRenderer11DeviceCaps();
 
@@ -549,8 +545,10 @@ class Renderer11 : public RendererD3D
     HRESULT callD3D11On12CreateDevice(PFN_D3D12_CREATE_DEVICE createDevice12,
                                       PFN_D3D11ON12_CREATE_DEVICE createDevice11on12,
                                       bool debug);
+    egl::Error initializeDXGIAdapter();
     egl::Error initializeD3DDevice();
     egl::Error initializeDevice();
+    egl::Error initializeAdapterFromDevice();
     void releaseDeviceResources();
     void release();
 
@@ -567,7 +565,6 @@ class Renderer11 : public RendererD3D
 
     HMODULE mD3d11Module;
     HMODULE mD3d12Module;
-    HMODULE mDxgiModule;
     HMODULE mDCompModule;
     std::vector<D3D_FEATURE_LEVEL> mAvailableFeatureLevels;
     D3D_DRIVER_TYPE mRequestedDriverType;
@@ -599,22 +596,20 @@ class Renderer11 : public RendererD3D
     // Created objects state tracking
     std::set<const Buffer11 *> mAliveBuffers;
 
-    double mLastHistogramUpdateTime;
-
     angle::ComPtr<ID3D12Device> mDevice12;
     angle::ComPtr<ID3D12CommandQueue> mCommandQueue;
 
-    ID3D11Device *mDevice;
-    ID3D11Device1 *mDevice1;
+    angle::ComPtr<ID3D11Device> mDevice;
+    angle::ComPtr<ID3D11Device1> mDevice1;
     Renderer11DeviceCaps mRenderer11DeviceCaps;
-    ID3D11DeviceContext *mDeviceContext;
-    ID3D11DeviceContext1 *mDeviceContext1;
-    ID3D11DeviceContext3 *mDeviceContext3;
-    IDXGIAdapter *mDxgiAdapter;
+    angle::ComPtr<ID3D11DeviceContext> mDeviceContext;
+    angle::ComPtr<ID3D11DeviceContext1> mDeviceContext1;
+    angle::ComPtr<ID3D11DeviceContext3> mDeviceContext3;
+    angle::ComPtr<IDXGIAdapter> mDxgiAdapter;
     DXGI_ADAPTER_DESC mAdapterDescription;
     char mDescription[128];
-    IDXGIFactory *mDxgiFactory;
-    ID3D11Debug *mDebug;
+    angle::ComPtr<IDXGIFactory> mDxgiFactory;
+    angle::ComPtr<ID3D11Debug> mDebug;
 
     std::vector<GLuint> mScratchIndexDataBuffer;
 

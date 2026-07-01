@@ -9,6 +9,7 @@
 #include "common/utilities.h"
 #include "compiler/translator/Diagnostics.h"
 #include "compiler/translator/ImmutableStringBuilder.h"
+#include "compiler/translator/Name.h"
 #include "compiler/translator/Symbol.h"
 #include "compiler/translator/tree_util/IntermTraverse.h"
 #include "compiler/translator/tree_util/SpecializationConstant.h"
@@ -71,12 +72,12 @@ class ValidateAST : public TIntermTraverser
     void scope(Visit visit);
     bool isVariableDeclared(const TVariable *variable);
     bool variableNeedsDeclaration(const TVariable *variable);
-    const TFieldListCollection *getStructOrInterfaceBlock(const TType &type,
-                                                          ImmutableString *typeNameOut);
+    const TFieldListCollection *getStructOrInterfaceBlock(const TType &type, Name *typeNameOut);
 
     void expectNonNullChildren(Visit visit, TIntermNode *node, size_t least_count);
 
     bool validateInternal();
+    bool isInDeclaration() const;
 
     ValidateASTOptions mOptions;
     TDiagnostics *mDiagnostics;
@@ -88,8 +89,11 @@ class ValidateAST : public TIntermTraverser
     // For validateVariableReferences:
     std::vector<std::set<const TVariable *>> mDeclaredVariables;
     std::set<const TInterfaceBlock *> mNamelessInterfaceBlocks;
-    std::map<ImmutableString, const TVariable *> mReferencedBuiltIns;
+    std::map<ImmutableString, TSymbolUniqueId> mReferencedBuiltIns;
     bool mVariableReferencesFailed = false;
+
+    // For validateOps:
+    bool mOpsFailed = false;
 
     // For validateBuiltInOps:
     bool mBuiltInOpsFailed = false;
@@ -111,7 +115,8 @@ class ValidateAST : public TIntermTraverser
     bool mPrecisionFailed = false;
 
     // For validateStructUsage:
-    std::vector<std::map<ImmutableString, const TFieldListCollection *>> mStructsAndBlocksByName;
+    std::vector<std::map<Name, const TFieldListCollection *>> mStructsAndBlocksByName;
+    std::set<const TFunction *> mStructUsageProcessedFunctions;
     bool mStructUsageFailed = false;
 
     // For validateExpressionTypes:
@@ -123,9 +128,14 @@ class ValidateAST : public TIntermTraverser
     // For validateNoSwizzleOfSwizzle:
     bool mNoSwizzleOfSwizzleFailed = false;
 
+    // For validateNoQualifiersOnConstructors:
+    bool mNoQualifiersOnConstructorsFailed = false;
+
     // For validateNoStatementsAfterBranch:
     bool mIsBranchVisitedInBlock        = false;
     bool mNoStatementsAfterBranchFailed = false;
+
+    bool mVariableNamingFailed = false;
 };
 
 bool IsSameType(const TType &a, const TType &b)
@@ -134,6 +144,94 @@ bool IsSameType(const TType &a, const TType &b)
            a.getSecondarySize() == b.getSecondarySize() && a.getArraySizes() == b.getArraySizes() &&
            a.getStruct() == b.getStruct() &&
            (!a.isInterfaceBlock() || a.getInterfaceBlock() == b.getInterfaceBlock());
+}
+
+bool IsUnaryOp(TOperator op)
+{
+    switch (op)
+    {
+        case EOpNegative:
+        case EOpPositive:
+        case EOpLogicalNot:
+        case EOpBitwiseNot:
+        case EOpPostIncrement:
+        case EOpPostDecrement:
+        case EOpPreIncrement:
+        case EOpPreDecrement:
+        case EOpArrayLength:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool IsBinaryOp(TOperator op)
+{
+    switch (op)
+    {
+        case EOpAdd:
+        case EOpSub:
+        case EOpMul:
+        case EOpDiv:
+        case EOpIMod:
+        case EOpEqual:
+        case EOpNotEqual:
+        case EOpLessThan:
+        case EOpGreaterThan:
+        case EOpLessThanEqual:
+        case EOpGreaterThanEqual:
+        case EOpComma:
+        case EOpVectorTimesScalar:
+        case EOpVectorTimesMatrix:
+        case EOpMatrixTimesVector:
+        case EOpMatrixTimesScalar:
+        case EOpMatrixTimesMatrix:
+        case EOpLogicalOr:
+        case EOpLogicalXor:
+        case EOpLogicalAnd:
+        case EOpBitShiftLeft:
+        case EOpBitShiftRight:
+        case EOpBitwiseAnd:
+        case EOpBitwiseXor:
+        case EOpBitwiseOr:
+        case EOpIndexDirect:
+        case EOpIndexIndirect:
+        case EOpIndexDirectStruct:
+        case EOpIndexDirectInterfaceBlock:
+        case EOpAssign:
+        case EOpInitialize:
+        case EOpAddAssign:
+        case EOpSubAssign:
+        case EOpMulAssign:
+        case EOpVectorTimesMatrixAssign:
+        case EOpVectorTimesScalarAssign:
+        case EOpMatrixTimesScalarAssign:
+        case EOpMatrixTimesMatrixAssign:
+        case EOpDivAssign:
+        case EOpIModAssign:
+        case EOpBitShiftLeftAssign:
+        case EOpBitShiftRightAssign:
+        case EOpBitwiseAndAssign:
+        case EOpBitwiseXorAssign:
+        case EOpBitwiseOrAssign:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool IsBranchOp(TOperator op)
+{
+    switch (op)
+    {
+        case EOpKill:
+        case EOpReturn:
+        case EOpBreak:
+        case EOpContinue:
+            return true;
+        default:
+            return false;
+    }
 }
 
 bool ValidateAST::validate(TIntermNode *root,
@@ -212,7 +310,7 @@ void ValidateAST::visitStructOrInterfaceBlockDeclaration(const TType &type,
     }
 
     // Make sure the structure or interface block is not doubly defined.
-    ImmutableString typeName("");
+    Name typeName;
     const TFieldListCollection *namedStructOrBlock = getStructOrInterfaceBlock(type, &typeName);
 
     // Recurse the fields of the structure or interface block and check members of structure type.
@@ -241,24 +339,25 @@ void ValidateAST::visitStructOrInterfaceBlockDeclaration(const TType &type,
         if (type.getStruct() == nullptr)
         {
             // Allow interfaces to be doubly-defined.
-            std::string name(typeName.data());
+            ImmutableString rawName = typeName.rawName();
 
             if (IsShaderIn(type.getQualifier()))
             {
-                typeName = ImmutableString(name + "<input>");
+                rawName = BuildConcatenatedImmutableString(rawName, "<input>");
             }
             else if (IsShaderOut(type.getQualifier()))
             {
-                typeName = ImmutableString(name + "<output>");
+                rawName = BuildConcatenatedImmutableString(rawName, "<output>");
             }
             else if (IsStorageBuffer(type.getQualifier()))
             {
-                typeName = ImmutableString(name + "<buffer>");
+                rawName = BuildConcatenatedImmutableString(rawName, "<buffer>");
             }
             else if (type.getQualifier() == EvqUniform)
             {
-                typeName = ImmutableString(name + "<uniform>");
+                rawName = BuildConcatenatedImmutableString(rawName, "<uniform>");
             }
+            typeName = Name(rawName, typeName.symbolType());
         }
 
         if (mStructsAndBlocksByName.back().find(typeName) != mStructsAndBlocksByName.back().end())
@@ -266,7 +365,7 @@ void ValidateAST::visitStructOrInterfaceBlockDeclaration(const TType &type,
             mDiagnostics->error(location,
                                 "Found redeclaration of struct or interface block with the same "
                                 "name in the same scope <validateStructUsage>",
-                                typeName.data());
+                                typeName.rawName().data());
             mStructUsageFailed = true;
         }
         else
@@ -287,12 +386,12 @@ void ValidateAST::visitStructUsage(const TType &type, const TSourceLoc &location
     // Make sure the structure being referenced has the same pointer as the closest (in scope)
     // definition.
     const TStructure *structure     = type.getStruct();
-    const ImmutableString &typeName = structure->name();
+    const Name typeName(*structure);
 
     bool foundDeclaration = false;
     for (size_t scopeIndex = mStructsAndBlocksByName.size(); scopeIndex > 0; --scopeIndex)
     {
-        const std::map<ImmutableString, const TFieldListCollection *> &scopeDecls =
+        const std::map<Name, const TFieldListCollection *> &scopeDecls =
             mStructsAndBlocksByName[scopeIndex - 1];
 
         auto iter = scopeDecls.find(typeName);
@@ -305,7 +404,7 @@ void ValidateAST::visitStructUsage(const TType &type, const TSourceLoc &location
                 mDiagnostics->error(location,
                                     "Found reference to struct or interface block with doubly "
                                     "created type <validateStructUsage>",
-                                    typeName.data());
+                                    typeName.rawName().data());
                 mStructUsageFailed = true;
             }
 
@@ -318,7 +417,7 @@ void ValidateAST::visitStructUsage(const TType &type, const TSourceLoc &location
         mDiagnostics->error(location,
                             "Found reference to struct or interface block with no declaration "
                             "<validateStructUsage>",
-                            typeName.data());
+                            typeName.rawName().data());
         mStructUsageFailed = true;
     }
 }
@@ -331,12 +430,7 @@ void ValidateAST::visitBuiltInFunction(TIntermOperator *node, const TFunction *f
         return;
     }
 
-    ImmutableStringBuilder opValueBuilder(16);
-    opValueBuilder << "op: ";
-    opValueBuilder.appendDecimal(op);
-
-    ImmutableString opValue = opValueBuilder;
-
+    ImmutableString opValue = BuildConcatenatedImmutableString("op: ", op);
     if (function == nullptr)
     {
         mDiagnostics->error(node->getLine(),
@@ -392,7 +486,7 @@ void ValidateAST::validateExpressionTypeBinary(TIntermBinary *node)
             if (!expectedType.isArray())
             {
                 // TODO: Validate matrix column selection and vector component selection.
-                // http://anglebug.com/2733
+                // http://anglebug.com/42261441
                 break;
             }
 
@@ -434,7 +528,7 @@ void ValidateAST::validateExpressionTypeBinary(TIntermBinary *node)
         }
         break;
         default:
-            // TODO: Validate other expressions. http://anglebug.com/2733
+            // TODO: Validate other expressions. http://anglebug.com/42261441
             break;
     }
 
@@ -529,11 +623,11 @@ void ValidateAST::visitBuiltInVariable(TIntermSymbol *node)
         auto iter = mReferencedBuiltIns.find(name);
         if (iter == mReferencedBuiltIns.end())
         {
-            mReferencedBuiltIns[name] = variable;
+            mReferencedBuiltIns.emplace(name, variable->uniqueId());
             return;
         }
 
-        if (variable != iter->second)
+        if (variable->uniqueId() != iter->second)
         {
             mDiagnostics->error(
                 node->getLine(),
@@ -549,7 +643,14 @@ void ValidateAST::visitBuiltInVariable(TIntermSymbol *node)
 
         if ((name == "gl_ClipDistance" && qualifier != EvqClipDistance) ||
             (name == "gl_CullDistance" && qualifier != EvqCullDistance) ||
-            (name == "gl_LastFragData" && qualifier != EvqLastFragData))
+            (name == "gl_FragDepth" && qualifier != EvqFragDepth) ||
+            (name == "gl_FragDepthEXT" && qualifier != EvqFragDepth) ||
+            (name == "gl_LastFragData" && qualifier != EvqLastFragData) ||
+            (name == "gl_LastFragColorARM" && qualifier != EvqLastFragColor) ||
+            (name == "gl_LastFragDepthARM" && qualifier != EvqLastFragDepth) ||
+            (name == "gl_LastFragStencilARM" && qualifier != EvqLastFragStencil) ||
+            (name == "gl_DepthRange" && qualifier != EvqDepthRange) ||
+            (name == "gl_NumSamples" && qualifier != EvqNumSamples))
         {
             mDiagnostics->error(
                 node->getLine(),
@@ -621,7 +722,7 @@ bool ValidateAST::variableNeedsDeclaration(const TVariable *variable)
 }
 
 const TFieldListCollection *ValidateAST::getStructOrInterfaceBlock(const TType &type,
-                                                                   ImmutableString *typeNameOut)
+                                                                   Name *typeNameOut)
 {
     const TStructure *structure           = type.getStruct();
     const TInterfaceBlock *interfaceBlock = type.getInterfaceBlock();
@@ -633,12 +734,12 @@ const TFieldListCollection *ValidateAST::getStructOrInterfaceBlock(const TType &
     if (structure != nullptr && structure->symbolType() != SymbolType::Empty)
     {
         structOrBlock = structure;
-        *typeNameOut  = structure->name();
+        *typeNameOut  = Name(*structure);
     }
     else if (interfaceBlock != nullptr)
     {
         structOrBlock = interfaceBlock;
-        *typeNameOut  = interfaceBlock->name();
+        *typeNameOut  = Name(*interfaceBlock);
     }
 
     return structOrBlock;
@@ -679,7 +780,15 @@ void ValidateAST::visitSymbol(TIntermSymbol *node)
             visitVariableNeedingDeclaration(node);
         }
     }
-
+    if (variable->symbolType() == SymbolType::Empty &&
+        variable->getType().getInterfaceBlock() == nullptr)
+    {
+        if (!isInDeclaration())
+        {
+            mDiagnostics->error(node->getLine(), "Found symbol with empty name", "");
+            mVariableNamingFailed = true;
+        }
+    }
     const bool isBuiltIn = gl::IsBuiltInName(variable->name().data());
     if (isBuiltIn)
     {
@@ -726,6 +835,34 @@ bool ValidateAST::visitBinary(Visit visit, TIntermBinary *node)
 {
     visitNode(visit, node);
 
+    if (visit == PreVisit && mOptions.validateOps)
+    {
+        const bool hasParent = getParentNode() != nullptr;
+        const bool isInDeclaration =
+            hasParent && getParentNode()->getAsDeclarationNode() != nullptr;
+        const TOperator op = node->getOp();
+        if (!BuiltInGroup::IsBuiltIn(op) && !IsBinaryOp(op))
+        {
+            mDiagnostics->error(node->getLine(),
+                                "Found binary node with non-binary op <validateOps>",
+                                GetOperatorString(op));
+            mOpsFailed = true;
+        }
+        else if (op == EOpInitialize && hasParent && !isInDeclaration)
+        {
+            mDiagnostics->error(node->getLine(),
+                                "Found EOpInitialize node outside declaration <validateOps>",
+                                GetOperatorString(op));
+            mOpsFailed = true;
+        }
+        else if (op == EOpAssign && hasParent && isInDeclaration)
+        {
+            mDiagnostics->error(node->getLine(),
+                                "Found EOpAssign node inside declaration <validateOps>",
+                                GetOperatorString(op));
+            mOpsFailed = true;
+        }
+    }
     if (mOptions.validateExpressionTypes && visit == PreVisit)
     {
         validateExpressionTypeBinary(node);
@@ -738,6 +875,16 @@ bool ValidateAST::visitUnary(Visit visit, TIntermUnary *node)
 {
     visitNode(visit, node);
 
+    if (visit == PreVisit && mOptions.validateOps)
+    {
+        const TOperator op = node->getOp();
+        if (!BuiltInGroup::IsBuiltIn(op) && !IsUnaryOp(op))
+        {
+            mDiagnostics->error(node->getLine(), "Found unary node with non-unary op <validateOps>",
+                                GetOperatorString(op));
+            mOpsFailed = true;
+        }
+    }
     if (visit == PreVisit && mOptions.validateBuiltInOps)
     {
         visitBuiltInFunction(node, node->getFunction());
@@ -805,9 +952,12 @@ void ValidateAST::visitFunctionPrototype(TIntermFunctionPrototype *node)
 
     if (mOptions.validateStructUsage)
     {
-        if (returnType.isStructSpecifier())
+        bool needsProcessing =
+            mStructUsageProcessedFunctions.find(function) == mStructUsageProcessedFunctions.end();
+        if (needsProcessing && returnType.isStructSpecifier())
         {
             visitStructOrInterfaceBlockDeclaration(returnType, node->getLine());
+            mStructUsageProcessedFunctions.insert(function);
         }
         else
         {
@@ -864,7 +1014,6 @@ void ValidateAST::visitFunctionPrototype(TIntermFunctionPrototype *node)
 bool ValidateAST::visitFunctionDefinition(Visit visit, TIntermFunctionDefinition *node)
 {
     visitNode(visit, node);
-    scope(visit);
 
     if (mOptions.validateVariableReferences && visit == PreVisit)
     {
@@ -916,6 +1065,53 @@ bool ValidateAST::visitAggregate(Visit visit, TIntermAggregate *node)
                                 "<validateNoRawFunctionCalls>",
                                 node->getFunction()->name().data());
             mNoRawFunctionCallsFailed = true;
+        }
+    }
+
+    if (visit == PreVisit && mOptions.validateNoQualifiersOnConstructors)
+    {
+        if (node->getOp() == EOpConstruct)
+        {
+            if (node->getType().isInvariant())
+            {
+                mDiagnostics->error(node->getLine(), "Found constructor node with invariant type",
+                                    "<validateNoQualifiersOnConstructors>");
+                mNoQualifiersOnConstructorsFailed = true;
+            }
+            if (node->getType().isPrecise())
+            {
+                mDiagnostics->error(node->getLine(), "Found constructor node with precise type",
+                                    "<validateNoQualifiersOnConstructors>");
+                mNoQualifiersOnConstructorsFailed = true;
+            }
+            if (node->getType().isInterpolant())
+            {
+                mDiagnostics->error(node->getLine(), "Found constructor node with interpolant type",
+                                    "<validateNoQualifiersOnConstructors>");
+                mNoQualifiersOnConstructorsFailed = true;
+            }
+            if (!node->getType().getMemoryQualifier().isEmpty())
+            {
+                mDiagnostics->error(node->getLine(),
+                                    "Found constructor node whose type has a memory qualifier",
+                                    "<validateNoQualifiersOnConstructors>");
+                mNoQualifiersOnConstructorsFailed = true;
+            }
+            if (node->getType().getInterfaceBlock() != nullptr)
+            {
+                mDiagnostics->error(
+                    node->getLine(),
+                    "Found constructor node whose type references an interface block",
+                    "<validateNoQualifiersOnConstructors>");
+                mNoQualifiersOnConstructorsFailed = true;
+            }
+            if (!node->getType().getLayoutQualifier().isEmpty())
+            {
+                mDiagnostics->error(node->getLine(),
+                                    "Found constructor node whose type has a layout qualifier",
+                                    "<validateNoQualifiersOnConstructors>");
+                mNoQualifiersOnConstructorsFailed = true;
+            }
         }
     }
 
@@ -1092,6 +1288,17 @@ bool ValidateAST::visitBranch(Visit visit, TIntermBranch *node)
 {
     visitNode(visit, node);
 
+    if (visit == PreVisit && mOptions.validateOps)
+    {
+        const TOperator op = node->getFlowOp();
+        if (!IsBranchOp(op))
+        {
+            mDiagnostics->error(node->getLine(),
+                                "Found branch node with non-branch op <validateOps>",
+                                GetOperatorString(op));
+            mOpsFailed = true;
+        }
+    }
     if (visit == PostVisit)
     {
         mIsBranchVisitedInBlock = true;
@@ -1107,11 +1314,18 @@ void ValidateAST::visitPreprocessorDirective(TIntermPreprocessorDirective *node)
 
 bool ValidateAST::validateInternal()
 {
-    return !mSingleParentFailed && !mVariableReferencesFailed && !mBuiltInOpsFailed &&
-           !mFunctionCallFailed && !mNoRawFunctionCallsFailed && !mNullNodesFailed &&
-           !mQualifiersFailed && !mPrecisionFailed && !mStructUsageFailed &&
+    return !mSingleParentFailed && !mVariableReferencesFailed && !mOpsFailed &&
+           !mBuiltInOpsFailed && !mFunctionCallFailed && !mNoRawFunctionCallsFailed &&
+           !mNullNodesFailed && !mQualifiersFailed && !mPrecisionFailed && !mStructUsageFailed &&
            !mExpressionTypesFailed && !mMultiDeclarationsFailed && !mNoSwizzleOfSwizzleFailed &&
-           !mNoStatementsAfterBranchFailed;
+           !mNoQualifiersOnConstructorsFailed && !mNoStatementsAfterBranchFailed &&
+           !mVariableNamingFailed;
+}
+
+bool ValidateAST::isInDeclaration() const
+{
+    auto *parent = getParentNode();
+    return parent != nullptr && parent->getAsDeclarationNode() != nullptr;
 }
 
 }  // anonymous namespace

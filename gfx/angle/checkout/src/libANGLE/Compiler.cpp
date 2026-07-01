@@ -24,20 +24,28 @@ namespace
 // To know when to call sh::Initialize and sh::Finalize.
 size_t gActiveCompilers = 0;
 
+ShShaderOutput GetShaderOutputType(const State &state, const rx::CompilerImpl *impl)
+{
+    if (state.usesPassthroughShaders())
+    {
+        return SH_NULL_OUTPUT;
+    }
+
+    return impl->getTranslatorOutputType();
+}
+
 }  // anonymous namespace
 
 Compiler::Compiler(rx::GLImplFactory *implFactory, const State &state, egl::Display *display)
     : mImplementation(implFactory->createCompiler()),
       mSpec(SelectShaderSpec(state)),
-      mOutputType(mImplementation->getTranslatorOutputType()),
+      mOutputType(GetShaderOutputType(state, mImplementation.get())),
       mResources()
 {
-    // TODO(http://anglebug.com/3819): Update for GL version specific validation
-    ASSERT(state.getClientMajorVersion() == 1 || state.getClientMajorVersion() == 2 ||
-           state.getClientMajorVersion() == 3 || state.getClientMajorVersion() == 4);
+    ASSERT(state.getClientVersion() >= ES_1_0 && state.getClientVersion() <= ES_3_2);
 
     {
-        std::lock_guard<std::mutex> lock(display->getDisplayGlobalMutex());
+        std::lock_guard<angle::SimpleMutex> lock(display->getDisplayGlobalMutex());
         if (gActiveCompilers == 0)
         {
             sh::Initialize();
@@ -69,6 +77,7 @@ Compiler::Compiler(rx::GLImplFactory *implFactory, const State &state, egl::Disp
         extensions.shaderNoperspectiveInterpolationNV;
     mResources.ARB_texture_rectangle = extensions.textureRectangleANGLE;
     mResources.EXT_gpu_shader5       = extensions.gpuShader5EXT;
+    mResources.OES_gpu_shader5       = extensions.gpuShader5OES;
     mResources.OES_shader_io_blocks  = extensions.shaderIoBlocksOES;
     mResources.EXT_shader_io_blocks  = extensions.shaderIoBlocksEXT;
     mResources.OES_texture_storage_multisample_2d_array =
@@ -83,16 +92,21 @@ Compiler::Compiler(rx::GLImplFactory *implFactory, const State &state, egl::Disp
     // OES_shader_multisample_interpolation
     mResources.OES_shader_multisample_interpolation = extensions.shaderMultisampleInterpolationOES;
     mResources.OES_shader_image_atomic              = extensions.shaderImageAtomicOES;
-    // TODO: use shader precision caps to determine if high precision is supported?
-    mResources.FragmentPrecisionHigh = 1;
     mResources.EXT_frag_depth        = extensions.fragDepthEXT;
 
-    // OVR_multiview state
+    // OVR_multiview / OVR_multiview2
     mResources.OVR_multiview = extensions.multiviewOVR;
-
-    // OVR_multiview2 state
     mResources.OVR_multiview2 = extensions.multiview2OVR;
     mResources.MaxViewsOVR    = caps.maxViews;
+
+    // Hashing and prefixing
+    mResources.HashFunction = nullptr;
+    if (mOutputType == SH_NULL_OUTPUT)
+    {
+        // Disable user variable prefixing if using the null output type. The untranslated source
+        // shader is used so make sure the mapped names match the input names.
+        mResources.UserVariableNamePrefix = '\0';
+    }
 
     // EXT_multisampled_render_to_texture and EXT_multisampled_render_to_texture2
     mResources.EXT_multisampled_render_to_texture  = extensions.multisampledRenderToTextureEXT;
@@ -104,6 +118,12 @@ Compiler::Compiler(rx::GLImplFactory *implFactory, const State &state, egl::Disp
     // OES_texture_cube_map_array
     mResources.OES_texture_cube_map_array = extensions.textureCubeMapArrayOES;
     mResources.EXT_texture_cube_map_array = extensions.textureCubeMapArrayEXT;
+
+    // EXT_texture_query_lod
+    mResources.EXT_texture_query_lod = extensions.textureQueryLodEXT;
+
+    // EXT_texture_shadow_lod
+    mResources.EXT_texture_shadow_lod = extensions.textureShadowLodEXT;
 
     // EXT_shadow_samplers
     mResources.EXT_shadow_samplers = extensions.shadowSamplersEXT;
@@ -123,11 +143,24 @@ Compiler::Compiler(rx::GLImplFactory *implFactory, const State &state, egl::Disp
     // GL_EXT_clip_cull_distance
     mResources.EXT_clip_cull_distance = extensions.clipCullDistanceEXT;
 
+    // GL_ANGLE_clip_cull_distance
+    mResources.ANGLE_clip_cull_distance = extensions.clipCullDistanceANGLE;
+
     // GL_EXT_primitive_bounding_box
     mResources.EXT_primitive_bounding_box = extensions.primitiveBoundingBoxEXT;
 
     // GL_OES_primitive_bounding_box
     mResources.OES_primitive_bounding_box = extensions.primitiveBoundingBoxOES;
+
+    // GL_EXT_separate_shader_objects
+    mResources.EXT_separate_shader_objects = extensions.separateShaderObjectsEXT;
+
+    // GL_ARM_shader_framebuffer_fetch
+    mResources.ARM_shader_framebuffer_fetch = extensions.shaderFramebufferFetchARM;
+
+    // GL_ARM_shader_framebuffer_fetch_depth_stencil
+    mResources.ARM_shader_framebuffer_fetch_depth_stencil =
+        extensions.shaderFramebufferFetchDepthStencilARM;
 
     // GLSL ES 3.0 constants
     mResources.MaxVertexOutputVectors  = caps.maxVertexOutputComponents / 4;
@@ -141,17 +174,22 @@ Compiler::Compiler(rx::GLImplFactory *implFactory, const State &state, egl::Disp
     mResources.EXT_blend_func_extended  = extensions.blendFuncExtendedEXT;
     mResources.MaxDualSourceDrawBuffers = caps.maxDualSourceDrawBuffers;
 
-    // APPLE_clip_distance/EXT_clip_cull_distance
+    // EXT_conservative_depth
+    mResources.EXT_conservative_depth = extensions.conservativeDepthEXT;
+
+    // APPLE_clip_distance / EXT_clip_cull_distance / ANGLE_clip_cull_distance
     mResources.MaxClipDistances                = caps.maxClipDistances;
     mResources.MaxCullDistances                = caps.maxCullDistances;
     mResources.MaxCombinedClipAndCullDistances = caps.maxCombinedClipAndCullDistances;
 
     // ANGLE_shader_pixel_local_storage.
     mResources.MaxPixelLocalStoragePlanes = caps.maxPixelLocalStoragePlanes;
-    mResources.MaxColorAttachmentsWithActivePixelLocalStorage =
-        caps.maxColorAttachmentsWithActivePixelLocalStorage;
     mResources.MaxCombinedDrawBuffersAndPixelLocalStoragePlanes =
         caps.maxCombinedDrawBuffersAndPixelLocalStoragePlanes;
+
+    // EXT_fragment_shading_rate
+    mResources.EXT_fragment_shading_rate = extensions.fragmentShadingRateEXT;
+    mResources.EXT_fragment_shading_rate_primitive = extensions.fragmentShadingRatePrimitiveEXT;
 
     // OES_sample_variables
     mResources.OES_sample_variables = extensions.sampleVariablesOES;
@@ -173,6 +211,7 @@ Compiler::Compiler(rx::GLImplFactory *implFactory, const State &state, egl::Disp
     mResources.MaxCombinedImageUniforms         = caps.maxCombinedImageUniforms;
     mResources.MaxCombinedShaderOutputResources = caps.maxCombinedShaderOutputResources;
     mResources.MaxUniformLocations              = caps.maxUniformLocations;
+    mResources.MaxComputeUniformBlocks = caps.maxShaderUniformBlocks[gl::ShaderType::Compute];
 
     for (size_t index = 0u; index < 3u; ++index)
     {
@@ -182,7 +221,6 @@ Compiler::Compiler(rx::GLImplFactory *implFactory, const State &state, egl::Disp
 
     mResources.MaxComputeUniformComponents = caps.maxShaderUniformComponents[ShaderType::Compute];
     mResources.MaxComputeTextureImageUnits = caps.maxShaderTextureImageUnits[ShaderType::Compute];
-    mResources.MaxComputeUniformBlocks = caps.maxShaderUniformBlocks[gl::ShaderType::Compute];
 
     mResources.MaxComputeAtomicCounters = caps.maxShaderAtomicCounters[ShaderType::Compute];
     mResources.MaxComputeAtomicCounterBuffers =
@@ -203,9 +241,10 @@ Compiler::Compiler(rx::GLImplFactory *implFactory, const State &state, egl::Disp
     mResources.MaxShaderStorageBufferBindings = caps.maxShaderStorageBufferBindings;
 
     // Needed by point size clamping workaround
+    mResources.MinPointSize = caps.minAliasedPointSize;
     mResources.MaxPointSize = caps.maxAliasedPointSize;
 
-    if (state.getClientMajorVersion() == 2 && !extensions.drawBuffersEXT)
+    if (state.getClientVersion() == ES_2_0 && !extensions.drawBuffersEXT)
     {
         mResources.MaxDrawBuffers = 1;
     }
@@ -214,7 +253,6 @@ Compiler::Compiler(rx::GLImplFactory *implFactory, const State &state, egl::Disp
     mResources.EXT_geometry_shader          = extensions.geometryShaderEXT;
     mResources.OES_geometry_shader          = extensions.geometryShaderOES;
     mResources.MaxGeometryUniformComponents = caps.maxShaderUniformComponents[ShaderType::Geometry];
-    mResources.MaxGeometryUniformBlocks     = caps.maxShaderUniformBlocks[ShaderType::Geometry];
     mResources.MaxGeometryInputComponents   = caps.maxGeometryInputComponents;
     mResources.MaxGeometryOutputComponents  = caps.maxGeometryOutputComponents;
     mResources.MaxGeometryOutputVertices    = caps.maxGeometryOutputVertices;
@@ -224,12 +262,13 @@ Compiler::Compiler(rx::GLImplFactory *implFactory, const State &state, egl::Disp
     mResources.MaxGeometryAtomicCounterBuffers =
         caps.maxShaderAtomicCounterBuffers[ShaderType::Geometry];
     mResources.MaxGeometryAtomicCounters      = caps.maxShaderAtomicCounters[ShaderType::Geometry];
-    mResources.MaxGeometryShaderStorageBlocks = caps.maxShaderStorageBlocks[ShaderType::Geometry];
     mResources.MaxGeometryShaderInvocations   = caps.maxGeometryShaderInvocations;
     mResources.MaxGeometryImageUniforms       = caps.maxShaderImageUniforms[ShaderType::Geometry];
+    mResources.MaxGeometryUniformBlocks = caps.maxShaderUniformBlocks[gl::ShaderType::Geometry];
 
     // Tessellation Shader constants
     mResources.EXT_tessellation_shader        = extensions.tessellationShaderEXT;
+    mResources.OES_tessellation_shader        = extensions.tessellationShaderOES;
     mResources.MaxTessControlInputComponents  = caps.maxTessControlInputComponents;
     mResources.MaxTessControlOutputComponents = caps.maxTessControlOutputComponents;
     mResources.MaxTessControlTextureImageUnits =
@@ -262,16 +301,13 @@ Compiler::Compiler(rx::GLImplFactory *implFactory, const State &state, egl::Disp
         caps.maxShaderAtomicCounterBuffers[ShaderType::TessEvaluation];
     mResources.MaxTessEvaluationUniformBlocks =
         caps.maxShaderUniformBlocks[gl::ShaderType::TessEvaluation];
-
-    // Subpixel bits.
-    mResources.SubPixelBits = static_cast<int>(caps.subPixelBits);
 }
 
 Compiler::~Compiler() = default;
 
 void Compiler::onDestroy(const Context *context)
 {
-    std::lock_guard<std::mutex> lock(context->getDisplay()->getDisplayGlobalMutex());
+    std::lock_guard<angle::SimpleMutex> lock(context->getDisplay()->getDisplayGlobalMutex());
     for (auto &pool : mPools)
     {
         for (ShCompilerInstance &instance : pool)
@@ -320,24 +356,9 @@ void Compiler::putInstance(ShCompilerInstance &&instance)
 
 ShShaderSpec Compiler::SelectShaderSpec(const State &state)
 {
-    const EGLenum clientType = state.getClientType();
-    const EGLint profileMask = state.getProfileMask();
-    const GLint majorVersion = state.getClientMajorVersion();
-    const GLint minorVersion = state.getClientMinorVersion();
+    const GLint majorVersion = state.getClientVersion().getMajor();
+    const GLint minorVersion = state.getClientVersion().getMinor();
     bool isWebGL             = state.isWebGL();
-
-    // For Desktop GL
-    if (clientType == EGL_OPENGL_API)
-    {
-        if ((profileMask & EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT) != 0)
-        {
-            return SH_GL_CORE_SPEC;
-        }
-        else
-        {
-            return SH_GL_COMPATIBILITY_SPEC;
-        }
-    }
 
     if (majorVersion >= 3)
     {
@@ -347,7 +368,7 @@ ShShaderSpec Compiler::SelectShaderSpec(const State &state)
                 ASSERT(!isWebGL);
                 return SH_GLES3_2_SPEC;
             case 1:
-                return isWebGL ? SH_WEBGL3_SPEC : SH_GLES3_1_SPEC;
+                return SH_GLES3_1_SPEC;
             case 0:
                 return isWebGL ? SH_WEBGL2_SPEC : SH_GLES3_SPEC;
             default:
@@ -414,11 +435,6 @@ ShaderType ShCompilerInstance::getShaderType() const
 ShBuiltInResources ShCompilerInstance::getBuiltInResources() const
 {
     return sh::GetBuiltInResources(mHandle);
-}
-
-const std::string &ShCompilerInstance::getBuiltinResourcesString() const
-{
-    return sh::GetBuiltInResourcesString(mHandle);
 }
 
 ShShaderOutput ShCompilerInstance::getShaderOutputType() const

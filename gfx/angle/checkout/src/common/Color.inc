@@ -4,6 +4,10 @@
 // found in the LICENSE file.
 //
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#pragma allow_unsafe_buffers
+#endif
+
 // Color.inc : Inline definitions of some functions from Color.h
 
 namespace angle
@@ -45,20 +49,9 @@ ColorGeneric::ColorGeneric(const ColorUI &color) : colorUI(color), type(Type::UI
 
 bool operator==(const ColorGeneric &a, const ColorGeneric &b)
 {
-    if (a.type != b.type)
-    {
-        return false;
-    }
-    switch (a.type)
-    {
-        default:
-        case ColorGeneric::Type::Float:
-            return a.colorF == b.colorF;
-        case ColorGeneric::Type::Int:
-            return a.colorI == b.colorI;
-        case ColorGeneric::Type::UInt:
-            return a.colorUI == b.colorUI;
-    }
+    // Switching on the type and comparing individual
+    // channels yield much less efficient code.
+    return memcmp(&a, &b, sizeof(ColorGeneric)) == 0;
 }
 
 bool operator!=(const ColorGeneric &a, const ColorGeneric &b)

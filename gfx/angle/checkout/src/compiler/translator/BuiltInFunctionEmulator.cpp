@@ -4,6 +4,10 @@
 // found in the LICENSE file.
 //
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "compiler/translator/BuiltInFunctionEmulator.h"
 #include "angle_gl.h"
 #include "compiler/translator/Symbol.h"
@@ -138,12 +142,6 @@ void BuiltInFunctionEmulator::markBuiltInFunctionsForEmulation(TIntermNode *root
 
     BuiltInFunctionEmulationMarker marker(*this);
     root->traverse(&marker);
-}
-
-void BuiltInFunctionEmulator::cleanup()
-{
-    mFunctions.clear();
-    mFunctionDependencies.clear();
 }
 
 void BuiltInFunctionEmulator::addFunctionMap(BuiltinQueryFunc queryFunc)

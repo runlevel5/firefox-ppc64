@@ -17,7 +17,7 @@ namespace sh
 class TCompiler;
 class TSymbolTable;
 
-typedef std::vector<sh::ShaderVariable> InitVariableList;
+typedef std::vector<const TVariable *> InitVariableList;
 
 // For all of the functions below: If canUseLoopsToInitialize is set, for loops are used instead of
 // a large number of initializers where it can make sense, such as for initializing large arrays.
@@ -26,7 +26,6 @@ typedef std::vector<sh::ShaderVariable> InitVariableList;
 // may be an array, struct or any combination of these, as long as it contains only basic types.
 void CreateInitCode(const TIntermTyped *initializedSymbol,
                     bool canUseLoopsToInitialize,
-                    bool highPrecisionSupported,
                     TIntermSequence *initCode,
                     TSymbolTable *symbolTable);
 
@@ -35,7 +34,6 @@ void CreateInitCode(const TIntermTyped *initializedSymbol,
                                                  TIntermBlock *root,
                                                  int shaderVersion,
                                                  bool canUseLoopsToInitialize,
-                                                 bool highPrecisionSupported,
                                                  TSymbolTable *symbolTable);
 
 // This function can initialize all the types that CreateInitCode is able to initialize. All
@@ -52,8 +50,7 @@ void CreateInitCode(const TIntermTyped *initializedSymbol,
                                        TSymbolTable *symbolTable,
                                        int shaderVersion,
                                        const TExtensionBehavior &extensionBehavior,
-                                       bool canUseLoopsToInitialize,
-                                       bool highPrecisionSupported);
+                                       bool canUseLoopsToInitialize);
 
 }  // namespace sh
 

@@ -18,7 +18,6 @@
 #include "libANGLE/Texture.h"
 #include "libANGLE/formatutils.h"
 #include "libANGLE/renderer/GLImplFactory.h"
-#include "libANGLE/renderer/d3d/RenderTargetD3D.h"
 
 namespace gl
 {
@@ -37,7 +36,7 @@ InitState DetermineInitState(const Context *context)
 RenderbufferState::RenderbufferState()
     : mWidth(0),
       mHeight(0),
-      mFormat(GL_RGBA4),
+      mFormat(GL_NONE),
       mSamples(0),
       mMultisamplingMode(MultisamplingMode::Regular),
       mHasProtectedContent(false),
@@ -113,6 +112,11 @@ void Renderbuffer::onDestroy(const Context *context)
     egl::RefCountObjectReleaser<egl::Image> releaseImage;
     (void)orphanImages(context, &releaseImage);
 
+    if (context && context->retainIdUntilObjectDestroyed())
+    {
+        context->onRenderbufferDestroy(this);
+    }
+
     if (mImplementation)
     {
         mImplementation->onDestroy(context);
@@ -167,7 +171,7 @@ angle::Result Renderbuffer::setStorageMultisample(const Context *context,
 
     // Potentially adjust "samplesIn" to a supported value
     const TextureCaps &formatCaps = context->getTextureCaps().get(internalformat);
-    GLsizei samples               = formatCaps.getNearestSamples(samplesIn);
+    GLsizei samples               = formatCaps.sampleCounts.getNearestSamples(samplesIn);
 
     ANGLE_TRY(mImplementation->setStorageMultisample(context, samples, internalformat, width,
                                                      height, mode));
@@ -323,12 +327,12 @@ GLint Renderbuffer::getMemorySize() const
     return size.ValueOrDefault(std::numeric_limits<GLint>::max());
 }
 
-void Renderbuffer::onAttach(const Context *context, rx::Serial framebufferSerial)
+void Renderbuffer::onAttach(const Context *context, rx::UniqueSerial framebufferSerial)
 {
     addRef();
 }
 
-void Renderbuffer::onDetach(const Context *context, rx::Serial framebufferSerial)
+void Renderbuffer::onDetach(const Context *context, rx::UniqueSerial framebufferSerial)
 {
     release(context);
 }
@@ -363,6 +367,11 @@ bool Renderbuffer::isRenderable(const Context *context,
     }
     return getFormat().info->renderbufferSupport(context->getClientVersion(),
                                                  context->getExtensions());
+}
+
+bool Renderbuffer::isEGLImageSource() const
+{
+    return !getSiblingSourcesOf().empty();
 }
 
 InitState Renderbuffer::initState(GLenum /*binding*/, const gl::ImageIndex & /*imageIndex*/) const

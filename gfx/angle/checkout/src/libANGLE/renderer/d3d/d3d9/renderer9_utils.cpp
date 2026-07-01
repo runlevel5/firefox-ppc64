@@ -16,10 +16,8 @@
 #include "libANGLE/renderer/d3d/d3d9/RenderTarget9.h"
 #include "libANGLE/renderer/d3d/d3d9/formatutils9.h"
 #include "libANGLE/renderer/driver_utils.h"
-#include "platform/FeaturesD3D_autogen.h"
 #include "platform/PlatformMethods.h"
-
-#include "third_party/systeminfo/SystemInfo.h"
+#include "platform/autogen/FeaturesD3D_autogen.h"
 
 namespace rx
 {
@@ -201,14 +199,17 @@ D3DTEXTUREADDRESS ConvertTextureWrap(GLenum wrap)
         case GL_REPEAT:
             d3dWrap = D3DTADDRESS_WRAP;
             break;
+        case GL_MIRRORED_REPEAT:
+            d3dWrap = D3DTADDRESS_MIRROR;
+            break;
         case GL_CLAMP_TO_EDGE:
             d3dWrap = D3DTADDRESS_CLAMP;
             break;
         case GL_CLAMP_TO_BORDER:
             d3dWrap = D3DTADDRESS_BORDER;
             break;
-        case GL_MIRRORED_REPEAT:
-            d3dWrap = D3DTADDRESS_MIRROR;
+        case GL_MIRROR_CLAMP_TO_EDGE_EXT:
+            d3dWrap = D3DTADDRESS_MIRRORONCE;
             break;
         default:
             UNREACHABLE();
@@ -364,8 +365,6 @@ D3DQUERYTYPE ConvertQueryType(gl::QueryType type)
         case gl::QueryType::AnySamples:
         case gl::QueryType::AnySamplesConservative:
             return D3DQUERYTYPE_OCCLUSION;
-        case gl::QueryType::CommandsCompleted:
-            return D3DQUERYTYPE_EVENT;
         default:
             UNREACHABLE();
             return static_cast<D3DQUERYTYPE>(0);
@@ -480,6 +479,11 @@ static gl::TextureCaps GenerateTextureFormatCaps(GLenum internalFormat,
         textureCaps.sampleCounts.insert(1);
         for (unsigned int i = D3DMULTISAMPLE_2_SAMPLES; i <= D3DMULTISAMPLE_16_SAMPLES; i++)
         {
+            if (!gl::isPow2(i))
+            {
+                continue;
+            }
+
             D3DMULTISAMPLE_TYPE multisampleType = D3DMULTISAMPLE_TYPE(i);
 
             HRESULT result = d3d9->CheckDeviceMultiSampleType(
@@ -520,7 +524,7 @@ void GenerateCaps(IDirect3D9 *d3d9,
                                                                 adapter, currentDisplayMode.Format);
         textureCapsMap->insert(internalFormat, textureCaps);
 
-        maxSamples = std::max(maxSamples, textureCaps.getMaxSamples());
+        maxSamples = std::max(maxSamples, textureCaps.sampleCounts.getMaxSamples());
     }
 
     // GL core feature limits
@@ -688,7 +692,7 @@ void GenerateCaps(IDirect3D9 *d3d9,
             !(deviceCaps.TextureCaps & D3DPTEXTURECAPS_POW2) &&
             !(deviceCaps.TextureCaps & D3DPTEXTURECAPS_CUBEMAP_POW2) &&
             !(deviceCaps.TextureCaps & D3DPTEXTURECAPS_NONPOW2CONDITIONAL) &&
-            !(!isWindowsVistaOrGreater() && IsAMD(adapterId.VendorId));
+            !(!IsWindowsVistaOrLater() && IsAMD(adapterId.VendorId));
 
         // Disable depth texture support on AMD cards (See ANGLE issue 839)
         if (IsAMD(adapterId.VendorId))
@@ -725,6 +729,7 @@ void GenerateCaps(IDirect3D9 *d3d9,
 
     extensions->disjointTimerQueryEXT = false;
     extensions->robustnessEXT         = true;
+    extensions->robustnessKHR         = true;
     // It seems that only DirectX 10 and higher enforce the well-defined behavior of always
     // returning zero values when out-of-bounds reads. See
     // https://www.khronos.org/registry/OpenGL/extensions/ARB/ARB_robustness.txt
@@ -750,6 +755,7 @@ void GenerateCaps(IDirect3D9 *d3d9,
     extensions->textureUsageANGLE           = true;
     extensions->translatedShaderSourceANGLE = true;
     extensions->fboRenderMipmapOES          = true;
+    extensions->textureMirrorClampToEdgeEXT = true;
     extensions->discardFramebufferEXT = false;  // It would be valid to set this to true, since
                                                 // glDiscardFramebufferEXT is just a hint
     extensions->colorBufferFloatEXT   = false;
@@ -758,19 +764,14 @@ void GenerateCaps(IDirect3D9 *d3d9,
     extensions->EGLImageExternalOES   = true;
     extensions->unpackSubimageEXT     = true;
     extensions->packSubimageNV        = true;
-    extensions->syncQueryCHROMIUM     = extensions->fenceNV;
     extensions->copyTextureCHROMIUM   = true;
+    extensions->textureBorderClampEXT = true;
     extensions->textureBorderClampOES = true;
     extensions->videoTextureWEBGL     = true;
 
     // D3D9 has no concept of separate masks and refs for front and back faces in the depth stencil
     // state.
     limitations->noSeparateStencilRefsAndMasks = true;
-
-    // D3D9 shader models have limited support for looping, so the Appendix A
-    // index/loop limitations are necessary. Workarounds that are needed to
-    // support dynamic indexing of vectors on HLSL also don't work on D3D9.
-    limitations->shadersRequireIndexedLoopValidation = true;
 
     // D3D9 cannot support constant color and alpha blend funcs together
     limitations->noSimultaneousConstantColorAndAlphaBlendFunc = true;
@@ -826,20 +827,32 @@ void MakeValidSize(bool isImage,
     *levelOffset = upsampleCount;
 }
 
-void InitializeFeatures(angle::FeaturesD3D *features)
+void InitializeFeatures(angle::FeaturesD3D *features, DWORD vendorID)
 {
     ANGLE_FEATURE_CONDITION(features, mrtPerfWorkaround, true);
     ANGLE_FEATURE_CONDITION(features, setDataFasterThanImageUpload, false);
     ANGLE_FEATURE_CONDITION(features, setDataFasterThanImageUploadOn128bitFormats, false);
-    ANGLE_FEATURE_CONDITION(features, useInstancedPointSpriteEmulation, false);
 
     // TODO(jmadill): Disable workaround when we have a fixed compiler DLL.
     ANGLE_FEATURE_CONDITION(features, expandIntegerPowExpressions, true);
 
     // crbug.com/1011627 Turn this on for D3D9.
     ANGLE_FEATURE_CONDITION(features, allowClearForRobustResourceInit, true);
+
+    ANGLE_FEATURE_CONDITION(features, borderColorSrgb, IsNvidia(vendorID));
+
+    // D3D9 shader models have limited support for looping, so the Appendix A
+    // index/loop limitations are necessary. Workarounds that are needed to
+    // support dynamic indexing of vectors on HLSL also don't work on D3D9.
+    ANGLE_FEATURE_CONDITION(features, supportsNonConstantLoopIndexing, false);
 }
 
+void InitializeFrontendFeatures(angle::FrontendFeatures *features, DWORD vendorID)
+{
+    // The D3D backend's handling of compile and link is thread-safe
+    ANGLE_FEATURE_CONDITION(features, compileJobIsThreadSafe, true);
+    ANGLE_FEATURE_CONDITION(features, linkJobIsThreadSafe, true);
+}
 }  // namespace d3d9
 
 }  // namespace rx

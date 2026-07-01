@@ -9,6 +9,10 @@
 //    could respect them too, if they implement the overlay.
 //
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "libANGLE/Overlay.h"
 #include "libANGLE/Overlay_font_autogen.h"
 
@@ -408,21 +412,6 @@ void AppendWidgetDataHelper::AppendVulkanSecondaryCommandBufferPoolWaste(
 
     AppendRunningHistogramCommon(widget, imageExtent, textWidget, graphWidget, widgetCounts,
                                  format);
-}
-
-void AppendWidgetDataHelper::AppendVulkanRenderPassBufferCount(const overlay::Widget *widget,
-                                                               const gl::Extents &imageExtent,
-                                                               TextWidgetData *textWidget,
-                                                               GraphWidgetData *graphWidget,
-                                                               OverlayWidgetCounts *widgetCounts)
-{
-    auto format = [](uint64_t curValue, uint64_t maxValue) {
-        std::ostringstream text;
-        text << "RP VkBuffers (Max: " << maxValue << ")";
-        return text.str();
-    };
-
-    AppendRunningGraphCommon(widget, imageExtent, textWidget, graphWidget, widgetCounts, format);
 }
 
 void AppendWidgetDataHelper::AppendVulkanWriteDescriptorSetCount(const overlay::Widget *widget,

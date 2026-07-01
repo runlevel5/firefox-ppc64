@@ -37,6 +37,10 @@ void InitExtensionBehavior(const ShBuiltInResources &resources, TExtensionBehavi
     {
         extBehavior[TExtension::EXT_blend_func_extended] = EBhUndefined;
     }
+    if (resources.EXT_conservative_depth)
+    {
+        extBehavior[TExtension::EXT_conservative_depth] = EBhUndefined;
+    }
     if (resources.EXT_draw_buffers)
     {
         extBehavior[TExtension::EXT_draw_buffers] = EBhUndefined;
@@ -45,6 +49,14 @@ void InitExtensionBehavior(const ShBuiltInResources &resources, TExtensionBehavi
     {
         extBehavior[TExtension::EXT_frag_depth] = EBhUndefined;
     }
+    if (resources.EXT_fragment_shading_rate)
+    {
+        extBehavior[TExtension::EXT_fragment_shading_rate] = EBhUndefined;
+    }
+    if (resources.EXT_fragment_shading_rate_primitive)
+    {
+        extBehavior[TExtension::EXT_fragment_shading_rate_primitive] = EBhUndefined;
+    }
     if (resources.EXT_primitive_bounding_box)
     {
         extBehavior[TExtension::EXT_primitive_bounding_box] = EBhUndefined;
@@ -52,6 +64,10 @@ void InitExtensionBehavior(const ShBuiltInResources &resources, TExtensionBehavi
     if (resources.OES_primitive_bounding_box)
     {
         extBehavior[TExtension::OES_primitive_bounding_box] = EBhUndefined;
+    }
+    if (resources.EXT_separate_shader_objects)
+    {
+        extBehavior[TExtension::EXT_separate_shader_objects] = EBhUndefined;
     }
     if (resources.EXT_shader_texture_lod)
     {
@@ -65,10 +81,6 @@ void InitExtensionBehavior(const ShBuiltInResources &resources, TExtensionBehavi
     {
         extBehavior[TExtension::EXT_shader_framebuffer_fetch_non_coherent] = EBhUndefined;
     }
-    if (resources.NV_shader_framebuffer_fetch)
-    {
-        extBehavior[TExtension::NV_shader_framebuffer_fetch] = EBhUndefined;
-    }
     if (resources.NV_shader_noperspective_interpolation)
     {
         extBehavior[TExtension::NV_shader_noperspective_interpolation] = EBhUndefined;
@@ -76,6 +88,10 @@ void InitExtensionBehavior(const ShBuiltInResources &resources, TExtensionBehavi
     if (resources.ARM_shader_framebuffer_fetch)
     {
         extBehavior[TExtension::ARM_shader_framebuffer_fetch] = EBhUndefined;
+    }
+    if (resources.ARM_shader_framebuffer_fetch_depth_stencil)
+    {
+        extBehavior[TExtension::ARM_shader_framebuffer_fetch_depth_stencil] = EBhUndefined;
     }
     if (resources.OVR_multiview)
     {
@@ -108,6 +124,10 @@ void InitExtensionBehavior(const ShBuiltInResources &resources, TExtensionBehavi
     if (resources.EXT_gpu_shader5)
     {
         extBehavior[TExtension::EXT_gpu_shader5] = EBhUndefined;
+    }
+    if (resources.OES_gpu_shader5)
+    {
+        extBehavior[TExtension::OES_gpu_shader5] = EBhUndefined;
     }
     if (resources.EXT_shader_non_constant_global_initializers)
     {
@@ -153,6 +173,14 @@ void InitExtensionBehavior(const ShBuiltInResources &resources, TExtensionBehavi
     {
         extBehavior[TExtension::EXT_texture_cube_map_array] = EBhUndefined;
     }
+    if (resources.EXT_texture_query_lod)
+    {
+        extBehavior[TExtension::EXT_texture_query_lod] = EBhUndefined;
+    }
+    if (resources.EXT_texture_shadow_lod)
+    {
+        extBehavior[TExtension::EXT_texture_shadow_lod] = EBhUndefined;
+    }
     if (resources.EXT_shadow_samplers)
     {
         extBehavior[TExtension::EXT_shadow_samplers] = EBhUndefined;
@@ -169,6 +197,10 @@ void InitExtensionBehavior(const ShBuiltInResources &resources, TExtensionBehavi
     {
         extBehavior[TExtension::EXT_tessellation_shader] = EBhUndefined;
     }
+    if (resources.OES_tessellation_shader)
+    {
+        extBehavior[TExtension::OES_tessellation_shader] = EBhUndefined;
+    }
     if (resources.OES_texture_buffer)
     {
         extBehavior[TExtension::OES_texture_buffer] = EBhUndefined;
@@ -184,6 +216,10 @@ void InitExtensionBehavior(const ShBuiltInResources &resources, TExtensionBehavi
     if (resources.EXT_clip_cull_distance)
     {
         extBehavior[TExtension::EXT_clip_cull_distance] = EBhUndefined;
+    }
+    if (resources.ANGLE_clip_cull_distance)
+    {
+        extBehavior[TExtension::ANGLE_clip_cull_distance] = EBhUndefined;
     }
     if (resources.ANDROID_extension_pack_es31a)
     {
@@ -217,6 +253,17 @@ void ResetExtensionBehavior(const ShBuiltInResources &resources,
             // enabled by default.
             extBehavior[TExtension::ARB_texture_rectangle] = EBhEnable;
         }
+    }
+    // ANGLE_multi_draw and ANGLE_base_vertex_base_instance are always emulated, so remove them if
+    // emulation is not enabled.
+    if (resources.ANGLE_multi_draw && !compileOptions.emulateGLDrawID)
+    {
+        extBehavior.erase(TExtension::ANGLE_multi_draw);
+    }
+    if (resources.ANGLE_base_vertex_base_instance_shader_builtin &&
+        !compileOptions.emulateGLBaseVertexBaseInstance)
+    {
+        extBehavior.erase(TExtension::ANGLE_base_vertex_base_instance_shader_builtin);
     }
 }
 

@@ -10,19 +10,21 @@
 #include "GLSLANG/ShaderLang.h"
 #include "common/angleutils.h"
 #include "compiler/preprocessor/DirectiveHandlerBase.h"
+#include "compiler/preprocessor/Macro.h"
 #include "compiler/translator/ExtensionBehavior.h"
 #include "compiler/translator/Pragma.h"
 
 namespace sh
 {
 class TDiagnostics;
+class TParseContext;
 
 class TDirectiveHandler : public angle::pp::DirectiveHandler, angle::NonCopyable
 {
   public:
     TDirectiveHandler(TExtensionBehavior &extBehavior,
                       TDiagnostics &diagnostics,
-                      int &shaderVersion,
+                      TParseContext &context,
                       sh::GLenum shaderType);
     ~TDirectiveHandler() override;
 
@@ -42,13 +44,14 @@ class TDirectiveHandler : public angle::pp::DirectiveHandler, angle::NonCopyable
 
     void handleVersion(const angle::pp::SourceLocation &loc,
                        int version,
-                       ShShaderSpec spec) override;
+                       ShShaderSpec spec,
+                       angle::pp::MacroSet *macro_set) override;
 
   private:
     TPragma mPragma;
     TExtensionBehavior &mExtensionBehavior;
     TDiagnostics &mDiagnostics;
-    int &mShaderVersion;
+    TParseContext &mContext;
     sh::GLenum mShaderType;
 };
 

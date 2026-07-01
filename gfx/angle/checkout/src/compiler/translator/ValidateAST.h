@@ -19,7 +19,7 @@ class TIntermNode;
 // are conditional to certain passes.
 struct ValidateASTOptions
 {
-    // TODO: add support for the flags marked with TODO. http://anglebug.com/2733
+    // TODO: add support for the flags marked with TODO. http://anglebug.com/42261441
 
     // Check that every node always has only one parent,
     bool validateSingleParent = true;
@@ -29,6 +29,13 @@ struct ValidateASTOptions
     // Whether validateVariableReferences should also include specialization constants.  Their
     // declaration is output after their usage is discovered, so this is disabled until then.
     bool validateSpecConstReferences = false;
+    // Validate that:
+    //
+    // - TIntermUnary only contains unary operators
+    // - TIntermBinary only contains binary operators
+    // - TIntermBranch only contains branch operators
+    // - EOpInitialize is only used in TIntermDeclaration
+    bool validateOps = true;
     // Check that TIntermUnary and TIntermAggregate nodes with a built-in op reference a function
     // with said op.
     bool validateBuiltInOps = true;
@@ -37,7 +44,7 @@ struct ValidateASTOptions
     // function is called.
     bool validateFunctionCall = true;
     // Check that EOpCallInternalRawFunction is not used.  This OP is deprecated and needs to be
-    // removed.  http://anglebug.com/6059
+    // removed.  http://anglebug.com/42264589
     bool validateNoRawFunctionCalls = true;
     // Check that there are no null nodes where they are not allowed, for example as children of
     // TIntermDeclaration or TIntermBlock.
@@ -86,13 +93,15 @@ struct ValidateASTOptions
     //  - Case expressions have the same type as the switch selector
     bool validateExpressionTypes = true;
     // If SeparateDeclarations has been run, check for the absence of multi declarations as well.
-    bool validateMultiDeclarations = false;
+    bool validateMultiDeclarations = true;
     // If PruneNoOps has been run, check that no statements are ever added after branches in the
     // same block.  Those statements would be dead code.
-    bool validateNoStatementsAfterBranch = false;
+    bool validateNoStatementsAfterBranch = true;
     // Check that swizzle is not applied to swizzle.  Swizzles of swizzles are folded in
     // TIntermSwizzle::fold.
     bool validateNoSwizzleOfSwizzle = true;
+    // Check that constructors' types don't have qualifiers such as invariant, row_major etc.
+    bool validateNoQualifiersOnConstructors = true;
 
     // Once set, disallows any further transformations on the tree.  Used before AST post-processing
     // which requires that the tree remains unmodified.

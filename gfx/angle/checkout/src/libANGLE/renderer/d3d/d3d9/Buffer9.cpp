@@ -4,7 +4,11 @@
 // found in the LICENSE file.
 //
 
-// Buffer9.cpp Defines the Buffer9 class.
+// Buffer9.cpp: Defines the Buffer9 class.
+
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
 
 #include "libANGLE/renderer/d3d/d3d9/Buffer9.h"
 
@@ -37,7 +41,8 @@ angle::Result Buffer9::setData(const gl::Context *context,
                                gl::BufferBinding target,
                                const void *data,
                                size_t size,
-                               gl::BufferUsage usage)
+                               gl::BufferUsage usage,
+                               BufferFeedback *feedback)
 {
     if (size > mMemory.size())
     {
@@ -50,9 +55,9 @@ angle::Result Buffer9::setData(const gl::Context *context,
         memcpy(mMemory.data(), data, size);
     }
 
-    updateD3DBufferUsage(context, usage);
+    updateD3DBufferUsage(context, usage, feedback);
 
-    invalidateStaticData(context);
+    invalidateStaticData(context, feedback);
 
     return angle::Result::Continue;
 }
@@ -74,7 +79,8 @@ angle::Result Buffer9::setSubData(const gl::Context *context,
                                   gl::BufferBinding target,
                                   const void *data,
                                   size_t size,
-                                  size_t offset)
+                                  size_t offset,
+                                  BufferFeedback *feedback)
 {
     if (offset + size > mMemory.size())
     {
@@ -87,7 +93,7 @@ angle::Result Buffer9::setSubData(const gl::Context *context,
         memcpy(mMemory.data() + offset, data, size);
     }
 
-    invalidateStaticData(context);
+    invalidateStaticData(context, feedback);
 
     return angle::Result::Continue;
 }
@@ -96,7 +102,8 @@ angle::Result Buffer9::copySubData(const gl::Context *context,
                                    BufferImpl *source,
                                    GLintptr sourceOffset,
                                    GLintptr destOffset,
-                                   GLsizeiptr size)
+                                   GLsizeiptr size,
+                                   BufferFeedback *feedback)
 {
     // Note: this method is currently unreachable
     Buffer9 *sourceBuffer = GetAs<Buffer9>(source);
@@ -104,13 +111,16 @@ angle::Result Buffer9::copySubData(const gl::Context *context,
 
     memcpy(mMemory.data() + destOffset, sourceBuffer->mMemory.data() + sourceOffset, size);
 
-    invalidateStaticData(context);
+    invalidateStaticData(context, feedback);
 
     return angle::Result::Continue;
 }
 
 // We do not support buffer mapping in D3D9
-angle::Result Buffer9::map(const gl::Context *context, GLenum access, void **mapPtr)
+angle::Result Buffer9::map(const gl::Context *context,
+                           GLenum access,
+                           void **mapPtr,
+                           BufferFeedback *feedback)
 {
     ANGLE_HR_UNREACHABLE(GetImplAs<Context9>(context));
     return angle::Result::Stop;
@@ -120,19 +130,23 @@ angle::Result Buffer9::mapRange(const gl::Context *context,
                                 size_t offset,
                                 size_t length,
                                 GLbitfield access,
-                                void **mapPtr)
+                                void **mapPtr,
+                                BufferFeedback *feedback)
 {
     ANGLE_HR_UNREACHABLE(GetImplAs<Context9>(context));
     return angle::Result::Stop;
 }
 
-angle::Result Buffer9::unmap(const gl::Context *context, GLboolean *result)
+angle::Result Buffer9::unmap(const gl::Context *context,
+                             GLboolean *result,
+                             BufferFeedback *feedback)
 {
     ANGLE_HR_UNREACHABLE(GetImplAs<Context9>(context));
     return angle::Result::Stop;
 }
 
-angle::Result Buffer9::markTransformFeedbackUsage(const gl::Context *context)
+angle::Result Buffer9::markTransformFeedbackUsage(const gl::Context *context,
+                                                  BufferFeedback *feedback)
 {
     ANGLE_HR_UNREACHABLE(GetImplAs<Context9>(context));
     return angle::Result::Stop;

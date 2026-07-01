@@ -6,10 +6,19 @@
 // IntermNode_util.cpp: High-level utilities for creating AST nodes and node hierarchies. Mostly
 // meant to be used in AST transforms.
 
+#include "compiler/translator/util.h"
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "compiler/translator/tree_util/IntermNode_util.h"
 
 #include "compiler/translator/FunctionLookup.h"
+#include "compiler/translator/Name.h"
+#include "compiler/translator/Symbol.h"
 #include "compiler/translator/SymbolTable.h"
+#include "compiler/translator/SymbolUniqueId.h"
+#include "compiler/translator/Types.h"
 
 namespace sh
 {
@@ -49,6 +58,15 @@ TIntermTyped *CreateZeroNode(const TType &type)
 {
     TType constType(type);
     constType.setQualifier(EvqConst);
+
+    // Make sure as a constructor, the type does not inherit qualifiers that are otherwise specified
+    // on interface blocks and varyings.
+    constType.setInvariant(false);
+    constType.setPrecise(false);
+    constType.setInterpolant(false);
+    constType.setMemoryQualifier(TMemoryQualifier::Create());
+    constType.setLayoutQualifier(TLayoutQualifier::Create());
+    constType.setInterfaceBlock(nullptr);
 
     if (!type.isArray() && type.getBasicType() != EbtStruct)
     {
@@ -177,24 +195,32 @@ TIntermConstantUnion *CreateBoolNode(bool value)
     return new TIntermConstantUnion(u, type);
 }
 
+TIntermConstantUnion *CreateYuvCscNode(TYuvCscStandardEXT value)
+{
+    TConstantUnion *u = new TConstantUnion[1];
+    u[0].setYuvCscStandardEXTConst(value);
+
+    TType type(EbtYuvCscStandardEXT, EbpUndefined, EvqConst, 1);
+    return new TIntermConstantUnion(u, type);
+}
+
 TVariable *CreateTempVariable(TSymbolTable *symbolTable, const TType *type)
 {
     ASSERT(symbolTable != nullptr);
-    // TODO(oetuaho): Might be useful to sanitize layout qualifier etc. on the type of the created
-    // variable. This might need to be done in other places as well.
     return new TVariable(symbolTable, kEmptyImmutableString, type, SymbolType::AngleInternal);
 }
 
 TVariable *CreateTempVariable(TSymbolTable *symbolTable, const TType *type, TQualifier qualifier)
 {
     ASSERT(symbolTable != nullptr);
-    if (type->getQualifier() == qualifier)
+    if (type->getQualifier() != qualifier || type->getInterfaceBlock() != nullptr)
     {
-        return CreateTempVariable(symbolTable, type);
+        TType *newType = new TType(*type);
+        newType->setQualifier(qualifier);
+        newType->setInterfaceBlock(nullptr);
+        type = newType;
     }
-    TType *typeWithQualifier = new TType(*type);
-    typeWithQualifier->setQualifier(qualifier);
-    return CreateTempVariable(symbolTable, typeWithQualifier);
+    return new TVariable(symbolTable, kEmptyImmutableString, type, SymbolType::AngleInternal);
 }
 
 TIntermSymbol *CreateTempSymbolNode(const TVariable *tempVariable)
@@ -296,21 +322,27 @@ std::pair<const TVariable *, const TVariable *> DeclareStructure(
     return {typeVar, instanceVar};
 }
 
-const TVariable *DeclareInterfaceBlock(TIntermBlock *root,
-                                       TSymbolTable *symbolTable,
+TInterfaceBlock *DeclareInterfaceBlock(TSymbolTable *symbolTable,
                                        TFieldList *fieldList,
-                                       TQualifier qualifier,
                                        const TLayoutQualifier &layoutQualifier,
-                                       const TMemoryQualifier &memoryQualifier,
-                                       uint32_t arraySize,
-                                       const ImmutableString &blockTypeName,
-                                       const ImmutableString &blockVariableName)
+                                       const ImmutableString &blockTypeName)
 {
     // Define an interface block.
     TInterfaceBlock *interfaceBlock = new TInterfaceBlock(
         symbolTable, blockTypeName, fieldList, layoutQualifier, SymbolType::AngleInternal);
 
-    // Turn the inteface block into a declaration.
+    return interfaceBlock;
+}
+
+const TVariable *DeclareInterfaceBlockVariable(TIntermBlock *root,
+                                               TSymbolTable *symbolTable,
+                                               TQualifier qualifier,
+                                               const TInterfaceBlock *interfaceBlock,
+                                               const TLayoutQualifier &layoutQualifier,
+                                               const TMemoryQualifier &memoryQualifier,
+                                               const uint32_t arraySize,
+                                               const ImmutableString &blockVariableName)
+{
     TType *interfaceBlockType = new TType(interfaceBlock, qualifier, layoutQualifier);
     interfaceBlockType->setMemoryQualifier(memoryQualifier);
     if (arraySize > 0)
@@ -335,18 +367,118 @@ const TVariable *DeclareInterfaceBlock(TIntermBlock *root,
     return interfaceBlockVar;
 }
 
+const TVariable *FindRootVariable(TIntermNode *expr)
+{
+    if (TIntermBinary *binNode = expr->getAsBinaryNode())
+    {
+        return FindRootVariable(binNode->getLeft());
+    }
+    if (TIntermSwizzle *swizzle = expr->getAsSwizzleNode())
+    {
+        return FindRootVariable(swizzle->getOperand());
+    }
+
+    TIntermSymbol *sym = expr->getAsSymbolNode();
+    ASSERT(sym);
+    return &sym->variable();
+}
+
+const TVariable &CreateStructTypeVariable(TSymbolTable &symbolTable, const TStructure &structure)
+{
+    TType *type    = new TType(&structure, true);
+    TVariable *var = new TVariable(&symbolTable, ImmutableString(""), type, SymbolType::Empty);
+    return *var;
+}
+
+const TVariable &CreateInstanceVariable(TSymbolTable &symbolTable,
+                                        const TStructure &structure,
+                                        const Name &name,
+                                        TQualifier qualifier,
+                                        const angle::Span<const unsigned int> *arraySizes)
+{
+    TType *type = new TType(&structure, false);
+    type->setQualifier(qualifier);
+    if (arraySizes)
+    {
+        type->makeArrays(*arraySizes);
+    }
+    TVariable *var = new TVariable(&symbolTable, name.rawName(), type, name.symbolType());
+    return *var;
+}
+
+TIntermBinary &AccessField(const TVariable &structInstanceVar, const Name &name)
+{
+    return AccessField(*new TIntermSymbol(&structInstanceVar), name);
+}
+
+TIntermBinary &AccessField(TIntermTyped &object, const Name &name)
+{
+    const TStructure *structure = object.getType().getStruct();
+    ASSERT(structure);
+    const TFieldList &fieldList = structure->fields();
+    for (int i = 0; i < static_cast<int>(fieldList.size()); ++i)
+    {
+        TField *current = fieldList[i];
+        if (Name(*current) == name)
+        {
+            return AccessFieldByIndex(object, i);
+        }
+    }
+    UNREACHABLE();
+    return AccessFieldByIndex(object, -1);
+}
+
+TIntermBinary &AccessFieldByIndex(TIntermTyped &object, int index)
+{
+    const TType &type = object.getType();
+    ASSERT(!type.isArray());
+    const TStructure *structure = type.getStruct();
+    ASSERT(structure);
+
+    ASSERT(0 <= index);
+    ASSERT(static_cast<size_t>(index) < structure->fields().size());
+
+    return *new TIntermBinary(
+        TOperator::EOpIndexDirectStruct, &object,
+        new TIntermConstantUnion(new TConstantUnion(index), *new TType(TBasicType::EbtInt)));
+}
+
+TIntermBinary *AccessFieldOfNamedInterfaceBlock(const TVariable *object, int index)
+{
+    ASSERT(object->getType().getInterfaceBlock());
+    const TFieldList &fieldList = object->getType().getInterfaceBlock()->fields();
+
+    ASSERT(0 <= index);
+    ASSERT(static_cast<size_t>(index) < fieldList.size());
+
+    ASSERT(object->symbolType() != SymbolType::Empty);
+
+    return new TIntermBinary(TOperator::EOpIndexDirectInterfaceBlock, new TIntermSymbol(object),
+                             CreateIndexNode(index));
+}
+
 TIntermBlock *EnsureBlock(TIntermNode *node)
 {
     if (node == nullptr)
         return nullptr;
     TIntermBlock *blockNode = node->getAsBlock();
     if (blockNode != nullptr)
+    {
         return blockNode;
-
+    }
     blockNode = new TIntermBlock();
     blockNode->setLine(node->getLine());
     blockNode->appendStatement(node);
     return blockNode;
+}
+
+TIntermBlock *EnsureLoopBodyBlock(TIntermNode *node)
+{
+    if (node == nullptr)
+    {
+        return new TIntermBlock();
+    }
+    return EnsureBlock(node);
 }
 
 TIntermSymbol *ReferenceGlobalVariable(const ImmutableString &name, const TSymbolTable &symbolTable)
@@ -398,11 +530,6 @@ TIntermTyped *CreateBuiltInUnaryFunctionCallNode(const char *name,
     return CreateBuiltInFunctionCallNode(name, {argument}, symbolTable, shaderVersion);
 }
 
-int GetESSLOrGLSLVersion(ShShaderSpec spec, int esslVersion, int glslVersion)
-{
-    return IsDesktopGLSpec(spec) ? glslVersion : esslVersion;
-}
-
 // Returns true if a block ends in a branch (break, continue, return, etc).  This is only correct
 // after PruneNoOps, because it expects empty blocks after a branch to have been already pruned,
 // i.e. a block can only end in a branch if its last statement is a branch or is a block ending in
@@ -431,6 +558,18 @@ bool EndsInBranch(TIntermBlock *block)
     }
 
     return false;
+}
+
+TIntermNode *CastScalar(const TType &type, TIntermTyped *scalar)
+{
+    const TBasicType basicType = type.getBasicType();
+    if (scalar->getType().getBasicType() == basicType)
+    {
+        return scalar;
+    }
+
+    TType castDestType(basicType, type.getPrecision());
+    return TIntermAggregate::CreateConstructor(castDestType, {scalar});
 }
 
 }  // namespace sh

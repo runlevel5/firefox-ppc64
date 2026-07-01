@@ -9,7 +9,14 @@
 #ifndef COMMON_COLOR_H_
 #define COMMON_COLOR_H_
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include <cstdint>
+#include <cstring>
+
+#include "common/debug.h"
 
 namespace angle
 {
@@ -48,6 +55,7 @@ typedef Color<float> ColorF;
 typedef Color<int> ColorI;
 typedef Color<unsigned int> ColorUI;
 
+ANGLE_ENABLE_STRUCT_PADDING_WARNINGS
 struct ColorGeneric
 {
     inline ColorGeneric();
@@ -55,7 +63,7 @@ struct ColorGeneric
     inline ColorGeneric(const ColorI &color);
     inline ColorGeneric(const ColorUI &color);
 
-    enum class Type : uint8_t
+    enum class Type : uint32_t
     {
         Float = 0,
         Int   = 1,
@@ -71,6 +79,7 @@ struct ColorGeneric
 
     Type type;
 };
+ANGLE_DISABLE_STRUCT_PADDING_WARNINGS
 
 inline bool operator==(const ColorGeneric &a, const ColorGeneric &b);
 

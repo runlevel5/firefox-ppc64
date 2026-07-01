@@ -17,6 +17,9 @@
 namespace gl
 {
 class Context;
+class PrivateState;
+class PrivateStateCache;
+class ErrorSet;
 
 bool ValidateBeginQuery(const Context *context,
                         angle::EntryPoint entryPoint,
@@ -83,7 +86,7 @@ bool ValidateClearBufferuiv(const Context *context,
                             const GLuint *value);
 bool ValidateClientWaitSync(const Context *context,
                             angle::EntryPoint entryPoint,
-                            GLsync sync,
+                            SyncID syncPacked,
                             GLbitfield flags,
                             GLuint64 timeout);
 bool ValidateCompressedTexImage3D(const Context *context,
@@ -136,7 +139,7 @@ bool ValidateDeleteSamplers(const Context *context,
                             angle::EntryPoint entryPoint,
                             GLsizei count,
                             const SamplerID *samplersPacked);
-bool ValidateDeleteSync(const Context *context, angle::EntryPoint entryPoint, GLsync sync);
+bool ValidateDeleteSync(const Context *context, angle::EntryPoint entryPoint, SyncID syncPacked);
 bool ValidateDeleteTransformFeedbacks(const Context *context,
                                       angle::EntryPoint entryPoint,
                                       GLsizei n,
@@ -215,7 +218,7 @@ bool ValidateGetActiveUniformBlockiv(const Context *context,
                                      angle::EntryPoint entryPoint,
                                      ShaderProgramID programPacked,
                                      UniformBlockIndex uniformBlockIndexPacked,
-                                     GLenum pname,
+                                     UniformBlockParameter pnamePacked,
                                      const GLint *params);
 bool ValidateGetActiveUniformsiv(const Context *context,
                                  angle::EntryPoint entryPoint,
@@ -227,7 +230,7 @@ bool ValidateGetActiveUniformsiv(const Context *context,
 bool ValidateGetBufferParameteri64v(const Context *context,
                                     angle::EntryPoint entryPoint,
                                     BufferBinding targetPacked,
-                                    GLenum pname,
+                                    BufferParam pnamePacked,
                                     const GLint64 *params);
 bool ValidateGetBufferPointerv(const Context *context,
                                angle::EntryPoint entryPoint,
@@ -269,22 +272,22 @@ bool ValidateGetProgramBinary(const Context *context,
 bool ValidateGetQueryObjectuiv(const Context *context,
                                angle::EntryPoint entryPoint,
                                QueryID idPacked,
-                               GLenum pname,
+                               QueryObjectParameter pnamePacked,
                                const GLuint *params);
 bool ValidateGetQueryiv(const Context *context,
                         angle::EntryPoint entryPoint,
                         QueryType targetPacked,
-                        GLenum pname,
+                        QueryParameter pnamePacked,
                         const GLint *params);
 bool ValidateGetSamplerParameterfv(const Context *context,
                                    angle::EntryPoint entryPoint,
                                    SamplerID samplerPacked,
-                                   GLenum pname,
+                                   SamplerParameter pnamePacked,
                                    const GLfloat *params);
 bool ValidateGetSamplerParameteriv(const Context *context,
                                    angle::EntryPoint entryPoint,
                                    SamplerID samplerPacked,
-                                   GLenum pname,
+                                   SamplerParameter pnamePacked,
                                    const GLint *params);
 bool ValidateGetStringi(const Context *context,
                         angle::EntryPoint entryPoint,
@@ -292,7 +295,7 @@ bool ValidateGetStringi(const Context *context,
                         GLuint index);
 bool ValidateGetSynciv(const Context *context,
                        angle::EntryPoint entryPoint,
-                       GLsync sync,
+                       SyncID syncPacked,
                        GLenum pname,
                        GLsizei count,
                        const GLsizei *length,
@@ -349,11 +352,12 @@ bool ValidateIsQuery(const Context *context, angle::EntryPoint entryPoint, Query
 bool ValidateIsSampler(const Context *context,
                        angle::EntryPoint entryPoint,
                        SamplerID samplerPacked);
-bool ValidateIsSync(const Context *context, angle::EntryPoint entryPoint, GLsync sync);
+bool ValidateIsSync(const Context *context, angle::EntryPoint entryPoint, SyncID syncPacked);
 bool ValidateIsTransformFeedback(const Context *context,
                                  angle::EntryPoint entryPoint,
                                  TransformFeedbackID idPacked);
-bool ValidateIsVertexArray(const Context *context,
+bool ValidateIsVertexArray(const PrivateState &state,
+                           ErrorSet *errors,
                            angle::EntryPoint entryPoint,
                            VertexArrayID arrayPacked);
 bool ValidateMapBufferRange(const Context *context,
@@ -386,22 +390,22 @@ bool ValidateResumeTransformFeedback(const Context *context, angle::EntryPoint e
 bool ValidateSamplerParameterf(const Context *context,
                                angle::EntryPoint entryPoint,
                                SamplerID samplerPacked,
-                               GLenum pname,
+                               SamplerParameter pnamePacked,
                                GLfloat param);
 bool ValidateSamplerParameterfv(const Context *context,
                                 angle::EntryPoint entryPoint,
                                 SamplerID samplerPacked,
-                                GLenum pname,
+                                SamplerParameter pnamePacked,
                                 const GLfloat *param);
 bool ValidateSamplerParameteri(const Context *context,
                                angle::EntryPoint entryPoint,
                                SamplerID samplerPacked,
-                               GLenum pname,
+                               SamplerParameter pnamePacked,
                                GLint param);
 bool ValidateSamplerParameteriv(const Context *context,
                                 angle::EntryPoint entryPoint,
                                 SamplerID samplerPacked,
-                                GLenum pname,
+                                SamplerParameter pnamePacked,
                                 const GLint *param);
 bool ValidateTexImage3D(const Context *context,
                         angle::EntryPoint entryPoint,
@@ -535,29 +539,34 @@ bool ValidateUniformMatrix4x3fv(const Context *context,
 bool ValidateUnmapBuffer(const Context *context,
                          angle::EntryPoint entryPoint,
                          BufferBinding targetPacked);
-bool ValidateVertexAttribDivisor(const Context *context,
+bool ValidateVertexAttribDivisor(const PrivateState &state,
+                                 ErrorSet *errors,
                                  angle::EntryPoint entryPoint,
                                  GLuint index,
                                  GLuint divisor);
-bool ValidateVertexAttribI4i(const Context *context,
+bool ValidateVertexAttribI4i(const PrivateState &state,
+                             ErrorSet *errors,
                              angle::EntryPoint entryPoint,
                              GLuint index,
                              GLint x,
                              GLint y,
                              GLint z,
                              GLint w);
-bool ValidateVertexAttribI4iv(const Context *context,
+bool ValidateVertexAttribI4iv(const PrivateState &state,
+                              ErrorSet *errors,
                               angle::EntryPoint entryPoint,
                               GLuint index,
                               const GLint *v);
-bool ValidateVertexAttribI4ui(const Context *context,
+bool ValidateVertexAttribI4ui(const PrivateState &state,
+                              ErrorSet *errors,
                               angle::EntryPoint entryPoint,
                               GLuint index,
                               GLuint x,
                               GLuint y,
                               GLuint z,
                               GLuint w);
-bool ValidateVertexAttribI4uiv(const Context *context,
+bool ValidateVertexAttribI4uiv(const PrivateState &state,
+                               ErrorSet *errors,
                                angle::EntryPoint entryPoint,
                                GLuint index,
                                const GLuint *v);
@@ -570,7 +579,7 @@ bool ValidateVertexAttribIPointer(const Context *context,
                                   const void *pointer);
 bool ValidateWaitSync(const Context *context,
                       angle::EntryPoint entryPoint,
-                      GLsync sync,
+                      SyncID syncPacked,
                       GLbitfield flags,
                       GLuint64 timeout);
 }  // namespace gl

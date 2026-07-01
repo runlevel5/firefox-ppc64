@@ -23,10 +23,9 @@
 #include "libANGLE/renderer/ContextImpl.h"
 #include "libANGLE/renderer/TextureImpl.h"
 #include "libANGLE/renderer/d3d/BufferD3D.h"
-#include "libANGLE/renderer/d3d/DeviceD3D.h"
 #include "libANGLE/renderer/d3d/DisplayD3D.h"
 #include "libANGLE/renderer/d3d/IndexDataManager.h"
-#include "libANGLE/renderer/d3d/ProgramD3D.h"
+#include "libANGLE/renderer/d3d/ProgramExecutableD3D.h"
 #include "libANGLE/renderer/d3d/SamplerD3D.h"
 #include "libANGLE/renderer/d3d/TextureD3D.h"
 
@@ -38,7 +37,6 @@ RendererD3D::RendererD3D(egl::Display *display)
       mPresentPathFastEnabled(false),
       mCapsInitialized(false),
       mFeaturesInitialized(false),
-      mDisjoint(false),
       mDeviceLost(false)
 {}
 
@@ -48,7 +46,8 @@ bool RendererD3D::skipDraw(const gl::State &glState, gl::PrimitiveMode drawMode)
 {
     if (drawMode == gl::PrimitiveMode::Points)
     {
-        bool usesPointSize = GetImplAs<ProgramD3D>(glState.getProgram())->usesPointSize();
+        bool usesPointSize =
+            GetImplAs<ProgramExecutableD3D>(glState.getProgramExecutable())->usesPointSize();
 
         // ProgramBinary assumes non-point rendering if gl_PointSize isn't written,
         // which affects varying interpolation. Since the value of gl_PointSize is
@@ -98,21 +97,6 @@ void RendererD3D::notifyDeviceLost()
     mDisplay->notifyDeviceLost();
 }
 
-void RendererD3D::setGPUDisjoint()
-{
-    mDisjoint = true;
-}
-
-GLint RendererD3D::getGPUDisjoint()
-{
-    bool disjoint = mDisjoint;
-
-    // Disjoint flag is cleared when read
-    mDisjoint = false;
-
-    return disjoint;
-}
-
 GLint64 RendererD3D::getTimestamp()
 {
     // D3D has no way to get an actual timestamp reliably so 0 is returned
@@ -123,7 +107,8 @@ void RendererD3D::ensureCapsInitialized() const
 {
     if (!mCapsInitialized)
     {
-        generateCaps(&mNativeCaps, &mNativeTextureCaps, &mNativeExtensions, &mNativeLimitations);
+        generateCaps(&mNativeCaps, &mNativeTextureCaps, &mNativeExtensions, &mNativeLimitations,
+                     &mNativePLSOptions);
         mCapsInitialized = true;
     }
 }
@@ -152,25 +137,14 @@ const gl::Limitations &RendererD3D::getNativeLimitations() const
     return mNativeLimitations;
 }
 
-ShPixelLocalStorageType RendererD3D::getNativePixelLocalStorageType() const
+const ShPixelLocalStorageOptions &RendererD3D::getNativePixelLocalStorageOptions() const
 {
-    if (!getNativeExtensions().shaderPixelLocalStorageANGLE)
-    {
-        return ShPixelLocalStorageType::NotSupported;
-    }
-    // Read/write UAVs only support "r32*" images.
-    return ShPixelLocalStorageType::ImageStoreR32PackedFormats;
+    return mNativePLSOptions;
 }
 
-Serial RendererD3D::generateSerial()
+UniqueSerial RendererD3D::generateSerial()
 {
     return mSerialFactory.generate();
-}
-
-bool InstancedPointSpritesActive(ProgramD3D *programD3D, gl::PrimitiveMode mode)
-{
-    return programD3D->usesPointSize() && programD3D->usesInstancedPointSpriteEmulation() &&
-           mode == gl::PrimitiveMode::Points;
 }
 
 angle::Result RendererD3D::initRenderTarget(const gl::Context *context,

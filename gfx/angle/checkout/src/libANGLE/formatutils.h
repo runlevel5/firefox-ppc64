@@ -9,12 +9,17 @@
 #ifndef LIBANGLE_FORMATUTILS_H_
 #define LIBANGLE_FORMATUTILS_H_
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include <stdint.h>
 #include <cstddef>
 #include <ostream>
 
 #include "angle_gl.h"
 #include "common/android_util.h"
+#include "common/hash_containers.h"
 #include "libANGLE/Caps.h"
 #include "libANGLE/Config.h"
 #include "libANGLE/Error.h"
@@ -66,13 +71,41 @@ ANGLE_INLINE GLenum GetNonLinearFormat(const GLenum format)
         case GL_RGBA8:
             return GL_SRGB8_ALPHA8;
         case GL_RGB8:
-        case GL_BGRX8_ANGLEX:
-        case GL_RGBX8_ANGLE:
             return GL_SRGB8;
+        case GL_BGRX8_ANGLEX:
+            return GL_BGRX8_SRGB_ANGLEX;
+        case GL_RGBX8_ANGLE:
+            return GL_RGBX8_SRGB_ANGLEX;
         case GL_RGBA16F:
             return GL_RGBA16F;
+        case GL_RGB10_A2_EXT:
+            return GL_RGB10_A2_EXT;
+        case GL_SRGB8:
+        case GL_SRGB8_ALPHA8:
+        case GL_SRGB_ALPHA_EXT:
+        case GL_SRGB_EXT:
+            return format;
         default:
             return GL_NONE;
+    }
+}
+
+ANGLE_INLINE GLenum GetLinearFormat(const GLenum format)
+{
+    switch (format)
+    {
+        case GL_BGRA8_SRGB_ANGLEX:
+            return GL_BGRA8_EXT;
+        case GL_SRGB8_ALPHA8:
+            return GL_RGBA8;
+        case GL_SRGB8:
+            return GL_RGB8;
+        case GL_BGRX8_SRGB_ANGLEX:
+            return GL_BGRX8_ANGLEX;
+        case GL_RGBX8_SRGB_ANGLEX:
+            return GL_RGBX8_ANGLE;
+        default:
+            return format;
     }
 }
 
@@ -83,13 +116,18 @@ ANGLE_INLINE bool ColorspaceFormatOverride(const EGLenum colorspace, GLenum *ren
     {
         case EGL_GL_COLORSPACE_LINEAR:                 // linear colorspace no translation needed
         case EGL_GL_COLORSPACE_SCRGB_LINEAR_EXT:       // linear colorspace no translation needed
+        case EGL_GL_COLORSPACE_BT2020_LINEAR_EXT:      // linear colorspace no translation needed
         case EGL_GL_COLORSPACE_DISPLAY_P3_LINEAR_EXT:  // linear colorspace no translation needed
+            *rendertargetformat = GetLinearFormat(*rendertargetformat);
+            return true;
         case EGL_GL_COLORSPACE_DISPLAY_P3_PASSTHROUGH_EXT:  // App, not the HW, will specify the
                                                             // transfer function
         case EGL_GL_COLORSPACE_SCRGB_EXT:  // App, not the HW, will specify the transfer function
             // No translation
             return true;
         case EGL_GL_COLORSPACE_SRGB_KHR:
+        case EGL_GL_COLORSPACE_BT2020_PQ_EXT:
+        case EGL_GL_COLORSPACE_BT2020_HLG_EXT:
         case EGL_GL_COLORSPACE_DISPLAY_P3_EXT:
         {
             GLenum nonLinearFormat = GetNonLinearFormat(*rendertargetformat);
@@ -162,6 +200,12 @@ struct InternalFormat
 
     [[nodiscard]] bool computePalettedImageRowPitch(GLsizei width, GLuint *resultOut) const;
 
+    [[nodiscard]] bool computeCompressedImageRowPitch(GLsizei width, GLuint *resultOut) const;
+
+    [[nodiscard]] bool computeCompressedImageDepthPitch(GLsizei height,
+                                                        GLuint rowPitch,
+                                                        GLuint *resultOut) const;
+
     [[nodiscard]] bool computeCompressedImageSize(const Extents &size, GLuint *resultOut) const;
 
     [[nodiscard]] std::pair<GLuint, GLuint> getCompressedImageMinBlocks() const;
@@ -204,6 +248,8 @@ struct InternalFormat
 
     bool isInt() const;
     bool isDepthOrStencil() const;
+
+    GLuint getEGLConfigBufferSize() const;
 
     bool operator==(const InternalFormat &other) const;
     bool operator!=(const InternalFormat &other) const;
@@ -260,11 +306,12 @@ struct Format
     explicit Format(GLenum internalFormat);
 
     // Sized or unsized types.
-    explicit Format(const InternalFormat &internalFormat);
+    explicit Format(const InternalFormat &internalFormat) : info(&internalFormat) {}
+
     Format(GLenum internalFormat, GLenum type);
 
-    Format(const Format &other);
-    Format &operator=(const Format &other);
+    Format(const Format &other)            = default;
+    Format &operator=(const Format &other) = default;
 
     bool valid() const;
 
@@ -280,6 +327,12 @@ struct Format
 
 const InternalFormat &GetSizedInternalFormatInfo(GLenum internalFormat);
 const InternalFormat &GetInternalFormatInfo(GLenum internalFormat, GLenum type);
+bool IsAngleInternalFormat(GLenum internalFormat);
+
+// ES2 requires that format is equal to internal format at all glTex*Image2D entry points and the
+// implementation can decide the true, sized, internal format. The ES2FormatMap determines the
+// internal format for all valid format and type combinations.
+GLenum GetSizedFormatInternal(GLenum format, GLenum type);
 
 // Strip sizing information from an internal format.  Doesn't necessarily validate that the internal
 // format is valid.
@@ -308,9 +361,6 @@ ANGLE_INLINE int GetNativeVisualID(const InternalFormat &internalFormat)
 #if defined(ANGLE_PLATFORM_ANDROID)
     nativeVisualId =
         angle::android::GLInternalFormatToNativePixelFormat(internalFormat.internalFormat);
-#endif
-#if defined(ANGLE_PLATFORM_LINUX) && defined(ANGLE_USES_GBM)
-    nativeVisualId = angle::GLInternalFormatToGbmFourCCFormat(internalFormat.internalFormat);
 #endif
 
     return nativeVisualId;
@@ -359,10 +409,36 @@ struct VertexFormat : private angle::NonCopyable
     bool pureInteger;
 };
 
-angle::FormatID GetVertexFormatID(VertexAttribType type,
-                                  GLboolean normalized,
-                                  GLuint components,
-                                  bool pureInteger);
+constexpr uint32_t kVertexFormatCount = static_cast<uint32_t>(VertexAttribType::EnumCount);
+extern const angle::FormatID kVertexFormatPureInteger[kVertexFormatCount][4];
+extern const angle::FormatID kVertexFormatNormalized[kVertexFormatCount][4];
+extern const angle::FormatID kVertexFormatScaled[kVertexFormatCount][4];
+
+ANGLE_INLINE angle::FormatID GetVertexFormatID(VertexAttribType type,
+                                               GLboolean normalized,
+                                               GLuint components,
+                                               bool pureInteger)
+{
+    ASSERT(components >= 1 && components <= 4);
+
+    angle::FormatID result;
+    int index = static_cast<int>(type);
+    if (pureInteger)
+    {
+        result = kVertexFormatPureInteger[index][components - 1];
+    }
+    else if (normalized)
+    {
+        result = kVertexFormatNormalized[index][components - 1];
+    }
+    else
+    {
+        result = kVertexFormatScaled[index][components - 1];
+    }
+
+    ASSERT(result != angle::FormatID::NONE);
+    return result;
+}
 
 angle::FormatID GetVertexFormatID(const VertexAttribute &attrib, VertexAttribType currentValueType);
 angle::FormatID GetCurrentValueFormatID(VertexAttribType currentValueType);
@@ -370,119 +446,100 @@ const VertexFormat &GetVertexFormatFromID(angle::FormatID vertexFormatID);
 size_t GetVertexFormatSize(angle::FormatID vertexFormatID);
 angle::FormatID ConvertFormatSignedness(const angle::Format &format);
 
-ANGLE_INLINE bool IsS3TCFormat(const GLenum format)
+ANGLE_INLINE constexpr bool IsS3TCFormat(const GLenum format)
 {
-    switch (format)
-    {
-        case GL_COMPRESSED_RGB_S3TC_DXT1_EXT:
-        case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT:
-        case GL_COMPRESSED_RGBA_S3TC_DXT3_EXT:
-        case GL_COMPRESSED_RGBA_S3TC_DXT5_EXT:
-        case GL_COMPRESSED_SRGB_S3TC_DXT1_EXT:
-        case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT:
-        case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT:
-        case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT:
-            return true;
+    // Two groups of four consecutive values each, starting at multiples of 4.
+    return ((format & ~3) == GL_COMPRESSED_RGB_S3TC_DXT1_EXT) ||
+           ((format & ~3) == GL_COMPRESSED_SRGB_S3TC_DXT1_EXT);
+}
+static_assert(IsS3TCFormat(GL_COMPRESSED_RGB_S3TC_DXT1_EXT), "0x83F0");
+static_assert(IsS3TCFormat(GL_COMPRESSED_RGBA_S3TC_DXT1_EXT), "0x83F1");
+static_assert(IsS3TCFormat(GL_COMPRESSED_RGBA_S3TC_DXT3_EXT), "0x83F2");
+static_assert(IsS3TCFormat(GL_COMPRESSED_RGBA_S3TC_DXT5_EXT), "0x83F3");
+static_assert(IsS3TCFormat(GL_COMPRESSED_SRGB_S3TC_DXT1_EXT), "0x8C4C");
+static_assert(IsS3TCFormat(GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT), "0x8C4D");
+static_assert(IsS3TCFormat(GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT), "0x8C4E");
+static_assert(IsS3TCFormat(GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT), "0x8C4F");
+static_assert(!IsS3TCFormat(0x83EF) && !IsS3TCFormat(0x83F4), "invalid");
+static_assert(!IsS3TCFormat(0x8C4B) && !IsS3TCFormat(0x8C50), "invalid");
 
-        default:
-            return false;
-    }
+ANGLE_INLINE constexpr bool IsRGTCFormat(const GLenum format)
+{
+    return (format >= GL_COMPRESSED_RED_RGTC1_EXT &&
+            format <= GL_COMPRESSED_SIGNED_RED_GREEN_RGTC2_EXT);
+}
+static_assert(IsRGTCFormat(GL_COMPRESSED_RED_RGTC1_EXT), "0x8DBB");
+static_assert(IsRGTCFormat(GL_COMPRESSED_SIGNED_RED_RGTC1_EXT), "0x8DBC");
+static_assert(IsRGTCFormat(GL_COMPRESSED_RED_GREEN_RGTC2_EXT), "0x8DBD");
+static_assert(IsRGTCFormat(GL_COMPRESSED_SIGNED_RED_GREEN_RGTC2_EXT), "0x8DBE");
+static_assert(!IsRGTCFormat(0x8DBA) && !IsRGTCFormat(0x8DBF), "invalid");
+
+ANGLE_INLINE constexpr bool IsBPTCFormat(const GLenum format)
+{
+    // Four consecutive values starting at a multiple of 4.
+    return ((format & ~3) == GL_COMPRESSED_RGBA_BPTC_UNORM_EXT);
+}
+static_assert(IsBPTCFormat(GL_COMPRESSED_RGBA_BPTC_UNORM_EXT), "0x8E8C");
+static_assert(IsBPTCFormat(GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM_EXT), "0x8E8D");
+static_assert(IsBPTCFormat(GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT_EXT), "0x8E8E");
+static_assert(IsBPTCFormat(GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_EXT), "0x8E8F");
+static_assert(!IsBPTCFormat(0x8E8B) && !IsBPTCFormat(0x8E90), "invalid");
+
+ANGLE_INLINE constexpr bool IsASTC2DFormat(const GLenum format)
+{
+    return (format >= GL_COMPRESSED_RGBA_ASTC_4x4_KHR &&
+            format <= GL_COMPRESSED_RGBA_ASTC_12x12_KHR) ||
+           (format >= GL_COMPRESSED_SRGB8_ALPHA8_ASTC_4x4_KHR &&
+            format <= GL_COMPRESSED_SRGB8_ALPHA8_ASTC_12x12_KHR);
 }
 
-ANGLE_INLINE bool IsRGTCFormat(const GLenum format)
+ANGLE_INLINE constexpr bool IsASTC3DFormat(const GLenum format)
 {
-    switch (format)
-    {
-        case GL_COMPRESSED_RED_RGTC1_EXT:
-        case GL_COMPRESSED_SIGNED_RED_RGTC1_EXT:
-        case GL_COMPRESSED_RED_GREEN_RGTC2_EXT:
-        case GL_COMPRESSED_SIGNED_RED_GREEN_RGTC2_EXT:
-            return true;
-
-        default:
-            return false;
-    }
+    return (format >= GL_COMPRESSED_RGBA_ASTC_3x3x3_OES &&
+            format <= GL_COMPRESSED_RGBA_ASTC_6x6x6_OES) ||
+           (format >= GL_COMPRESSED_SRGB8_ALPHA8_ASTC_3x3x3_OES &&
+            format <= GL_COMPRESSED_SRGB8_ALPHA8_ASTC_6x6x6_OES);
 }
 
-ANGLE_INLINE bool IsBPTCFormat(const GLenum format)
+ANGLE_INLINE constexpr bool IsETC1Format(const GLenum format)
 {
-    switch (format)
-    {
-        case GL_COMPRESSED_RGBA_BPTC_UNORM_EXT:
-        case GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM_EXT:
-        case GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT_EXT:
-        case GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_EXT:
-            return true;
-
-        default:
-            return false;
-    }
+    return (format == GL_ETC1_RGB8_OES);
 }
 
-ANGLE_INLINE bool IsASTC2DFormat(const GLenum format)
+ANGLE_INLINE constexpr bool IsETC2EACFormat(const GLenum format)
 {
-    if ((format >= GL_COMPRESSED_RGBA_ASTC_4x4_KHR &&
-         format <= GL_COMPRESSED_RGBA_ASTC_12x12_KHR) ||
-        (format >= GL_COMPRESSED_SRGB8_ALPHA8_ASTC_4x4_KHR &&
-         format <= GL_COMPRESSED_SRGB8_ALPHA8_ASTC_12x12_KHR))
-    {
-        return true;
-    }
-    return false;
+    return (format >= GL_COMPRESSED_R11_EAC && format <= GL_COMPRESSED_SRGB8_ALPHA8_ETC2_EAC);
 }
+static_assert(IsETC2EACFormat(GL_COMPRESSED_R11_EAC), "0x9270");
+static_assert(IsETC2EACFormat(GL_COMPRESSED_SIGNED_R11_EAC), "0x9271");
+static_assert(IsETC2EACFormat(GL_COMPRESSED_RG11_EAC), "0x9272");
+static_assert(IsETC2EACFormat(GL_COMPRESSED_SIGNED_RG11_EAC), "0x9273");
+static_assert(IsETC2EACFormat(GL_COMPRESSED_RGB8_ETC2), "0x9274");
+static_assert(IsETC2EACFormat(GL_COMPRESSED_SRGB8_ETC2), "0x9275");
+static_assert(IsETC2EACFormat(GL_COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_ETC2), "0x9276");
+static_assert(IsETC2EACFormat(GL_COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2), "0x9277");
+static_assert(IsETC2EACFormat(GL_COMPRESSED_RGBA8_ETC2_EAC), "0x9278");
+static_assert(IsETC2EACFormat(GL_COMPRESSED_SRGB8_ALPHA8_ETC2_EAC), "0x9279");
+static_assert(!IsETC2EACFormat(0x926F) && !IsETC2EACFormat(0x927A), "invalid");
 
-ANGLE_INLINE bool IsETC1Format(const GLenum format)
+ANGLE_INLINE constexpr bool IsPVRTC1Format(const GLenum format)
 {
-    switch (format)
-    {
-        case GL_ETC1_RGB8_OES:
-            return true;
-
-        default:
-            return false;
-    }
+    // This function is called for all compressed texture uploads. The expression below generates
+    // fewer instructions than a regular switch statement. Two groups of four consecutive values,
+    // each group starts with two least significant bits unset.
+    return ((format & ~3) == GL_COMPRESSED_RGB_PVRTC_4BPPV1_IMG) ||
+           ((format & ~3) == GL_COMPRESSED_SRGB_PVRTC_2BPPV1_EXT);
 }
-
-ANGLE_INLINE bool IsETC2EACFormat(const GLenum format)
-{
-    // ES 3.1, Table 8.19
-    switch (format)
-    {
-        case GL_COMPRESSED_R11_EAC:
-        case GL_COMPRESSED_SIGNED_R11_EAC:
-        case GL_COMPRESSED_RG11_EAC:
-        case GL_COMPRESSED_SIGNED_RG11_EAC:
-        case GL_COMPRESSED_RGB8_ETC2:
-        case GL_COMPRESSED_SRGB8_ETC2:
-        case GL_COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_ETC2:
-        case GL_COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2:
-        case GL_COMPRESSED_RGBA8_ETC2_EAC:
-        case GL_COMPRESSED_SRGB8_ALPHA8_ETC2_EAC:
-            return true;
-
-        default:
-            return false;
-    }
-}
-
-ANGLE_INLINE bool IsPVRTC1Format(const GLenum format)
-{
-    switch (format)
-    {
-        case GL_COMPRESSED_RGB_PVRTC_4BPPV1_IMG:
-        case GL_COMPRESSED_RGB_PVRTC_2BPPV1_IMG:
-        case GL_COMPRESSED_RGBA_PVRTC_4BPPV1_IMG:
-        case GL_COMPRESSED_RGBA_PVRTC_2BPPV1_IMG:
-        case GL_COMPRESSED_SRGB_PVRTC_2BPPV1_EXT:
-        case GL_COMPRESSED_SRGB_PVRTC_4BPPV1_EXT:
-        case GL_COMPRESSED_SRGB_ALPHA_PVRTC_2BPPV1_EXT:
-        case GL_COMPRESSED_SRGB_ALPHA_PVRTC_4BPPV1_EXT:
-            return true;
-
-        default:
-            return false;
-    }
-}
+static_assert(IsPVRTC1Format(GL_COMPRESSED_RGB_PVRTC_4BPPV1_IMG), "0x8C00");
+static_assert(IsPVRTC1Format(GL_COMPRESSED_RGB_PVRTC_2BPPV1_IMG), "0x8C01");
+static_assert(IsPVRTC1Format(GL_COMPRESSED_RGBA_PVRTC_4BPPV1_IMG), "0x8C02");
+static_assert(IsPVRTC1Format(GL_COMPRESSED_RGBA_PVRTC_2BPPV1_IMG), "0x8C03");
+static_assert(IsPVRTC1Format(GL_COMPRESSED_SRGB_PVRTC_2BPPV1_EXT), "0x8A54");
+static_assert(IsPVRTC1Format(GL_COMPRESSED_SRGB_PVRTC_4BPPV1_EXT), "0x8A55");
+static_assert(IsPVRTC1Format(GL_COMPRESSED_SRGB_ALPHA_PVRTC_2BPPV1_EXT), "0x8A56");
+static_assert(IsPVRTC1Format(GL_COMPRESSED_SRGB_ALPHA_PVRTC_4BPPV1_EXT), "0x8A57");
+static_assert(!IsPVRTC1Format(0x8BFF) && !IsPVRTC1Format(0x8C04), "invalid");
+static_assert(!IsPVRTC1Format(0x8A53) && !IsPVRTC1Format(0x8A58), "invalid");
 
 ANGLE_INLINE bool IsBGRAFormat(const GLenum internalFormat)
 {
@@ -493,7 +550,6 @@ ANGLE_INLINE bool IsBGRAFormat(const GLenum internalFormat)
         case GL_BGR5_A1_ANGLEX:
         case GL_BGRA8_SRGB_ANGLEX:
         case GL_BGRX8_ANGLEX:
-        case GL_RGBX8_ANGLE:
         case GL_BGR565_ANGLEX:
         case GL_BGR10_A2_ANGLEX:
             return true;
@@ -511,11 +567,6 @@ bool ValidES3InternalFormat(GLenum internalFormat);
 bool ValidES3Format(GLenum format);
 bool ValidES3Type(GLenum type);
 bool ValidES3FormatCombination(GLenum format, GLenum type, GLenum internalFormat);
-
-// Implemented in format_map_desktop.cpp
-bool ValidDesktopFormat(GLenum format);
-bool ValidDesktopType(GLenum type);
-bool ValidDesktopFormatCombination(GLenum format, GLenum type, GLenum internalFormat);
 
 // Implemented in es3_copy_conversion_table_autogen.cpp
 bool ValidES3CopyConversion(GLenum textureFormat, GLenum framebufferFormat);

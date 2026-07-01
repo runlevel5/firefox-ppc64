@@ -9,7 +9,10 @@
 #ifndef COMPILER_TRANSLATOR_INTERMNODEUTIL_H_
 #define COMPILER_TRANSLATOR_INTERMNODEUTIL_H_
 
+#include <optional>
+
 #include "compiler/translator/IntermNode.h"
+#include "compiler/translator/Name.h"
 #include "compiler/translator/tree_util/FindFunction.h"
 
 namespace sh
@@ -33,8 +36,13 @@ TIntermConstantUnion *CreateUVecNode(const unsigned int values[],
 TIntermConstantUnion *CreateIndexNode(int index);
 TIntermConstantUnion *CreateUIntNode(unsigned int value);
 TIntermConstantUnion *CreateBoolNode(bool value);
+TIntermConstantUnion *CreateYuvCscNode(TYuvCscStandardEXT value);
 
+// Create temporary variable of known type |type|.
 TVariable *CreateTempVariable(TSymbolTable *symbolTable, const TType *type);
+
+// Create temporary variable compatible with user-provide type |type|.
+// Possibly creates a new type. The qualifer of the new type of the new variable is |qualifier|.
 TVariable *CreateTempVariable(TSymbolTable *symbolTable, const TType *type, TQualifier qualifier);
 
 TIntermSymbol *CreateTempSymbolNode(const TVariable *tempVariable);
@@ -60,27 +68,67 @@ std::pair<const TVariable *, const TVariable *> DeclareStructure(
     uint32_t arraySize,
     const ImmutableString &structTypeName,
     const ImmutableString *structInstanceName);
-const TVariable *DeclareInterfaceBlock(TIntermBlock *root,
-                                       TSymbolTable *symbolTable,
+TInterfaceBlock *DeclareInterfaceBlock(TSymbolTable *symbolTable,
                                        TFieldList *fieldList,
-                                       TQualifier qualifier,
                                        const TLayoutQualifier &layoutQualifier,
-                                       const TMemoryQualifier &memoryQualifier,
-                                       uint32_t arraySize,
-                                       const ImmutableString &blockTypeName,
-                                       const ImmutableString &blockVariableName);
+                                       const ImmutableString &blockTypeName);
+
+const TVariable *DeclareInterfaceBlockVariable(TIntermBlock *root,
+                                               TSymbolTable *symbolTable,
+                                               TQualifier qualifier,
+                                               const TInterfaceBlock *interfaceBlock,
+                                               const TLayoutQualifier &layoutQualifier,
+                                               const TMemoryQualifier &memoryQualifier,
+                                               uint32_t arraySize,
+                                               const ImmutableString &blockVariableName);
+
+// `expr` must be an lvalue. This will return the root variable, e.g. the root variable of
+// `a[0].b[0].xy` is `a`,
+const TVariable *FindRootVariable(TIntermNode *expr);
+
+// Creates a variable for a struct type.
+const TVariable &CreateStructTypeVariable(TSymbolTable &symbolTable, const TStructure &structure);
+
+// Creates a variable for a struct instance.
+const TVariable &CreateInstanceVariable(
+    TSymbolTable &symbolTable,
+    const TStructure &structure,
+    const Name &name,
+    TQualifier qualifier                              = TQualifier::EvqTemporary,
+    const angle::Span<const unsigned int> *arraySizes = nullptr);
+
+// Accesses a field for the given node with the given field name.
+// The node must be a struct instance.
+TIntermBinary &AccessField(const TVariable &structInstanceVar, const Name &field);
+
+// Accesses a field for the given node with the given field name.
+// The node must be a struct instance.
+TIntermBinary &AccessField(TIntermTyped &object, const Name &field);
+
+// Accesses a field for the given node by its field index.
+// The node must be a struct instance.
+TIntermBinary &AccessFieldByIndex(TIntermTyped &object, int index);
+
+// Accesses `object` by index, returning a binary referencing the field of the named interface
+// block.
+// Note: nameless interface blocks' fields are represented by individual TVariables, and so this
+// helper cannot generate an access to them.
+TIntermBinary *AccessFieldOfNamedInterfaceBlock(const TVariable *object, int index);
 
 // If the input node is nullptr, return nullptr.
 // If the input node is a block node, return it.
 // If the input node is not a block node, put it inside a block node and return that.
 TIntermBlock *EnsureBlock(TIntermNode *node);
 
+// If the input node is nullptr, return a new block.
+// If the input node is a block node, return it.
+// If the input node is not a block node, put it inside a block node and return that.
+TIntermBlock *EnsureLoopBodyBlock(TIntermNode *node);
+
 // Should be called from inside Compiler::compileTreeImpl() where the global level is in scope.
 TIntermSymbol *ReferenceGlobalVariable(const ImmutableString &name,
                                        const TSymbolTable &symbolTable);
 
-// Note: this can't access desktop GLSL built-ins. Those can only be accessed directly through
-// BuiltIn.h.
 TIntermSymbol *ReferenceBuiltInVariable(const ImmutableString &name,
                                         const TSymbolTable &symbolTable,
                                         int shaderVersion);
@@ -98,12 +146,10 @@ TIntermTyped *CreateBuiltInUnaryFunctionCallNode(const char *name,
                                                  const TSymbolTable &symbolTable,
                                                  int shaderVersion);
 
-int GetESSLOrGLSLVersion(ShShaderSpec spec, int esslVersion, int glslVersion);
-
-inline void GetSwizzleIndex(TVector<int> *indexOut) {}
+inline void GetSwizzleIndex(TVector<uint32_t> *indexOut) {}
 
 template <typename T, typename... ArgsT>
-void GetSwizzleIndex(TVector<int> *indexOut, T arg, ArgsT... args)
+void GetSwizzleIndex(TVector<uint32_t> *indexOut, T arg, ArgsT... args)
 {
     indexOut->push_back(arg);
     GetSwizzleIndex(indexOut, args...);
@@ -112,7 +158,7 @@ void GetSwizzleIndex(TVector<int> *indexOut, T arg, ArgsT... args)
 template <typename... ArgsT>
 TIntermSwizzle *CreateSwizzle(TIntermTyped *reference, ArgsT... args)
 {
-    TVector<int> swizzleIndex;
+    TVector<uint32_t> swizzleIndex;
     GetSwizzleIndex(&swizzleIndex, args...);
     return new TIntermSwizzle(reference, swizzleIndex);
 }
@@ -122,6 +168,9 @@ TIntermSwizzle *CreateSwizzle(TIntermTyped *reference, ArgsT... args)
 // i.e. a block can only end in a branch if its last statement is a branch or is a block ending in
 // branch.
 bool EndsInBranch(TIntermBlock *block);
+
+// Cast a scalar to the basic type of type. No-ops if scalar is already the right type.
+TIntermNode *CastScalar(const TType &type, TIntermTyped *scalar);
 
 }  // namespace sh
 

@@ -10,6 +10,7 @@
 
 #include "egl_loader_autogen.h"
 
+extern "C" {
 PFNEGLCHOOSECONFIGPROC l_EGL_ChooseConfig;
 PFNEGLCOPYBUFFERSPROC l_EGL_CopyBuffers;
 PFNEGLCREATECONTEXTPROC l_EGL_CreateContext;
@@ -66,9 +67,14 @@ PFNEGLDUPNATIVEFENCEFDANDROIDPROC l_EGL_DupNativeFenceFDANDROID;
 PFNEGLPRESENTATIONTIMEANDROIDPROC l_EGL_PresentationTimeANDROID;
 PFNEGLCREATEDEVICEANGLEPROC l_EGL_CreateDeviceANGLE;
 PFNEGLRELEASEDEVICEANGLEPROC l_EGL_ReleaseDeviceANGLE;
+PFNEGLLOCKVULKANQUEUEANGLEPROC l_EGL_LockVulkanQueueANGLE;
+PFNEGLUNLOCKVULKANQUEUEANGLEPROC l_EGL_UnlockVulkanQueueANGLE;
+PFNEGLACQUIREEXTERNALCONTEXTANGLEPROC l_EGL_AcquireExternalContextANGLE;
+PFNEGLRELEASEEXTERNALCONTEXTANGLEPROC l_EGL_ReleaseExternalContextANGLE;
 PFNEGLQUERYDISPLAYATTRIBANGLEPROC l_EGL_QueryDisplayAttribANGLE;
 PFNEGLQUERYSTRINGIANGLEPROC l_EGL_QueryStringiANGLE;
 PFNEGLCOPYMETALSHAREDEVENTANGLEPROC l_EGL_CopyMetalSharedEventANGLE;
+PFNEGLSETVALIDATIONENABLEDANGLEPROC l_EGL_SetValidationEnabledANGLE;
 PFNEGLFORCEGPUSWITCHANGLEPROC l_EGL_ForceGPUSwitchANGLE;
 PFNEGLHANDLEGPUSWITCHANGLEPROC l_EGL_HandleGPUSwitchANGLE;
 PFNEGLREACQUIREHIGHPOWERGPUANGLEPROC l_EGL_ReacquireHighPowerGPUANGLE;
@@ -81,9 +87,9 @@ PFNEGLPROGRAMCACHERESIZEANGLEPROC l_EGL_ProgramCacheResizeANGLE;
 PFNEGLQUERYSURFACEPOINTERANGLEPROC l_EGL_QuerySurfacePointerANGLE;
 PFNEGLCREATESTREAMPRODUCERD3DTEXTUREANGLEPROC l_EGL_CreateStreamProducerD3DTextureANGLE;
 PFNEGLSTREAMPOSTD3DTEXTUREANGLEPROC l_EGL_StreamPostD3DTextureANGLE;
-PFNEGLSWAPBUFFERSWITHFRAMETOKENANGLEPROC l_EGL_SwapBuffersWithFrameTokenANGLE;
 PFNEGLGETMSCRATEANGLEPROC l_EGL_GetMscRateANGLE;
 PFNEGLEXPORTVKIMAGEANGLEPROC l_EGL_ExportVkImageANGLE;
+PFNEGLWAITUNTILWORKSCHEDULEDANGLEPROC l_EGL_WaitUntilWorkScheduledANGLE;
 PFNEGLGETSYNCVALUESCHROMIUMPROC l_EGL_GetSyncValuesCHROMIUM;
 PFNEGLQUERYDEVICEATTRIBEXTPROC l_EGL_QueryDeviceAttribEXT;
 PFNEGLQUERYDEVICESTRINGEXTPROC l_EGL_QueryDeviceStringEXT;
@@ -93,6 +99,7 @@ PFNEGLQUERYDMABUFMODIFIERSEXTPROC l_EGL_QueryDmaBufModifiersEXT;
 PFNEGLCREATEPLATFORMPIXMAPSURFACEEXTPROC l_EGL_CreatePlatformPixmapSurfaceEXT;
 PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC l_EGL_CreatePlatformWindowSurfaceEXT;
 PFNEGLGETPLATFORMDISPLAYEXTPROC l_EGL_GetPlatformDisplayEXT;
+PFNEGLQUERYSUPPORTEDCOMPRESSIONRATESEXTPROC l_EGL_QuerySupportedCompressionRatesEXT;
 PFNEGLDEBUGMESSAGECONTROLKHRPROC l_EGL_DebugMessageControlKHR;
 PFNEGLLABELOBJECTKHRPROC l_EGL_LabelObjectKHR;
 PFNEGLQUERYDEBUGKHRPROC l_EGL_QueryDebugKHR;
@@ -209,12 +216,22 @@ void LoadLibEGL_EGL(LoadProc loadProc)
         reinterpret_cast<PFNEGLCREATEDEVICEANGLEPROC>(loadProc("EGL_CreateDeviceANGLE"));
     l_EGL_ReleaseDeviceANGLE =
         reinterpret_cast<PFNEGLRELEASEDEVICEANGLEPROC>(loadProc("EGL_ReleaseDeviceANGLE"));
+    l_EGL_LockVulkanQueueANGLE =
+        reinterpret_cast<PFNEGLLOCKVULKANQUEUEANGLEPROC>(loadProc("EGL_LockVulkanQueueANGLE"));
+    l_EGL_UnlockVulkanQueueANGLE =
+        reinterpret_cast<PFNEGLUNLOCKVULKANQUEUEANGLEPROC>(loadProc("EGL_UnlockVulkanQueueANGLE"));
+    l_EGL_AcquireExternalContextANGLE = reinterpret_cast<PFNEGLACQUIREEXTERNALCONTEXTANGLEPROC>(
+        loadProc("EGL_AcquireExternalContextANGLE"));
+    l_EGL_ReleaseExternalContextANGLE = reinterpret_cast<PFNEGLRELEASEEXTERNALCONTEXTANGLEPROC>(
+        loadProc("EGL_ReleaseExternalContextANGLE"));
     l_EGL_QueryDisplayAttribANGLE = reinterpret_cast<PFNEGLQUERYDISPLAYATTRIBANGLEPROC>(
         loadProc("EGL_QueryDisplayAttribANGLE"));
     l_EGL_QueryStringiANGLE =
         reinterpret_cast<PFNEGLQUERYSTRINGIANGLEPROC>(loadProc("EGL_QueryStringiANGLE"));
     l_EGL_CopyMetalSharedEventANGLE = reinterpret_cast<PFNEGLCOPYMETALSHAREDEVENTANGLEPROC>(
         loadProc("EGL_CopyMetalSharedEventANGLE"));
+    l_EGL_SetValidationEnabledANGLE = reinterpret_cast<PFNEGLSETVALIDATIONENABLEDANGLEPROC>(
+        loadProc("EGL_SetValidationEnabledANGLE"));
     l_EGL_ForceGPUSwitchANGLE =
         reinterpret_cast<PFNEGLFORCEGPUSWITCHANGLEPROC>(loadProc("EGL_ForceGPUSwitchANGLE"));
     l_EGL_HandleGPUSwitchANGLE =
@@ -240,13 +257,12 @@ void LoadLibEGL_EGL(LoadProc loadProc)
             loadProc("EGL_CreateStreamProducerD3DTextureANGLE"));
     l_EGL_StreamPostD3DTextureANGLE = reinterpret_cast<PFNEGLSTREAMPOSTD3DTEXTUREANGLEPROC>(
         loadProc("EGL_StreamPostD3DTextureANGLE"));
-    l_EGL_SwapBuffersWithFrameTokenANGLE =
-        reinterpret_cast<PFNEGLSWAPBUFFERSWITHFRAMETOKENANGLEPROC>(
-            loadProc("EGL_SwapBuffersWithFrameTokenANGLE"));
     l_EGL_GetMscRateANGLE =
         reinterpret_cast<PFNEGLGETMSCRATEANGLEPROC>(loadProc("EGL_GetMscRateANGLE"));
     l_EGL_ExportVkImageANGLE =
         reinterpret_cast<PFNEGLEXPORTVKIMAGEANGLEPROC>(loadProc("EGL_ExportVkImageANGLE"));
+    l_EGL_WaitUntilWorkScheduledANGLE = reinterpret_cast<PFNEGLWAITUNTILWORKSCHEDULEDANGLEPROC>(
+        loadProc("EGL_WaitUntilWorkScheduledANGLE"));
     l_EGL_GetSyncValuesCHROMIUM =
         reinterpret_cast<PFNEGLGETSYNCVALUESCHROMIUMPROC>(loadProc("EGL_GetSyncValuesCHROMIUM"));
     l_EGL_QueryDeviceAttribEXT =
@@ -267,6 +283,9 @@ void LoadLibEGL_EGL(LoadProc loadProc)
             loadProc("EGL_CreatePlatformWindowSurfaceEXT"));
     l_EGL_GetPlatformDisplayEXT =
         reinterpret_cast<PFNEGLGETPLATFORMDISPLAYEXTPROC>(loadProc("EGL_GetPlatformDisplayEXT"));
+    l_EGL_QuerySupportedCompressionRatesEXT =
+        reinterpret_cast<PFNEGLQUERYSUPPORTEDCOMPRESSIONRATESEXTPROC>(
+            loadProc("EGL_QuerySupportedCompressionRatesEXT"));
     l_EGL_DebugMessageControlKHR =
         reinterpret_cast<PFNEGLDEBUGMESSAGECONTROLKHRPROC>(loadProc("EGL_DebugMessageControlKHR"));
     l_EGL_LabelObjectKHR =
@@ -318,3 +337,4 @@ void LoadLibEGL_EGL(LoadProc loadProc)
         reinterpret_cast<PFNEGLSTREAMCONSUMERGLTEXTUREEXTERNALATTRIBSNVPROC>(
             loadProc("EGL_StreamConsumerGLTextureExternalAttribsNV"));
 }
+}  // extern "C"

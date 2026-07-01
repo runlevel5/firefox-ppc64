@@ -4,6 +4,10 @@
 // found in the LICENSE file.
 //
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "compiler/translator/SymbolTable.h"
 #include "compiler/translator/tree_util/IntermTraverse.h"
 
@@ -13,12 +17,14 @@ namespace sh
 namespace
 {
 
-void OutputFunction(TInfoSinkBase &out, const char *str, const TFunction *func)
+void OutputFunction(TInfoSinkBase &out, const char *prefix, const TFunction *function)
 {
-    const char *internal =
-        (func->symbolType() == SymbolType::AngleInternal) ? " (internal function)" : "";
-    out << str << internal << ": " << func->name() << " (symbol id " << func->uniqueId().get()
-        << ")";
+    out << prefix << ": " << static_cast<const TSymbol &>(*function);
+}
+
+void OutputVariable(TInfoSinkBase &out, const TVariable &variable)
+{
+    out << static_cast<const TSymbol &>(variable) << " (" << variable.getType() << ")";
 }
 
 // Two purposes:
@@ -86,18 +92,21 @@ void OutputTreeText(TInfoSinkBase &out, TIntermNode *node, const int depth)
 void TOutputTraverser::visitSymbol(TIntermSymbol *node)
 {
     OutputTreeText(mOut, node, getCurrentIndentDepth());
-
-    if (node->variable().symbolType() == SymbolType::Empty)
-    {
-        mOut << "''";
-    }
-    else
-    {
-        mOut << "'" << node->getName() << "' ";
-    }
-    mOut << "(symbol id " << node->uniqueId().get() << ") ";
-    mOut << "(" << node->getType() << ")";
+    OutputVariable(mOut, node->variable());
     mOut << "\n";
+
+    const TType &type = node->getType();
+    if (type.getStruct() != nullptr && type.isStructSpecifier())
+    {
+        const TFieldList &fields = type.getStruct()->fields();
+        for (TField *field : fields)
+        {
+            OutputTreeText(mOut, node, getCurrentIndentDepth() + 1);
+            mOut << "member: ";
+            mOut << *field << " (" << *field->type() << ")";
+            mOut << "\n";
+        }
+    }
 }
 
 bool TOutputTraverser::visitSwizzle(Visit visit, TIntermSwizzle *node)
@@ -394,7 +403,9 @@ void TOutputTraverser::visitFunctionPrototype(TIntermFunctionPrototype *node)
     {
         const TVariable *param = node->getFunction()->getParam(i);
         OutputTreeText(mOut, node, getCurrentIndentDepth() + 1);
-        mOut << "parameter: " << param->name() << " (" << param->getType() << ")\n";
+        mOut << "parameter: ";
+        OutputVariable(mOut, *param);
+        mOut << "\n";
     }
 }
 
@@ -416,7 +427,7 @@ bool TOutputTraverser::visitAggregate(Visit visit, TIntermAggregate *node)
     switch (op)
     {
         case EOpCallFunctionInAST:
-            OutputFunction(mOut, "Call a user-defined function", node->getFunction());
+            OutputFunction(mOut, "Call a function", node->getFunction());
             break;
         case EOpCallInternalRawFunction:
             OutputFunction(mOut, "Call an internal function with raw implementation",
@@ -585,6 +596,9 @@ bool TOutputTraverser::visitCase(Visit visit, TIntermCase *node)
 
 void TOutputTraverser::visitConstantUnion(TIntermConstantUnion *node)
 {
+    OutputTreeText(mOut, node, getCurrentIndentDepth());
+    mOut << "Constant union" << " (" << node->getType() << ")" << "\n";
+    ++mIndentDepth;
     size_t size = node->getType().getObjectSize();
 
     for (size_t i = 0; i < size; i++)
@@ -598,9 +612,7 @@ void TOutputTraverser::visitConstantUnion(TIntermConstantUnion *node)
                 else
                     mOut << "false";
 
-                mOut << " ("
-                     << "const bool"
-                     << ")";
+                mOut << " (" << "const bool" << ")";
                 mOut << "\n";
                 break;
             case EbtFloat:
@@ -626,6 +638,7 @@ void TOutputTraverser::visitConstantUnion(TIntermConstantUnion *node)
                 break;
         }
     }
+    --mIndentDepth;
 }
 
 bool TOutputTraverser::visitLoop(Visit visit, TIntermLoop *node)
@@ -651,15 +664,8 @@ bool TOutputTraverser::visitLoop(Visit visit, TIntermLoop *node)
     }
 
     OutputTreeText(mOut, node, getCurrentIndentDepth());
-    if (node->getBody())
-    {
-        mOut << "Loop Body\n";
-        node->getBody()->traverse(this);
-    }
-    else
-    {
-        mOut << "No loop body\n";
-    }
+    mOut << "Loop Body\n";
+    node->getBody()->traverse(this);
 
     if (node->getExpression())
     {
