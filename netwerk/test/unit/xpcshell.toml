@@ -492,6 +492,14 @@ prefs = ["browser.cache.disk.encryption.enabled=true"]
 
 ["test_cache2-35-racing-onCacheEntryCheck.js"]
 
+["test_cache2-36-frecency-no-rewrite.js"]
+
+["test_cache2-37-index-background-flush.js"]
+
+["test_cache2-38-index-max-dump-interval.js"]
+
+["test_cache2-39-index-corruption-recovery.js"]
+
 ["test_cache2_clear_with_principal.js"]
 run-sequentially = ["true"] # httpd server
 
@@ -824,13 +832,6 @@ skip-if = [
   "os == 'win'",
 ]
 
-["test_happy_eyeballs_zero_ip_blocked.js"]
-run-sequentially = ["true"] # node server exceptions dont replay well
-skip-if = [
-  "os == 'android'",
-  "os == 'win'",
-]
-
 ["test_happy_eyeballs_ip_preference.js"]
 run-sequentially = ["true"] # node server exceptions dont replay well
 
@@ -849,6 +850,13 @@ skip-if = [
 ]
 
 ["test_happy_eyeballs_websocket_https_rr.js"]
+
+["test_happy_eyeballs_zero_ip_blocked.js"]
+run-sequentially = ["true"] # node server exceptions dont replay well
+skip-if = [
+  "os == 'android'",
+  "os == 'win'",
+]
 
 ["test_he_client_auth_pause.js"]
 skip-if = [

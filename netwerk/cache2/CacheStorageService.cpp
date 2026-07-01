@@ -2574,6 +2574,42 @@ CacheStorageService::Flush(nsIObserver* aObserver) {
 }
 
 NS_IMETHODIMP
+CacheStorageService::ShutdownCacheForTesting() {
+  // Drop the in-memory entry table so that entries must be re-loaded from disk
+  // after the simulated restart; otherwise post-restart opens would find the
+  // original CacheEntry objects (with their data/metadata still in memory) and
+  // never exercise the disk index rebuild / metadata reload paths.
+  {
+    StaticMutexAutoLock lock(sLock);
+    if (sGlobalEntryTables) {
+#ifdef NS_FREE_PERMANENT_DATA
+      // Break the pending-callback prevent-release cycle before dropping the
+      // table; ClearCallbacks() only exists in NS_FREE_PERMANENT_DATA builds.
+      for (const auto& table : sGlobalEntryTables->Values()) {
+        for (const auto& entry : table->Values()) {
+          entry->ClearCallbacks();
+        }
+      }
+#endif
+      sGlobalEntryTables->Clear();
+    }
+  }
+  return CacheFileIOManager::Shutdown();
+}
+
+NS_IMETHODIMP
+CacheStorageService::StartupCacheForTesting() {
+  // ShutdownCacheForTesting() went through CacheFileIOManager::Shutdown(),
+  // which permanently shuts the DictionaryCache down; undo that so it works
+  // again.
+  DictionaryCache::ResetShutdownForTesting();
+
+  nsresult rv = CacheFileIOManager::Init();
+  NS_ENSURE_SUCCESS(rv, rv);
+  return CacheFileIOManager::OnProfile();
+}
+
+NS_IMETHODIMP
 CacheStorageService::ClearDictionaryCacheMemory() {
   LOG(("CacheStorageService::ClearDictionaryCacheMemory"));
   RefPtr<DictionaryCache> cache = DictionaryCache::GetInstance();
