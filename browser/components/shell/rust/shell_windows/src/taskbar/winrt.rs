@@ -73,11 +73,23 @@ static LAF_LOCK: LazyLock<Result<(), nsresult>> = LazyLock::new(|| {
     }
 });
 
+pub(super) fn is_pinning_allowed() -> bool {
+    if let Err(_e) = *LAF_LOCK {
+        // Limited Access Feature no longer necessary for Windows 11 26200 Build
+        // 7840, and possibly other channels.
+        log::info!(
+            "Failed to unlock Limited Access Feature, attempting to use Taskbar Pinning API assuming LAF is no longer necessary."
+        );
+    }
+
+    TaskbarManager::GetDefault()
+        .and_then(|m| m.IsPinningAllowed())
+        .unwrap_or(false)
+}
+
 /// Pins the provided app to the taskbar using the WinRT TaskbarManager API,
-/// optionally returning only that pinning is possible or returning before the
-/// pin request has resolved.
+/// optionally returning before the pin request has resolved.
 pub(super) async fn pin_to_taskbar(
-    check_only: bool,
     aumid: &nsAString,
     fire_and_forget: bool,
     // We need to be on a UI thread for taskbar pinning prompt to show.
@@ -109,13 +121,6 @@ pub(super) async fn pin_to_taskbar(
     })?;
 
     async {
-        if check_only {
-            manager.IsPinningAllowed()?;
-
-            log::info!("WinRT pinning is available.");
-            return Ok(PinResult::CheckOnly);
-        }
-
         if xpcom::is_in_automation() {
             // Return early in tests to avoid actually pinning the app. Also
             // forces the AUMID to reset immediately by dropping the AUMID

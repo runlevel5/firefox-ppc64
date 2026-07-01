@@ -50,11 +50,29 @@ pub(super) enum PinOp {
     UnPin,
 }
 
+pub(super) fn is_pinning_available(
+    // Taskband Pin COM class is registered ThreadingModel=Apartment, so
+    // instances are apartment-threaded and must live in an STA. There exists no
+    // marshaler for Taskband Pin therefore we must ensure we're on an STA
+    // thread before attempting to create it.
+    //
+    // We can ensure we're in an STA by running on the main thread; background
+    // threads rely on implicit MTA thus should not be used here.
+    _main_guard: MainThreadGuard,
+) -> bool {
+    // SAFETY: Taskband Pin is a known, undocumented Windows COM API. The
+    // interface is therefore not stable but in practice has not been found to
+    // change, and historically has been extended instead of modified as
+    // evidenced by this being the third iteration. We redefine the interface
+    // below.
+    unsafe { CoCreateInstance::<_, IPinnedList3>(&CLSID_TASKBAND_PIN, None, CLSCTX_INPROC_SERVER) }
+        .is_ok()
+}
+
 /// Pins or unpins the provided shortcut to the taskbar using Taskband Pin's
 /// IPinnedList3 implementation, optionally only verifies the COM object with
 /// relevant interface is available.
 pub(super) fn modify_taskbar(
-    check_only: bool,
     pin_op: PinOp,
     shortcut_path: &nsAString,
     // Taskband Pin COM class is registered ThreadingModel=Apartment, so
@@ -79,9 +97,6 @@ pub(super) fn modify_taskbar(
             .map_err(|_| NS_ERROR_NOT_AVAILABLE)?;
 
     log::info!("COM pinning API is available.");
-    if check_only {
-        return Ok(PinResult::CheckOnly);
-    }
 
     // SAFETY: nsString is null-terminated utf-16 thus valid to construct a
     // PCWSTR from as an argument to ILCreateFromPathW.

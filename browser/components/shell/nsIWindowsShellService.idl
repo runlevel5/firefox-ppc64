@@ -287,20 +287,14 @@ interface nsIWindowsShellService : nsIShellService
   Promise pinCurrentAppToTaskbarAsync(in boolean aPrivateBrowsing, [optional] in boolean aFireAndForget);
 
   /*
-   * Do a dry run of pinCurrentAppToTaskbar().
+   * Checks if a taskbar pinning API is available.
    *
-   * NOTE: Can only be run on the main thread, but the actual work occurs on a
-   * background thread.
-   *
-   * This does all the same checks and setup, throws the same errors, but doesn't
-   * do the final step of creating the pin.
-   *
-   * @throws same as pinCurrentAppToTaskbarAsync()
-   * @rejects same as pinCurrentAppToTaskbarAsync()
-   * @returns same as pinCurrentAppToTaskbarAsync()
+   * @throws NS_ERROR_NOT_SAME_THREAD
+   *         if called off main thread
+   * @throws NS_ERROR_NOT_AVAILABLE
+   *         if pinning APIs are unavailable for use
    */
-  [implicit_jscontext]
-  Promise checkPinCurrentAppToTaskbarAsync(in boolean aPrivateBrowsing);
+  void canPinToTaskbar();
 
   /*
    * Search for the current executable among taskbar pins

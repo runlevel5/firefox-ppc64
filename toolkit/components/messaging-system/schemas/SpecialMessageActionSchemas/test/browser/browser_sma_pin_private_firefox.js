@@ -6,7 +6,7 @@
 add_task(async function test_PIN_PRIVATE_FIREFOX_TO_TASKBAR() {
   const sandbox = sinon.createSandbox();
   let shell = {
-    async checkPinCurrentAppToTaskbarAsync() {},
+    canPinToTaskbar() {},
     QueryInterface: () => shell,
     get macDockSupport() {
       return this;

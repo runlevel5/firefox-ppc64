@@ -9,7 +9,7 @@ const isMac = AppConstants.platform == "macosx";
 add_task(async function test_PIN_FIREFOX_TO_TASKBAR() {
   const sandbox = sinon.createSandbox();
   let shell = {
-    async checkPinCurrentAppToTaskbarAsync() {},
+    canPinToTaskbar() {},
     QueryInterface: () => shell,
     get macDockSupport() {
       return this;

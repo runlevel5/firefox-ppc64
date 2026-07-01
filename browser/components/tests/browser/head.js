@@ -44,7 +44,7 @@ function mockShell(overrides = {}) {
     isPinned: false,
     isPinnedToStartMenu: false,
 
-    async checkPinCurrentAppToTaskbarAsync() {
+    canPinToTaskbar() {
       if (!this.canPin) {
         throw Error;
       }

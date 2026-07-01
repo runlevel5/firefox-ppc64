@@ -1863,15 +1863,15 @@ static bool IsCurrentAppPinnedToTaskbarSync(const nsAString& aumid) {
 }
 
 static nsresult EnsureShellAppsFolderShortcut(
-    bool aCheckOnly, const nsAString& aAppUserModelId) {
+    const nsAString& aAppUserModelId) {
   MOZ_ASSERT(!NS_IsMainThread());
 
   // Verify shortcut is visible to `shell:appsfolder`. Shortcut creation -
   // during install or runtime - causes a race between it propagating to the
   // virtual `shell:appsfolder` and attempts to pin via `ITaskbarManager`,
   // resulting in pin failures when the latter occurs before the former. We can
-  // skip this when we're in a MSIX build.
-  if (!widget::WinUtils::HasPackageIdentity() && !aCheckOnly &&
+  // skip this when we're in an MSIX build.
+  if (!widget::WinUtils::HasPackageIdentity() &&
       !PollAppsFolderForShortcut(aAppUserModelId,
                                  TimeDuration::FromSeconds(15))) {
     return NS_ERROR_FILE_NOT_FOUND;
@@ -1924,7 +1924,7 @@ nsWindowsShellService::PinShortcutToTaskbar(
           "pinShortcutToTaskbar",
           [aumid = nsString{aAppUserModelId}, location = std::move(location),
            promiseHolder = std::move(promiseHolder)] {
-            nsresult rv = EnsureShellAppsFolderShortcut(false, aumid);
+            nsresult rv = EnsureShellAppsFolderShortcut(aumid);
 
             NS_DispatchToMainThread(NS_NewRunnableFunction(
                 "pinShortcutToTaskbar callback",
@@ -1935,7 +1935,7 @@ nsWindowsShellService::PinShortcutToTaskbar(
                   auto shortcut_path = location.shortcutFile->NativePath();
                   if (NS_SUCCEEDED(rv)) {
                     shell_windows_taskbar_pin_app_to_taskbar(
-                        false, &aumid, &shortcut_path, false, promise);
+                        &aumid, &shortcut_path, false, promise);
                   } else {
                     promise->MaybeReject(rv);
                   }
@@ -2041,7 +2041,7 @@ static bool PollAppsFolderForShortcut(const nsAString& aAppUserModelId,
 }
 
 static Result<nsString, nsresult> EnsurePinnableShortcutExists(
-    bool aCheckOnly, bool aPrivateBrowsing, const nsAString& aAppUserModelId,
+    bool aPrivateBrowsing, const nsAString& aAppUserModelId,
     const nsAString& aShortcutName, const nsAString& aShortcutSubstring,
     nsIFile* aGreDir, const ShortcutLocations& location) {
   MOZ_DIAGNOSTIC_ASSERT(
@@ -2055,13 +2055,6 @@ static Result<nsString, nsresult> EnsurePinnableShortcutExists(
     shortcutPath.Truncate();
   }
   if (shortcutPath.IsEmpty()) {
-    if (aCheckOnly) {
-      // Later checks rely on a shortcut already existing.
-      // We don't want to create a shortcut in check only mode
-      // so the best we can do is assume those parts will work.
-      return nsString(u""_ns);
-    }
-
     nsAutoString linkName(aShortcutName);
 
     nsCOMPtr<nsIFile> exeFile(aGreDir);
@@ -2082,14 +2075,14 @@ static Result<nsString, nsresult> EnsurePinnableShortcutExists(
                                IDI_APPICON - 1, aAppUserModelId, location,
                                linkName));
   }
-  MOZ_TRY(EnsureShellAppsFolderShortcut(aCheckOnly, aAppUserModelId));
+  MOZ_TRY(EnsureShellAppsFolderShortcut(aAppUserModelId));
 
   return shortcutPath;
 }
 
 static nsresult PinCurrentAppToTaskbarAsyncImpl(
-    bool aCheckOnly, bool aPrivateBrowsing, JSContext* aCx,
-    dom::Promise** aPromise, const bool aFireAndForget = false) {
+    bool aPrivateBrowsing, JSContext* aCx, dom::Promise** aPromise,
+    const bool aFireAndForget = false) {
   if (!NS_IsMainThread()) {
     return NS_ERROR_NOT_SAME_THREAD;
   }
@@ -2150,30 +2143,29 @@ static nsresult PinCurrentAppToTaskbarAsyncImpl(
       MOZ_TRY(GetShortcutPaths(nsString(L"Programs"), shortcutName));
 
   auto promiseHolder = MakeRefPtr<nsMainThreadPtrHolder<dom::Promise>>(
-      "CheckPinCurrentAppToTaskbarAsync promise", promise);
+      "PinCurrentAppToTaskbarAsyncImpl promise", promise);
 
   NS_DispatchBackgroundTask(
       NS_NewRunnableFunction(
-          "CheckPinCurrentAppToTaskbarAsync",
-          [aCheckOnly, aPrivateBrowsing, aFireAndForget, shortcutName,
+          "PinCurrentAppToTaskbarAsyncImpl",
+          [aPrivateBrowsing, aFireAndForget, shortcutName,
            aumid = nsString{aumid}, greDir, location = std::move(location),
            promiseHolder = std::move(promiseHolder)] {
             nsAutoString shortcutSubstring;
             shortcutSubstring.AssignLiteral(MOZ_APP_DISPLAYNAME);
             Result<nsString, nsresult> rv = EnsurePinnableShortcutExists(
-                aCheckOnly, aPrivateBrowsing, aumid, shortcutName,
-                shortcutSubstring, greDir.get(), location);
+                aPrivateBrowsing, aumid, shortcutName, shortcutSubstring,
+                greDir.get(), location);
 
             NS_DispatchToMainThread(NS_NewRunnableFunction(
-                "CheckPinCurrentAppToTaskbarAsync callback",
-                [aCheckOnly, aFireAndForget, aumid, rv = std::move(rv),
+                "PinCurrentAppToTaskbarAsyncImpl callback",
+                [aFireAndForget, aumid, rv = std::move(rv),
                  promiseHolder = std::move(promiseHolder)] {
                   dom::Promise* promise = promiseHolder.get()->get();
 
                   if (rv.isOk()) {
                     shell_windows_taskbar_pin_app_to_taskbar(
-                        aCheckOnly, &aumid, &rv.inspect(), aFireAndForget,
-                        promise);
+                        &aumid, &rv.inspect(), aFireAndForget, promise);
                   } else {
                     promise->MaybeReject(rv.inspectErr());
                   }
@@ -2190,15 +2182,18 @@ nsWindowsShellService::PinCurrentAppToTaskbarAsync(bool aPrivateBrowsing,
                                                    bool aFireAndForget,
                                                    JSContext* aCx,
                                                    dom::Promise** aPromise) {
-  return PinCurrentAppToTaskbarAsyncImpl(
-      /* aCheckOnly */ false, aPrivateBrowsing, aCx, aPromise, aFireAndForget);
+  return PinCurrentAppToTaskbarAsyncImpl(aPrivateBrowsing, aCx, aPromise,
+                                         aFireAndForget);
 }
 
 NS_IMETHODIMP
-nsWindowsShellService::CheckPinCurrentAppToTaskbarAsync(
-    bool aPrivateBrowsing, JSContext* aCx, dom::Promise** aPromise) {
-  return PinCurrentAppToTaskbarAsyncImpl(
-      /* aCheckOnly = */ true, aPrivateBrowsing, aCx, aPromise);
+nsWindowsShellService::CanPinToTaskbar() {
+  // First available on 1809
+  if (!IsWin10Sep2018UpdateOrLater()) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  return shell_windows_taskbar_can_pin_to_taskbar();
 }
 
 NS_IMETHODIMP
