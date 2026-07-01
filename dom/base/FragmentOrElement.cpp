@@ -156,17 +156,6 @@ void nsIContent::UnbindFromTree(nsINode* aNewParent,
   UnbindFromTree(context);
 }
 
-HTMLSlotElement* nsIContent::GetAssignedSlotForSelection() const {
-  HTMLSlotElement* const assignedSlot = GetAssignedSlot();
-  if (!assignedSlot) {
-    return nullptr;
-  }
-  ShadowRoot* const containingShadowRoot = assignedSlot->GetContainingShadow();
-  return containingShadowRoot && !containingShadowRoot->IsUAShadowRootSlow()
-             ? assignedSlot
-             : nullptr;
-}
-
 // https://dom.spec.whatwg.org/#dom-slotable-assignedslot
 HTMLSlotElement* nsIContent::GetAssignedSlotByMode() const {
   /**

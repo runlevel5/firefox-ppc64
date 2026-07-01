@@ -23,7 +23,6 @@ class ErrorResult;
 namespace mozilla::dom {
 class AbstractRange;
 class Document;
-class Element;
 class HighlightRegistry;
 class Selection;
 class ShadowRoot;
@@ -178,12 +177,13 @@ class Highlight final : public nsISupports, public nsWrapperCache {
    * @param aX               x coordinate
    * @param aY               y coordinate
    * @param aShadowRoots     List of shadow roots to consider
-   * @param aElementAtPoint  The element at the hit-tested point.
+   * @param aPointShadowRoot Shadow root containing the hit-tested point, or
+   *                         nullptr if the point is in the light DOM.
    */
   nsTArray<RefPtr<AbstractRange>> RangesAtPoint(
       float aX, float aY,
       const Sequence<OwningNonNull<mozilla::dom::ShadowRoot>>& aShadowRoots,
-      mozilla::dom::Element* aElementAtPoint) const;
+      mozilla::dom::ShadowRoot* aPointShadowRoot = nullptr) const;
 
  private:
   void Repaint();

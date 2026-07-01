@@ -10,7 +10,6 @@
 #include "nsSize.h"
 #include "nsXPCOM.h"
 #include "nsCOMPtr.h"
-#include "nsIContentInlines.h"
 #include "nsIInterfaceRequestorUtils.h"
 #include "nsIFrame.h"
 #include "nsFrameLoaderOwner.h"

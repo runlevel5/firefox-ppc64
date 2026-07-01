@@ -14,7 +14,6 @@
 #include "nsAtom.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsFrameSelection.h"
-#include "nsIContentInlines.h"
 
 namespace mozilla::dom {
 
@@ -284,13 +283,13 @@ void HighlightRegistry::HighlightsFromPoint(
   //    for hit testing at coordinates x,y has an element associated to it
   //    that's in a shadow tree whose shadow root is not contained by
   //    options.shadowRoots.
-  const RefPtr<Element> topmostElement = mDocument->ElementFromPointHelper(
-      aX, aY, /* aIgnoreRootScrollFrame */ false,
-      /* aFlushLayout */ false, ViewportType::Layout,
-      /* aPerformRetargeting */ false);
-  if (topmostElement) {
-    if (ShadowRoot* const pointShadowRoot =
-            topmostElement->GetContainingShadowForSelection()) {
+  ShadowRoot* pointShadowRoot = nullptr;
+  if (RefPtr<Element> topmostElement = mDocument->ElementFromPointHelper(
+          aX, aY, /* aIgnoreRootScrollFrame */ false,
+          /* aFlushLayout */ false, ViewportType::Layout,
+          /* aPerformRetargeting */ false)) {
+    if (topmostElement->IsInShadowTree()) {
+      pointShadowRoot = topmostElement->GetContainingShadow();
       if (!aOptions.mShadowRoots.Contains(pointShadowRoot)) {
         return;
       }
@@ -302,8 +301,8 @@ void HighlightRegistry::HighlightsFromPoint(
   for (const auto& namedHighlight : Reversed(mHighlightsOrdered)) {
     const auto& highlight = namedHighlight.second();
     // Note: Step 3.2 (iterate ranges) is implemented in RangesAtPoint().
-    nsTArray<RefPtr<AbstractRange>> rangesAtPoint =
-        highlight->RangesAtPoint(aX, aY, aOptions.mShadowRoots, topmostElement);
+    nsTArray<RefPtr<AbstractRange>> rangesAtPoint = highlight->RangesAtPoint(
+        aX, aY, aOptions.mShadowRoots, pointShadowRoot);
     if (!rangesAtPoint.IsEmpty()) {
       HighlightHitResult highlightHitResult;
       highlightHitResult.mHighlight.Construct(*highlight);

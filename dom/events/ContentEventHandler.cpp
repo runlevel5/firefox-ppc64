@@ -129,8 +129,7 @@ ContentEventHandler::SimpleRangeBase<nsINode*,
 template <typename NodeType, typename RangeBoundaryType>
 void ContentEventHandler::SimpleRangeBase<
     NodeType, RangeBoundaryType>::AssertStartIsBeforeOrEqualToEnd() {
-  MOZ_ASSERT(*nsContentUtils::ComparePoints<TreeKind::ShadowIncludingDOM>(
-                 mStart, mEnd) <= 0);
+  MOZ_ASSERT(*nsContentUtils::ComparePoints(mStart, mEnd) <= 0);
 }
 
 template <typename NodeType, typename RangeBoundaryType>
@@ -1426,8 +1425,7 @@ nsresult ContentEventHandler::OnQuerySelectedText(
       // The selection's points should always be comparable, independent of the
       // selection (see nsISelectionController.idl).
       Maybe<int32_t> compare =
-          nsContentUtils::ComparePoints<TreeKind::ShadowIncludingDOM>(anchorRef,
-                                                                      focusRef);
+          nsContentUtils::ComparePoints(anchorRef, focusRef);
       if (compare.isNothing()) {
         return NS_ERROR_FAILURE;
       }

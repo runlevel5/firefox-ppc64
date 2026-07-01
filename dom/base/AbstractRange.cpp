@@ -348,11 +348,9 @@ nsresult AbstractRange::SetStartAndEndInternal(
       if (aAllowCrossShadowBoundary == AllowRangeCrossShadowBoundary::Yes &&
           !IsRootUAWidget(newStartRoot) && !IsRootUAWidget(newEndRoot)) {
         const auto startInFlat =
-            aStartBoundary.AsRangeBoundaryInFlatTreeOrNonFlattenedNode(
-                RangeBoundaryFor::Start);
+            aStartBoundary.AsRangeBoundaryInFlatTree(RangeBoundaryFor::Start);
         const auto endInFlat =
-            aEndBoundary.AsRangeBoundaryInFlatTreeOrNonFlattenedNode(
-                RangeBoundaryFor::End);
+            aEndBoundary.AsRangeBoundaryInFlatTree(RangeBoundaryFor::End);
         if (MOZ_UNLIKELY(!startInFlat.IsSet() || !endInFlat.IsSet())) {
           NS_WARNING_ASSERTION(
               !startInFlat.IsSet(),
@@ -380,7 +378,7 @@ nsresult AbstractRange::SetStartAndEndInternal(
   const bool useFlatTree =
       aAllowCrossShadowBoundary == AllowRangeCrossShadowBoundary::Yes;
   const Maybe<int32_t> pointOrder =
-      useFlatTree ? nsContentUtils::ComparePoints<TreeKind::FlatForSelection>(
+      useFlatTree ? nsContentUtils::ComparePoints<TreeKind::Flat>(
                         aStartBoundary, aEndBoundary)
                   : nsContentUtils::ComparePoints<TreeKind::ShadowIncludingDOM>(
                         aStartBoundary, aEndBoundary);
@@ -422,16 +420,15 @@ nsresult AbstractRange::SetStartAndEndInternal(
       aRange->IsDynamicRange()) {
     const bool isCollapsing = aStartBoundary == aEndBoundary;
     const auto startInFlat = aStartBoundary
-                                 .AsRangeBoundaryInFlatTreeOrNonFlattenedNode(
+                                 .AsRangeBoundaryInFlatTree(
                                      isCollapsing ? RangeBoundaryFor::Collapsed
                                                   : RangeBoundaryFor::Start)
                                  .AsRaw();
     const auto endInFlat =
-        isCollapsing ? startInFlat
-                     : aEndBoundary
-                           .AsRangeBoundaryInFlatTreeOrNonFlattenedNode(
-                               RangeBoundaryFor::End)
-                           .AsRaw();
+        isCollapsing
+            ? startInFlat
+            : aEndBoundary.AsRangeBoundaryInFlatTree(RangeBoundaryFor::End)
+                  .AsRaw();
     if (MOZ_UNLIKELY(!startInFlat.IsSet() || !endInFlat.IsSet())) {
       NS_WARNING_ASSERTION(
           !startInFlat.IsSet(),
@@ -864,7 +861,7 @@ static void CollectClientRectsForSubtree(
     return;
   }
 
-  FlattenedChildIteratorForSelection childIter(content);
+  FlattenedChildIterator childIter(content);
   for (nsIContent* child = childIter.GetNextChild(); child;
        child = childIter.GetNextChild()) {
     CollectClientRectsForSubtree(child, aCollector, aTextList, aStartContainer,
