@@ -832,21 +832,30 @@ let ShellServiceInternal = {
 
   /**
    * Pin Firefox app to the OS "taskbar."
+   *
+   * @param {bool} privateBrowsing - Pin a private browser window.
+   * @param {bool} fireAndForget - Return after pin attempt is tried, but before
+   * result is known if user input is necessary.
+   * @returns {Promise} - Resolves either when pin attempt resolves, or when pin
+   * request has been sent if fireAndForget is true.
    */
   async pinToTaskbar(privateBrowsing = false, fireAndForget = false) {
-    if (await this.doesAppNeedPin(privateBrowsing)) {
-      try {
-        if (AppConstants.platform == "win") {
-          await this.shellService.pinCurrentAppToTaskbar(
-            privateBrowsing,
-            fireAndForget
-          );
-        } else if (AppConstants.platform == "macosx") {
-          this.macDockSupport.ensureAppIsPinnedToDock();
-        }
-      } catch (ex) {
-        console.error(ex);
+    let needsPin = await this.doesAppNeedPin(privateBrowsing);
+    if (!needsPin) {
+      return;
+    }
+
+    try {
+      if (AppConstants.platform == "win") {
+        await this.shellService.pinCurrentAppToTaskbar(
+          privateBrowsing,
+          fireAndForget
+        );
+      } else if (AppConstants.platform == "macosx") {
+        this.macDockSupport.ensureAppIsPinnedToDock();
       }
+    } catch (ex) {
+      console.error(ex);
     }
   },
 

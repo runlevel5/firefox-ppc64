@@ -207,6 +207,16 @@ interface nsIWindowsShellService : nsIShellService
   Promise disableLaunchOnLoginMSIX(in AString aTaskId);
 
   /*
+   * Status of launch on login enablement.
+   */
+  cenum LaunchOnLoginEnabledEnumerator : 8 {
+    LAUNCH_ON_LOGIN_DISABLED_BY_SETTINGS = 0,
+    LAUNCH_ON_LOGIN_DISABLED = 1,
+    LAUNCH_ON_LOGIN_ENABLED = 2,
+    LAUNCH_ON_LOGIN_ENABLED_BY_POLICY = 3,
+  };
+
+  /*
    * Determines if the startup task corresponding to the provided taskId to
    * launch upon OS login is enabled. The startup task is declared
    * within the App Manifest. The APIs used within this function are MSIX
@@ -229,16 +239,22 @@ interface nsIWindowsShellService : nsIShellService
    * @throws NS_ERROR_FAILURE
    *         For other types of failures
    */
-
-  cenum LaunchOnLoginEnabledEnumerator : 8 {
-    LAUNCH_ON_LOGIN_DISABLED_BY_SETTINGS = 0,
-    LAUNCH_ON_LOGIN_DISABLED = 1,
-    LAUNCH_ON_LOGIN_ENABLED = 2,
-    LAUNCH_ON_LOGIN_ENABLED_BY_POLICY = 3,
-  };
-
   [implicit_jscontext]
   Promise getLaunchOnLoginEnabledMSIX(in AString aTaskId);
+
+  /*
+   * Result for attempts to pin to taskbar.
+   */
+  cenum PinResult : 8 {
+    // Successfully pinned.
+    PINNED,
+    // User or system rejected pin attempt.
+    REJECTED,
+    // Result of pin attempt unknown. Examples include when we intentionally
+    // return before the user choice is known, and when using APIs which don't
+    // provide means to know the success or failure of the pin attempt.
+    UNKNOWN,
+  };
 
   /*
    * Pin the current app to the taskbar. If aPrivateBrowsing is true, the
@@ -276,8 +292,9 @@ interface nsIWindowsShellService : nsIShellService
    *          if a shortcut matching this app's AUMID and exe path wasn't found
               in shell:appsfolder
    *
-   * @returns {Promise<void>} A promise that resolves to |undefined| if
-   *                          successful or rejects with an nserror.
+   * @returns {Promise<PinResult>} A Promise that resolves to
+   *                               nsIWindowsShellService_PinResult if
+   *                               successful or rejects with an nserror.
    */
   [implicit_jscontext]
   Promise pinCurrentAppToTaskbar(in boolean aPrivateBrowsing, [optional] in boolean aFireAndForget);
@@ -322,6 +339,9 @@ interface nsIWindowsShellService : nsIShellService
    * @param  aShortcutRelativePath
    *         The path to the .lnk file that should be pinned to the taskbar,
    *         relative to aShortcutFolder.
+   * @returns {Promise<PinResult>} A Promise that resolves to
+   *                               nsIWindowsShellService_PinResult if
+   *                               successful or rejects with an nserror.
    */
   [implicit_jscontext]
   Promise pinShortcutToTaskbar(
