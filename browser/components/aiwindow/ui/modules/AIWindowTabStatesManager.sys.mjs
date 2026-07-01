@@ -99,10 +99,6 @@ export class AIWindowTabStatesManager {
    * Promise that resolves when the initial sidebar restore is complete
    */
   #restorePromise;
-  /**
-   * True once #restoreInitialTabSidebar has completed
-   */
-  #restoreCompleted = false;
 
   constructor(win) {
     this.#init(win);
@@ -184,15 +180,14 @@ export class AIWindowTabStatesManager {
     tabContainer.addEventListener("TabOpen", this);
     tabContainer.addEventListener("TabSelect", this);
     tabContainer.addEventListener("TabClose", this);
+    tabContainer.addEventListener("SSTabRestoring", this);
 
     this.#tabsListener = this.#getTabsListener();
     this.#window.gBrowser.addProgressListener(this.#tabsListener);
 
     this.#setUpInitialTabs();
     this.#addWindowEventListeners();
-    this.#restorePromise = this.#restoreInitialTabSidebar().then(() => {
-      this.#restoreCompleted = true;
-    });
+    this.#restorePromise = this.#restoreInitialTabSidebar();
   }
 
   /**
@@ -203,6 +198,7 @@ export class AIWindowTabStatesManager {
     tabContainer.removeEventListener("TabOpen", this);
     tabContainer.removeEventListener("TabSelect", this);
     tabContainer.removeEventListener("TabClose", this);
+    tabContainer.removeEventListener("SSTabRestoring", this);
 
     this.#window.gBrowser.removeProgressListener(this.#tabsListener);
     this.#removeWindowEventListeners();
@@ -347,6 +343,10 @@ export class AIWindowTabStatesManager {
       case "TabClose":
         this.#onTabClose(event);
         break;
+
+      case "SSTabRestoring":
+        this.#onTabRestoring(event);
+        break;
     }
   }
 
@@ -373,8 +373,9 @@ export class AIWindowTabStatesManager {
    * - When shouldOpenSidebar is true, openSidebar is called with the tab's conversation
    * - If conversation is null/undefined, openSidebar will kick off creating a new conversation
    * - AI Window tabs (AIWINDOW_URL) always close the sidebar regardless of state
-   * - If no convisationId is present but restore hasn't completed, we wait for restore to complete
-   *   and re-check state in case the conversationId is from a restored
+   * - If no conversationId is present, we wait for the restore to settle.
+   *   If the tab is pending or still being restored by SessionStore,
+   *   we return early so #onTabRestoring() can handle the restore
    *
    * @param {Event} event
    *
@@ -386,22 +387,40 @@ export class AIWindowTabStatesManager {
     }
 
     const tab = event.target;
-
-    const tabState = this.#getTabState(tab);
-    const convId = tabState?.state?.conversationId;
     const tabUrl = tab.linkedBrowser?.currentURI?.spec ?? "";
-    const isAIWindowTab = tabUrl === lazy.AIWINDOW_URL;
-    const shouldKeepSidebar = getKeepSidebarOpenState(
-      tabState?.state,
-      lazy.sidebarOpenByDefault
-    );
 
     // AI Window tab doesn't need sidebar
-    if (isAIWindowTab) {
+    if (tabUrl === lazy.AIWINDOW_URL) {
       lazy.AIWindowUI.restoreMemoriesState(this.#window, tab);
       lazy.AIWindowUI.closeSidebar(this.#window);
       return;
     }
+
+    let tabState = this.#getTabState(tab);
+
+    // A tab being restored  can fire TabSelect before
+    // SessionStore has written its conversationId or marked
+    // it pending/restoring, so we can't tell yet that it's a restore.
+    // Yield a microtask so SessionStore's synchronous restore setup runs,
+    // then hand off to #onTabRestoring rather than opening a fresh empty conversation
+    if (!tabState?.state?.conversationId) {
+      await Promise.resolve();
+      if (this.#window?.gBrowser.selectedTab !== tab) {
+        return;
+      }
+      if (
+        tab.hasAttribute("pending") ||
+        lazy.SessionStore.isTabRestoring(tab)
+      ) {
+        return;
+      }
+      tabState = this.#getTabState(tab);
+    }
+
+    const shouldKeepSidebar = getKeepSidebarOpenState(
+      tabState?.state,
+      lazy.sidebarOpenByDefault
+    );
 
     if (!shouldKeepSidebar) {
       lazy.AIWindowUI.updateSidebarInput(
@@ -412,25 +431,67 @@ export class AIWindowTabStatesManager {
       return;
     }
 
-    let conversation = tabState?.state?.conversation ?? null;
+    await this.#openSidebarForTab(tab, tabState);
+  }
 
-    if (convId && !conversation) {
+  /**
+   * Handles SSTabRestoring - SessionStore has restored the tab's custom values,
+   * so the persisted conversationId is now readable. Caches it into the tab
+   * state and, when this is the selected tab, opens its conversation in the
+   * sidebar
+   *
+   * @param {Event} event
+   *
+   * @private
+   */
+  async #onTabRestoring(event) {
+    if (!this.#window) {
+      return;
+    }
+
+    const tab = event.target;
+
+    // Pull the persisted conversationId into the cache
+    const tabState = this.#refreshTabStateFromSession(tab);
+    if (!tabState.state?.conversationId) {
+      return;
+    }
+
+    if (this.#window.gBrowser.selectedTab !== tab) {
+      return;
+    }
+
+    const tabUrl = tab.linkedBrowser?.currentURI?.spec ?? "";
+    if (tabUrl === lazy.AIWINDOW_URL) {
+      return;
+    }
+
+    if (!getKeepSidebarOpenState(tabState.state, lazy.sidebarOpenByDefault)) {
+      return;
+    }
+
+    await this.#openSidebarForTab(tab, tabState);
+  }
+
+  /**
+   * Opens the sidebar for the given tab's state, resolving the conversation
+   * from its conversationId
+   *
+   * @param {MozTabbrowserTab} tab
+   * @param {TabStateEntry} tabState
+   *
+   * @private
+   */
+  async #openSidebarForTab(tab, tabState) {
+    let conversation = tabState.state?.conversation ?? null;
+
+    if (tabState?.state?.conversationId && !conversation) {
       conversation = await this.#computeConversation(tab, tabState);
 
       // Bail if the user switched tabs while we were awaiting the DB lookup.
       if (this.#window?.gBrowser.selectedTab !== tab) {
         return;
       }
-    } else if (!convId && !this.#restoreCompleted) {
-      // Restore hasn't completed yet so we wait and re-read state in case this
-      // tab had a saved conversation that hasn't been loaded yet.
-      await this.#restorePromise;
-
-      if (this.#window?.gBrowser.selectedTab !== tab) {
-        return;
-      }
-
-      conversation = this.#getTabState(tab)?.state?.conversation ?? null;
     }
 
     lazy.AIWindowUI.openSidebar(this.#window, conversation);
@@ -444,6 +505,56 @@ export class AIWindowTabStatesManager {
       this.#window,
       this.#resolveTabModelChoice(tabState)
     );
+  }
+
+  /**
+   * Re-read a tab's persisted state from SessionStore and merge it into the
+   * cache. The in-memory cache can be empty when TabSelect fires before the
+   * conversationId has been written so this recovers it.
+   * Only overwrites the cache when a persisted conversationId is found
+   *
+   * @param {MozTabbrowserTab} tab
+   * @returns {TabStateEntry}
+   *
+   * @private
+   */
+  #refreshTabStateFromSession(tab) {
+    if (!this.#tabStates) {
+      return {};
+    }
+
+    let saved = null;
+    try {
+      const raw = lazy.SessionStore.getCustomTabValue(tab, SESSION_STORE_KEY);
+      saved = raw ? JSON.parse(raw) : null;
+    } catch {
+      saved = null;
+    }
+
+    const tabState = this.#tabStates.get(tab) ?? {};
+    if (saved?.conversationId) {
+      tabState.state = { ...(tabState.state ?? {}), ...saved };
+      this.#tabStates.set(tab, tabState);
+    }
+    return tabState;
+  }
+
+  /**
+   * Updates a tab's stored state with the conversation being opened into it,
+   * keeping the AIWindowTabStatesManager entry in sync and persisting the
+   * conversationId to SessionStore.
+   *
+   * @param {MozTabbrowserTab} tab
+   * @param {ChatConversation} conversation
+   */
+  setTabStateConversation(tab, conversation) {
+    if (!tab || !conversation) {
+      return;
+    }
+    this.#getTabState(tab, {
+      conversation,
+      conversationId: conversation.id,
+    });
   }
 
   /**
