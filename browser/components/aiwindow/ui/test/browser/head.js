@@ -17,7 +17,11 @@ ChromeUtils.defineESModuleGetters(this, {
     "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs",
   IntentClassifier:
     "moz-src:///browser/components/aiwindow/models/IntentClassifier.sys.mjs",
+  MENTION_TYPE:
+    "moz-src:///browser/components/urlbar/SmartbarMentionsPanelSearch.sys.mjs",
   openAIEngine: "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs",
+  SmartbarMentionsPanelSearch:
+    "moz-src:///browser/components/urlbar/SmartbarMentionsPanelSearch.sys.mjs",
   PlacesTestUtils: "resource://testing-common/PlacesTestUtils.sys.mjs",
   SessionStore: "resource:///modules/sessionstore/SessionStore.sys.mjs",
   SessionWindowUI: "resource:///modules/sessionstore/SessionWindowUI.sys.mjs",
@@ -233,26 +237,25 @@ async function waitForSidebarOpen(win) {
  * Opens a new AI Window with about:blank
  * and the chat assistant sidebar open
  *
+ * @param {string} [url] - URL to navigate the tab to
  * @returns {Promise<{win: Window, sidebarBrowser: MozBrowser}>}
  */
-async function openAIWindowWithSidebar() {
+async function openAIWindowWithSidebar(url = "about:blank") {
   const win = await openAIWindow();
-  return openAIWindowSidebar(win);
+  return openAIWindowSidebar(win, url);
 }
 
 /**
- * Navigates an AI Window to about:blank and opens the sidebar.
+ * Navigates an AI Window to the given URL and opens the sidebar.
  *
  * @param {Window} win
+ * @param {string} [url] - URL to navigate the tab to
  * @returns {Promise<{win: Window, sidebarBrowser: MozBrowser}>}
  */
-async function openAIWindowSidebar(win) {
-  BrowserTestUtils.startLoadingURIString(
-    win.gBrowser.selectedBrowser,
-    "about:blank"
-  );
+async function openAIWindowSidebar(win, url = "about:blank") {
+  BrowserTestUtils.startLoadingURIString(win.gBrowser.selectedBrowser, url);
   await BrowserTestUtils.browserLoaded(win.gBrowser.selectedBrowser, {
-    wantLoad: "about:blank",
+    wantLoad: url,
   });
   if (!AIWindowUI.isSidebarOpen(win)) {
     info("Opening sidebar");
