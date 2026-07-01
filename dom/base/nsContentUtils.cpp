@@ -5522,14 +5522,8 @@ void nsContentUtils::ReportDeprecation(
   MOZ_ASSERT(aGlobal);
   MOZ_ASSERT(aURI);
 
-  // If the URI has the data scheme, report that instead of the spec,
-  // as the spec may be arbitrarily long and we would like to avoid
-  // copying it.
-  nsAutoCString specOrScheme;
-  nsresult rv = nsContentUtils::AnonymizeURI(aURI, specOrScheme);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return;
-  }
+  nsAutoCString url;
+  ReportingUtils::StripURL(aURI, url);
 
   const char* operation =
       kDeprecatedOperations[static_cast<size_t>(aOperation)];
@@ -5542,25 +5536,27 @@ void nsContentUtils::ReportDeprecation(
 
   // XXX do we really want the localized string for deprecation report?
   nsAutoString msg;
-  rv = nsContentUtils::GetMaybeLocalizedString(PropertiesFile::DOM_PROPERTIES,
-                                               key.get(), aDoc, msg);
+  nsresult rv = nsContentUtils::GetMaybeLocalizedString(
+      PropertiesFile::DOM_PROPERTIES, key.get(), aDoc, msg);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return;
   }
 
   Nullable<uint32_t> lineNumber;
   Nullable<uint32_t> columnNumber;
+  nsAutoCString sourceFile;
   if (aLocation) {
     lineNumber.SetValue(aLocation.mLine);
     columnNumber.SetValue(aLocation.mColumn);
+    ReportingUtils::StripLocationFileName(aLocation, sourceFile);
   }
 
   RefPtr<DeprecationReportBody> body =
       new DeprecationReportBody(aGlobal, type, nullptr /* date */, msg,
-                                aLocation.FileName(), lineNumber, columnNumber);
+                                sourceFile, lineNumber, columnNumber);
 
   ReportingUtils::Report(aGlobal, nsGkAtoms::deprecation, u"default"_ns,
-                         NS_ConvertUTF8toUTF16(specOrScheme), body);
+                         NS_ConvertUTF8toUTF16(url), body);
 }
 
 void nsContentUtils::LogMessageToConsole(const char* aMsg) {
