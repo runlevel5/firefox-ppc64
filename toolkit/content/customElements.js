@@ -892,7 +892,6 @@
         "chrome://global/content/elements/moz-segmented-control.mjs",
       ],
       ["panel-list", "chrome://global/content/elements/panel-list.mjs"],
-      ["theme-picker", "chrome://global/content/elements/theme-picker.mjs"],
     ];
     document.addEventListener(
       "DOMContentLoaded",
