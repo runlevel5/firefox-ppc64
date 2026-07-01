@@ -75,44 +75,35 @@ export class UrlbarParentController {
   #child = null;
 
   /**
-   * Initialises the class. The manager may be overridden here, this is for
-   * test purposes.
+   * Initialises the class. Takes the standalone data the controller needs
+   * rather than a DOM input, so it can also serve a content-process
+   * `<moz-urlbar>` whose input lives across the actor boundary. The live
+   * input/view are reached at runtime through the paired
+   * `UrlbarChildController`.
    *
    * @param {object} options
    *   The initial options for UrlbarParentController.
-   * @param {UrlbarInput} options.input
-   *   The input this controller is operating with.
+   * @param {string} options.sapName
+   *   The search access point name, e.g. `urlbar`, `searchbar`.
+   * @param {boolean} [options.isPrivate]
+   *   Whether the controller serves a private-browsing input.
    * @param {object} [options.manager]
    *   Optional fake providers manager to override the built-in providers manager.
    *   Intended for use in unit tests only.
    */
-  constructor(options) {
-    if (!options.input) {
-      throw new Error("Missing options: input");
-    }
-    if (!options.input.window) {
-      throw new Error("input is missing 'window' property.");
-    }
-    if (
-      !options.input.window.location ||
-      options.input.window.location.href != AppConstants.BROWSER_CHROME_URL
-    ) {
-      throw new Error("input.window should be an actual browser window.");
-    }
-    if (!("isPrivate" in options.input)) {
-      throw new Error("input.isPrivate must be set.");
-    }
-    if (!options.input.sapName) {
-      throw new Error("input needs a non-empty 'sapName' property.");
+  constructor({ sapName, isPrivate = false, manager }) {
+    if (!sapName) {
+      throw new Error("Missing options: sapName");
     }
 
-    this.sapName = options.input.sapName;
+    this.sapName = sapName;
+    this.isPrivate = isPrivate;
 
     /**
      * @type {ProvidersManager}
      */
     this.manager =
-      options.manager || lazy.ProvidersManager.getInstanceForSap(this.sapName);
+      manager || lazy.ProvidersManager.getInstanceForSap(this.sapName);
 
     this.engagementEvent = new TelemetryEvent(this);
   }

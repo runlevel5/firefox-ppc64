@@ -57,90 +57,24 @@ add_setup(function () {
 
 add_task(function test_constructor_throws() {
   Assert.throws(
+    // @ts-expect-error: deliberately constructed without the required options.
     () => new UrlbarParentController(),
-    /options is undefined/,
-    "Should throw if the input was not supplied"
+    /is undefined/,
+    "Should throw when called without arguments (destructuring undefined)"
   );
   Assert.throws(
-    () => new UrlbarParentController({ input: {} }),
-    /input is missing 'window' property/,
-    "Should throw if the input is not a UrlbarInput"
+    // @ts-expect-error: deliberately constructed without the required sapName.
+    () => new UrlbarParentController({}),
+    /Missing options: sapName/,
+    "Should throw if sapName is missing"
   );
   Assert.throws(
-    () => new UrlbarParentController({ input: { window: {} } }),
-    /input.window should be an actual browser window/,
-    "Should throw if the input.window is not a window"
-  );
-  Assert.throws(
-    () =>
-      new UrlbarParentController({
-        input: {
-          window: {
-            location: "about:fake",
-          },
-        },
-      }),
-    /input.window should be an actual browser window/,
-    "Should throw if the input.window is not an object"
-  );
-  Assert.throws(
-    () =>
-      new UrlbarParentController({
-        input: {
-          window: {
-            location: {
-              href: "about:fake",
-            },
-          },
-        },
-      }),
-    /input.window should be an actual browser window/,
-    "Should throw if the input.window does not have the correct location"
-  );
-  Assert.throws(
-    () =>
-      new UrlbarParentController({
-        input: {
-          window: {
-            location: {
-              href: AppConstants.BROWSER_CHROME_URL,
-            },
-          },
-        },
-      }),
-    /input.isPrivate must be set/,
-    "Should throw if input.isPrivate is not set"
+    () => new UrlbarParentController({ sapName: "" }),
+    /Missing options: sapName/,
+    "Should throw if sapName is empty"
   );
 
-  Assert.throws(
-    () =>
-      new UrlbarParentController({
-        input: {
-          isPrivate: false,
-          window: {
-            location: {
-              href: AppConstants.BROWSER_CHROME_URL,
-            },
-          },
-        },
-      }),
-    /input needs a non-empty 'sapName' property/,
-    "Should throw if input.sapName is not set"
-  );
-
-  new UrlbarParentController({
-    input: {
-      isPrivate: false,
-      window: {
-        location: {
-          href: AppConstants.BROWSER_CHROME_URL,
-        },
-      },
-      get sapName() {
-        return "urlbar";
-      },
-    },
-  });
+  new UrlbarParentController({ sapName: "urlbar", isPrivate: false });
   Assert.ok(true, "Correct call should not throw");
 });
 

@@ -1414,7 +1414,11 @@ class UrlbarInputTestUtils {
       },
       options
     );
-    let parentController = new lazy.UrlbarParentController(parentOptions);
+    let parentController = new lazy.UrlbarParentController({
+      sapName,
+      isPrivate: parentOptions.input.isPrivate,
+      manager: parentOptions.manager,
+    });
     // Stub the actor plumbing so the child controller's constructor reaches
     // the parent we just built.
     parentOptions.input.window.windowGlobalChild = {

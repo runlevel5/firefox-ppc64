@@ -48,7 +48,10 @@ export class UrlbarParent extends JSWindowActorParent {
   getOrCreateController(input) {
     let controller = this.#controllers.get(input);
     if (!controller) {
-      controller = new lazy.UrlbarParentController({ input });
+      controller = new lazy.UrlbarParentController({
+        sapName: input.sapName,
+        isPrivate: input.isPrivate,
+      });
       this.#controllers.set(input, controller);
     }
     return controller;
