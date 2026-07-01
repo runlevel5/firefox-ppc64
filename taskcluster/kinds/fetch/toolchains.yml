@@ -405,11 +405,11 @@ clang-21:
         revision: 2078da43e25a4623cab2d0d60decddf709aaea28
 
 clang-22:
-    description: clang 22.1.6 source code
+    description: clang 22.1.8 source code
     fetch:
         type: git
         repo: https://github.com/llvm/llvm-project
-        revision: fc4aad7b5db3fff421df9a9637605b9ca5667881
+        revision: ca7933e47d3a3451d81e72ac174dcb5aa28b59d1
 
 clang-trunk:
     description: clang main branch source code
