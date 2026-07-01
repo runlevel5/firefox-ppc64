@@ -447,6 +447,56 @@ export class UrlbarResult {
     return JSON.stringify(this);
   }
 
+  /**
+   * Serializes this result to a plain, structured-cloneable object for sending
+   * across the Urlbar actor boundary. The data lives in private fields that a
+   * bare structuredClone() would drop, so capture it explicitly. `rowIndex` is
+   * the only public own property.
+   *
+   * @returns {object} The wire representation; reconstruct with fromWire().
+   */
+  toWire() {
+    return {
+      type: this.#type,
+      source: this.#source,
+      autofill: this.#autofill,
+      exposureTelemetry: this.#exposureTelemetry,
+      group: this.#group,
+      heuristic: this.#heuristic,
+      hideRowLabel: this.#hideRowLabel,
+      isBestMatch: this.#isBestMatch,
+      isBottomUrlSuggestion: this.#isBottomUrlSuggestion,
+      isRichSuggestion: this.#isRichSuggestion,
+      isSuggestedIndexRelativeToGroup: this.#isSuggestedIndexRelativeToGroup,
+      providerName: this.#providerName,
+      providerType: this.#providerType,
+      resultSpan: this.#resultSpan,
+      richSuggestionIconSize: this.#richSuggestionIconSize,
+      richSuggestionIconVariation: this.#richSuggestionIconVariation,
+      rowLabel: this.#rowLabel,
+      showFeedbackMenu: this.#showFeedbackMenu,
+      suggestedIndex: this.#suggestedIndex,
+      payload: this.#payload,
+      highlights: this.#highlights,
+      rowIndex: this.rowIndex,
+    };
+  }
+
+  /**
+   * Reconstructs a UrlbarResult from the plain object produced by toWire(),
+   * e.g. after it has crossed the Urlbar actor boundary.
+   *
+   * @param {object} wire The wire representation from toWire().
+   * @returns {UrlbarResult} The reconstructed result.
+   */
+  static fromWire(wire) {
+    let result = new UrlbarResult(wire);
+    // providerType and rowIndex aren't constructor parameters, so re-apply them.
+    result.providerType = wire.providerType;
+    result.rowIndex = wire.rowIndex;
+    return result;
+  }
+
   #type;
   #source;
   #autofill;
