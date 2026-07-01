@@ -40,8 +40,3 @@
 #endif
 
 pref("pdfjs.enableOptimizedPartialRendering", true);
-
-// Off by default until the UX is exercised in Enterprise; flip via
-// `about:config` or a profile pref. The viewer also short-circuits its
-// own toolbar button when this is false (web/app_options.js).
-pref("pdfjs.enableSignatureVerification", false);
