@@ -2591,7 +2591,6 @@ void GCMarker::start() {
   MOZ_ASSERT(state == NotActive);
   MOZ_ASSERT(stack.isEmpty());
   state = RegularMarking;
-  haveAllImplicitEdges = true;
   setMarkColor(MarkColor::Black);
 }
 
@@ -2769,7 +2768,7 @@ void GCMarker::setMarkingStateAndTracer(MarkingState prev, MarkingState next) {
 
 bool GCMarker::enterWeakMarkingMode() {
   MOZ_ASSERT(tracer()->weakMapAction() == JS::WeakMapTraceAction::Expand);
-  if (!haveAllImplicitEdges) {
+  if (!runtime()->gc.haveAllImplicitEdges()) {
     return false;
   }
 
@@ -2846,7 +2845,7 @@ void GCMarker::leaveWeakMarkingMode() {
 }
 
 void GCMarker::abortLinearWeakMarking() {
-  haveAllImplicitEdges = false;
+  runtime()->gc.clearHaveAllImplicitEdges();
   if (state == WeakMarking) {
     leaveWeakMarkingMode();
   }
