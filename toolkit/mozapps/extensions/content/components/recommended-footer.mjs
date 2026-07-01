@@ -17,6 +17,18 @@ export class RecommendedFooter extends AboutAddonsHTMLElement {
             data-l10n-id="find-more-addons"
           ></button>
         </div>
+        <addons-promo
+          imagesrc="chrome://mozapps/skin/extensions/kit-addons.svg"
+          imagealignment="end"
+          data-l10n-id="find-more-addons-promo"
+        >
+          <moz-button
+            slot="actions"
+            action="open-amo"
+            size="large"
+            data-l10n-id="find-more-addons-promo-open-amo-button"
+          ></moz-button>
+        </addons-promo>
         <div class="view-footer-item">
           <a
             class="privacy-policy-link"

@@ -732,3 +732,9 @@ section:not(:empty) ~ #empty-addons-message {
     background-color: var(--color-accent-primary);
   }
 }
+
+@media -moz-pref("browser.nova.enabled") {
+  [is="recommended-footer"] > .amo-link-container {
+    display: none;
+  }
+}

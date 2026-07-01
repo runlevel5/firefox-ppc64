@@ -53,7 +53,9 @@ add_setup(async function () {
 function checkExtraContents(doc, type, opts = {}) {
   let { showThemeRecommendationFooter = type === "theme" } = opts;
   let footer = doc.querySelector("footer");
-  let amoButton = footer.querySelector('[action="open-amo"]');
+  let amoButton = footer.querySelector('button[action="open-amo"]');
+  let footerPromo = footer.querySelector("addons-promo");
+  let promoAmoBtn = footer.querySelector('moz-button[action="open-amo"]');
   let privacyPolicyLink = footer.querySelector(".privacy-policy-link");
   let themeRecommendationFooter = footer.querySelector(".theme-recommendation");
   let themeRecommendationLink =
@@ -64,12 +66,33 @@ function checkExtraContents(doc, type, opts = {}) {
 
   if (type == "extension") {
     ok(taarNotice, "There is a TAAR notice");
-    is_element_visible(amoButton, "The AMO button is shown");
+
+    if (Services.prefs.getBoolPref("browser.nova.enabled")) {
+      is_element_visible(footerPromo, "The promo card is shown");
+      is_element_visible(
+        promoAmoBtn,
+        "The promo card slotted AMO button is shown"
+      );
+    } else {
+      is_element_visible(amoButton, "The AMO button is shown");
+      is_element_hidden(footerPromo, "The promo card is hidden");
+      is_element_hidden(
+        promoAmoBtn,
+        "The promo card slotted AMO button is hidden"
+      );
+    }
     is_element_visible(privacyPolicyLink, "The privacy policy is visible");
   } else if (type == "theme") {
     ok(!taarNotice, "There is no TAAR notice");
     ok(amoButton, "AMO button is shown");
     ok(!privacyPolicyLink, "There is no privacy policy");
+
+    // This promo is currently only expected to be added to the extensions list
+    // view.
+    ok(
+      !footerPromo,
+      "The promo card should not be found in theme list view footer"
+    );
   } else {
     throw new Error(`Unknown type ${type}`);
   }
