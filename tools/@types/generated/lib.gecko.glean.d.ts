@@ -6533,6 +6533,7 @@ interface GleanImpl {
     databaseFilesize: GleanMemoryDistribution;
     databaseSemanticHistoryDefragmentTime: GleanTimingDistribution;
     databaseSemanticHistoryFilesize: GleanMemoryDistribution;
+    databaseSemanticHistoryNumEntries: GleanQuantity;
     databaseSemanticHistoryReindexTime: GleanTimingDistribution;
     databaseSemanticHistoryWastedPercentage: GleanQuantity;
     expirationStepsToClean: GleanCustomDistribution;
@@ -6549,6 +6550,7 @@ interface GleanImpl {
     previousdayVisits: GleanQuantity;
     semanticHistoryChunkCalculateTime: GleanTimingDistribution;
     semanticHistoryFindChunksTime: GleanTimingDistribution;
+    semanticHistoryIndexingStopped: Record<"failsafe"|"soft", GleanCounter>;
     semanticHistoryMaxChunksCount: GleanQuantity;
     sortedBookmarksPerc: GleanCustomDistribution;
     sponsoredVisitNoTriggeringUrl: GleanCounter;
