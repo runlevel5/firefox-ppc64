@@ -2332,9 +2332,8 @@ export var BrowserTestUtils = {
    *        The attribute to wait for
    * @param {Element} element
    *        The element which should gain the attribute
-   * @param {string|boolean} value (optional)
-   *        Optional, the value the attribute should have. Pass a boolean to
-   *        wait for a boolean attribute to be present (true) or absent (false).
+   * @param {string} value (optional)
+   *        Optional, the value the attribute should have.
    *
    * @returns {Promise}
    */
@@ -2346,7 +2345,6 @@ export var BrowserTestUtils = {
     return new Promise(resolve => {
       let mut = new MutationObserver(() => {
         if (
-          (typeof value == "boolean" && element.hasAttribute(attr) == value) ||
           (!value && element.hasAttribute(attr)) ||
           (value && element.getAttribute(attr) === value)
         ) {
