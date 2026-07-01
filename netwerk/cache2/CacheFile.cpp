@@ -1204,8 +1204,9 @@ nsresult CacheFile::SetFrecency(uint32_t aFrecency) {
   MOZ_ASSERT(mMetadata);
   NS_ENSURE_TRUE(mMetadata, NS_ERROR_UNEXPECTED);
 
-  PostWriteTimer();
-
+  // No PostWriteTimer() here: frecency is persisted via the index update below,
+  // not by rewriting the entry file on every hit. See CacheFileMetadata::
+  // SetFrecency().
   if (mHandle && !mHandle->IsDoomed()) {
     CacheFileIOManager::UpdateIndexEntry(mHandle, &aFrecency, nullptr, nullptr,
                                          nullptr, nullptr);
@@ -1394,8 +1395,7 @@ nsresult CacheFile::OnFetched() {
   MOZ_ASSERT(mMetadata);
   NS_ENSURE_TRUE(mMetadata, NS_ERROR_UNEXPECTED);
 
-  PostWriteTimer();
-
+  // No PostWriteTimer(): updating access stats must not rewrite the entry file.
   mMetadata->OnFetched();
   return NS_OK;
 }
