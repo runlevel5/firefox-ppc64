@@ -3745,8 +3745,9 @@ GCRuntime::MarkQueueProgress GCRuntime::processTestMarkQueue() {
       }
 
       // Mark the object.
+      bool hadDelayed = delayedMarkingWorkAdded;
       marker().markOneObjectForTest(obj);
-      if (delayedMarkingWorkAdded) {
+      if (!hadDelayed && delayedMarkingWorkAdded) {
         // If we overflowed the stack here and delayed marking, then we won't be
         // testing what we think we're testing.
         MOZ_ASSERT(obj->asTenured().arena()->onDelayedMarkingList());
