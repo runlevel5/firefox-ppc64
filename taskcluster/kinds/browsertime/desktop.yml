@@ -1096,6 +1096,14 @@ browsertime-nav-bench:
             default: []
     tier: 3
     treeherder-symbol: Btime(nav-bench)
+    mozharness:
+        extra-options:
+            by-test-platform:
+                windows.*:
+                    - --browsertime-no-ffwindowrecorder
+                    - --conditioned-profile=settled
+                default:
+                    - --conditioned-profile=settled
 
 browsertime-video-playback-latency:
     <<: *tp6-defaults

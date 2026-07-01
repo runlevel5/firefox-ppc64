@@ -53,49 +53,24 @@ class NavBenchSupport(BasePythonSupport):
                 continue
             self._speedindex.setdefault((site, phase), []).append(int(si))
 
-    def _build_score_subtest(self, name, replicates, test):
-        return {
-            "name": name,
-            "lowerIsBetter": False,
-            "alertThreshold": float(test.get("alert_threshold", 5.0)),
-            "unit": "score",
-            "replicates": replicates,
-            "value": round(filters.geometric_mean(replicates), 3),
-            "shouldAlert": True,
-        }
-
     def summarize_test(self, test, suite, **kwargs):
-        """One suite for the whole composite test. One subtest per (site, phase),
-        named '<site>-<phase>-score'. Suite value = geomean of all replicates."""
+        """One suite per measure.start/stop alias. Contains only min-si (ms)
+        as a diagnostic; scores are aggregated in nav-bench-overall."""
         suite["type"] = "pageload"
-        suite["lowerIsBetter"] = False
-        suite["unit"] = "score"
+        suite["lowerIsBetter"] = True
+        suite["unit"] = "ms"
         if suite["subtests"] == {}:
             suite["subtests"] = []
 
-        all_replicates = []
+        suite_alias = suite.get("name", "").split(".", 1)[-1]
+        suite_site, suite_phase = _parse_alias(suite_alias)
+
         for (site, phase), si_values in sorted(self._speedindex.items()):
+            if suite_site is not None and (site != suite_site or phase != suite_phase):
+                continue
             if not si_values:
                 LOG.warning(f"nav-bench: {site}/{phase} has no SpeedIndex samples")
                 continue
-            score_replicates = [round(SCORE_TARGET_MS / si, 3) for si in si_values]
-            suite["subtests"].append(
-                self._build_score_subtest(
-                    f"{site}-{phase}-score", score_replicates, test
-                )
-            )
-            suite["subtests"].append({
-                "name": f"{site}-{phase}-speedindex",
-                "lowerIsBetter": True,
-                "alertThreshold": float(test.get("alert_threshold", 5.0)),
-                "unit": "ms",
-                "replicates": list(si_values),
-                "value": round(filters.geometric_mean(si_values), 3),
-                "shouldAlert": False,
-            })
-            # Minimum SpeedIndex (ms) is the theoretically best estimator of true
-            # page performance under one-sided noise (Chen & Revels 2016). Tracked
-            # for trend visibility but not alerted on at low cycle counts.
             suite["subtests"].append({
                 "name": f"{site}-{phase}-min-si",
                 "lowerIsBetter": True,
@@ -105,25 +80,32 @@ class NavBenchSupport(BasePythonSupport):
                 "value": min(si_values),
                 "shouldAlert": False,
             })
-            all_replicates.extend(score_replicates)
 
         suite["subtests"].sort(key=lambda subtest: subtest["name"])
-        if all_replicates:
-            suite["value"] = round(filters.geometric_mean(all_replicates), 3)
 
     def summarize_suites(self, suites):
-        """Synthesize an overall suite aggregating every (site, phase, cycle)
-        score into one geomean. The per-test suite stays intact for alerting."""
+        """Synthesize nav-bench-overall: one score subtest per (site, phase)
+        plus an overall geomean value."""
         if not suites:
             return
 
+        alert_threshold = suites[0].get("alertThreshold", 5.0)
         all_subtests = []
         all_replicates = []
-        for suite in suites:
-            for subtest in suite.get("subtests", []):
-                if subtest.get("name", "").endswith("-score"):
-                    all_subtests.append(copy.deepcopy(subtest))
-                    all_replicates.extend(subtest["replicates"])
+        for (site, phase), si_values in sorted(self._speedindex.items()):
+            if not si_values:
+                continue
+            score_replicates = [round(SCORE_TARGET_MS / si, 3) for si in si_values]
+            all_subtests.append({
+                "name": f"{site}-{phase}-score",
+                "lowerIsBetter": False,
+                "alertThreshold": alert_threshold,
+                "unit": "score",
+                "replicates": score_replicates,
+                "value": round(filters.geometric_mean(score_replicates), 3),
+                "shouldAlert": True,
+            })
+            all_replicates.extend(score_replicates)
 
         if not all_replicates:
             return
@@ -133,7 +115,7 @@ class NavBenchSupport(BasePythonSupport):
         overall["type"] = "pageload"
         overall["lowerIsBetter"] = False
         overall["unit"] = "score"
-        overall["subtests"] = all_subtests
+        overall["subtests"] = sorted(all_subtests, key=lambda s: s["name"])
         overall["value"] = round(filters.geometric_mean(all_replicates), 3)
 
         suites.insert(0, overall)
