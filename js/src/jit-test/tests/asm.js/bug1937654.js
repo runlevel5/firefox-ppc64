@@ -1,8 +1,12 @@
 load(libdir + "asm.js");
 
-// asm.js has been removed. Previously, asm.js validation would reject functions
-// with too many arguments. Now that asm.js validation is removed, this code
-// compiles as normal JavaScript (which has no such strict limit in parsing).
+// asm.js has been removed, so this input (originally an asm.js module from
+// bug 1937654) is now parsed as ordinary JavaScript. A call expression may not
+// have more than 65535 arguments, so parsing the body throws a SyntaxError.
+//
+// With lazy parsing the inner function is only fully parsed when it is first
+// run; coverage builds parse it eagerly at creation. Drive the code all the
+// way to running the inner function so the SyntaxError is raised either way.
 
 let template = `
   'use asm';
@@ -13,7 +17,9 @@ let template = `
   return main;
   `;
 let args = new Array(100000).fill('0').join(', ');
+let body = template.replace('ARGS', args);
 
-// This now succeeds (compiles as normal JS) instead of throwing SyntaxError
-let fn = new Function('stdlib', 'foreign', template.replace('ARGS', args));
-assertEq(typeof fn, 'function');
+assertThrowsInstanceOf(() => {
+  let main = new Function('stdlib', 'foreign', body)({}, { imported() {} });
+  main();
+}, SyntaxError);
