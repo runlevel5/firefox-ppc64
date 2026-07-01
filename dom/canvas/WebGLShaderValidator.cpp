@@ -29,7 +29,6 @@ uint64_t IdentifierHashFunc(const char* name, size_t len) {
 static ShCompileOptions ChooseValidatorCompileOptions(
     const ShBuiltInResources& resources, const mozilla::gl::GLContext* gl) {
   ShCompileOptions options = {};
-  options.variables = true;
   options.enforcePackingRestrictions = true;
   options.objectCode = true;
   options.initGLPosition = true;
