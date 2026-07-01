@@ -659,6 +659,35 @@ nsresult CacheFile::OnMetadataRead(nsresult aResult) {
         // A brand-new disk entry: enable encryption (and generate its salt)
         // when the feature is on, before any data is written.
         SetupEncryption();
+      } else if (mHandle && !mHandle->IsDoomed()) {
+        // The entry metadata on disk is not rewritten on read hits, so its
+        // lastFetched/fetchCount may be stale after a restart. Restore them
+        // from the index, which is updated on every hit, when the index value
+        // is at least as fresh. This must happen before InitIndexEntry() below,
+        // which pushes the metadata's values back into the index. The index
+        // values are copied out of the (synchronously invoked) callback so that
+        // mMetadata, which is guarded by our lock, is only touched here where
+        // the lock is visibly held.
+        uint32_t indexLastFetched = 0;
+        uint32_t indexFetchCount = 0;
+        bool haveIndexStats = false;
+        // HasEntry() writes *status unconditionally and only invokes the
+        // callback when the entry exists, so whether we have usable stats is
+        // conveyed by haveIndexStats. The required status out-param and the
+        // returned nsresult are intentionally not inspected: on any failure the
+        // callback simply never runs and haveIndexStats stays false.
+        CacheIndex::EntryStatus status;
+        (void)CacheIndex::HasEntry(
+            *mHandle->Hash(), &status, [&](const CacheIndexEntry* aIndexEntry) {
+              if (aIndexEntry->IsInitialized()) {
+                indexLastFetched = aIndexEntry->GetLastFetched();
+                indexFetchCount = aIndexEntry->GetFetchCount();
+                haveIndexStats = true;
+              }
+            });
+        if (haveIndexStats && indexFetchCount >= mMetadata->GetFetchCount()) {
+          mMetadata->RestoreAccessStats(indexLastFetched, indexFetchCount);
+        }
       }
 
       InitIndexEntry();
