@@ -140,9 +140,6 @@ extern "C" uint32_t FOG_MaxPingLimit(void) {
   return Preferences::GetInt("telemetry.glean.internal.maxPingsPerMinute", 15);
 }
 
-// Called when knowing if we're in automation is necessary.
-extern "C" bool FOG_IPCIsInAutomation(void) { return xpc::IsInAutomation(); }
-
 NS_IMETHODIMP
 FOG::InitializeFOG(const nsACString& aDataPathOverride,
                    const nsACString& aAppIdOverride,
