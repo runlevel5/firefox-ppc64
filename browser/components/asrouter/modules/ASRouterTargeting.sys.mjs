@@ -1782,6 +1782,21 @@ export const ASRouterTargeting = {
     }
   },
 
+  /**
+   * Return the list of trigger objects for a message, normalizing the singular
+   * `trigger` and plural `triggers` forms. When both are present, `triggers`
+   * takes precedence.
+   *
+   * @param {object} message An AS router message
+   * @returns {Array<object>} The message's triggers, or an empty array.
+   */
+  getMessageTriggers(message) {
+    if (Array.isArray(message?.triggers)) {
+      return message.triggers;
+    }
+    return message?.trigger ? [message.trigger] : [];
+  },
+
   isTriggerMatch(trigger = {}, candidateMessageTrigger = {}) {
     if (trigger.id !== candidateMessageTrigger.id) {
       return false;
@@ -1888,13 +1903,14 @@ export const ASRouterTargeting = {
     onError,
     shouldCache = false
   ) {
+    const messageTriggers = this.getMessageTriggers(message);
     return (
       message &&
-      (trigger
-        ? this.isTriggerMatch(trigger, message.trigger)
-        : !message.trigger) &&
-      // If a trigger expression was passed to this function, the message should match it.
-      // Otherwise, we should choose a message with no trigger property (i.e. a message that can show up at any time)
+      // If a trigger with an id was passed, the message must have a matching
+      // trigger. Otherwise, only untriggered messages are eligible.
+      (trigger?.id
+        ? messageTriggers.some(mt => this.isTriggerMatch(trigger, mt))
+        : !messageTriggers.length) &&
       this.checkMessageTargeting(
         message,
         targetingContext,

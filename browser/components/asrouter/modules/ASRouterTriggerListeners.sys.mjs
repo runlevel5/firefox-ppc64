@@ -9,6 +9,7 @@ const { XPCOMUtils } = ChromeUtils.importESModule(
 
 const lazy = XPCOMUtils.declareLazy({
   AboutReaderParent: "resource:///actors/AboutReaderParent.sys.mjs",
+  ASRouterTargeting: "resource:///modules/asrouter/ASRouterTargeting.sys.mjs",
   BrowserUtils: "resource://gre/modules/BrowserUtils.sys.mjs",
   EveryWindow: "resource:///modules/EveryWindow.sys.mjs",
   FeatureCalloutBroker:
@@ -1635,7 +1636,7 @@ export const ASRouterTriggerListeners = new Map([
           id: "pdfJsFeatureCalloutCheck",
           context,
         });
-        if (result.message.trigger) {
+        if (lazy.ASRouterTargeting.getMessageTriggers(result.message).length) {
           const callout = lazy.FeatureCalloutBroker.showCustomFeatureCallout(
             {
               win,
@@ -1792,7 +1793,7 @@ export const ASRouterTriggerListeners = new Map([
           id: "newtabFeatureCalloutCheck",
           context,
         });
-        if (result.message.trigger) {
+        if (lazy.ASRouterTargeting.getMessageTriggers(result.message).length) {
           const callout = lazy.FeatureCalloutBroker.showCustomFeatureCallout(
             {
               win,

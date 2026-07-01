@@ -34,6 +34,34 @@ let patterns: string[];
 }
 ```
 
+## Multiple triggers
+
+A message may declare multiple triggers via the `triggers` array instead of the
+singular `trigger`. The message becomes eligible when **any** one of the listed
+triggers matches, which avoids duplicating a message once per trigger:
+
+```javascript
+{
+  ...
+  triggers: [
+    { id: "openURL", params: ["example.com"] },
+    { id: "frequentVisits", params: ["example.com"] }
+  ]
+  ...
+}
+```
+
+When `trigger` and `triggers` are both present, `triggers` takes precedence.
+
+**Targeting is evaluated using the context of whichever trigger fired.** Because
+each trigger contributes its own context, a context value provided by one
+trigger is only available when *that* trigger fires. A targeting expression that
+depends on a specific trigger's context (such as `tabsClosedCount` from
+`nthTabClosed`) evaluates to `false` when a different trigger fires and does not
+supply that value. When using `triggers`, make sure the `targeting` expression
+is valid for every trigger listed. If the triggers need genuinely different
+targeting, use separate messages instead.
+
 ## Available trigger actions
 
 - [`openArticleURL`](#openarticleurl)

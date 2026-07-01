@@ -7,6 +7,7 @@ const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   AboutWelcomeParent: "resource:///actors/AboutWelcomeParent.sys.mjs",
   ASRouter: "resource:///modules/asrouter/ASRouter.sys.mjs",
+  ASRouterTargeting: "resource:///modules/asrouter/ASRouterTargeting.sys.mjs",
   CustomizableUI:
     "moz-src:///browser/components/customizableui/CustomizableUI.sys.mjs",
   PageEventManager: "resource:///modules/asrouter/PageEventManager.sys.mjs",
@@ -366,7 +367,9 @@ export class FeatureCallout {
         let nextMessage = null;
         if (
           this.context === "chrome" &&
-          this.message?.trigger.id !== "featureCalloutCheck"
+          !lazy.ASRouterTargeting.getMessageTriggers(this.message).some(
+            t => t.id === "featureCalloutCheck"
+          )
         ) {
           if (
             this.config?.screens.some(s => s.id === this.currentScreen?.id) &&
