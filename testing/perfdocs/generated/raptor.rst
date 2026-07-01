@@ -16951,6 +16951,190 @@ Browsertime tests that use a custom pageload test script. These use the pageload
 
 
 
+.. dropdown:: media-seek
+   :class-container: anchor-id-media-seek-c
+
+   * Command to Run Locally
+
+   .. code-block::
+
+      ./mach raptor -t media-seek
+
+   **Owner**: Media Team
+
+   **Description**: Measures buffered video seek latency (time from a currentTime seek to the seeked event) with the decoder warm and cold.
+
+   * **alert on**: `seekedColdLatency <raptor-metrics.html#seek-latency>`__, `seekedWarmLatency <raptor-metrics.html#seek-latency>`__
+   * **alert threshold**: 5.0
+   * **apps**: firefox, chrome, safari
+   * **browser cycles**: 1
+   * **browsertime args**: --browsertime.iterations=5
+   * **custom data**: true
+   * **expected**: pass
+   * **gecko profile features**: stackwalk,js,cpu,screenshots
+   * **gecko profile interval**: 1
+   * **gecko profile threads**: GeckoMain,Compositor,MediaDecoderStateMachine,MediaSupervisor,MediaPDecoder,RemVidChild,RemVidParent
+   * **link searchfox**: :searchfox:`testing/raptor/raptor/tests/custom/browsertime-media-seek.toml#35`
+   * **lower is better**: true
+   * **measure**: seekedColdLatency, seekedWarmLatency
+   * **page cycles**: 5
+   * **page timeout**: 120000
+   * **preferences**: media.autoplay.default=0 media.autoplay.blocking_policy=0 media.autoplay.ask-permission=false media.dormant-on-pause-timeout-ms=0
+   * **subtest unit**: ms
+   * **support class**: media_seek.py
+   * **test script**: media_seek.js
+   * **test summary**: flatten
+   * **test url**: `<None>`__
+   * **type**: pageload
+   * **unit**: ms
+   * **use live sites**: false
+   * **Test Task**:
+
+   .. list-table:: **test-linux2404-64-nightlyasrelease/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-media-seek-firefox-media-seek**
+        - ❌
+        - ❌
+        - ❌
+        - ❌
+
+
+   .. list-table:: **test-linux2404-64-shippable/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-media-seek-firefox-media-seek**
+        - ✅
+        - ✅
+        - ❌
+        - ❌
+
+
+   .. list-table:: **test-linux2404-64/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-media-seek-firefox-media-seek**
+        - ❌
+        - ❌
+        - ❌
+        - ❌
+
+
+   .. list-table:: **test-macosx1470-64-nightlyasrelease/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-media-seek-firefox-media-seek**
+        - ❌
+        - ❌
+        - ❌
+        - ❌
+
+
+   .. list-table:: **test-macosx1470-64-shippable/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-media-seek-firefox-media-seek**
+        - ✅
+        - ✅
+        - ❌
+        - ❌
+
+
+   .. list-table:: **test-macosx1470-64/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-media-seek-firefox-media-seek**
+        - ❌
+        - ❌
+        - ❌
+        - ❌
+
+
+   .. list-table:: **test-windows11-64-24h2-nightlyasrelease/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-media-seek-firefox-media-seek**
+        - ❌
+        - ❌
+        - ❌
+        - ❌
+
+
+   .. list-table:: **test-windows11-64-24h2-shippable/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-media-seek-firefox-media-seek**
+        - ✅
+        - ✅
+        - ❌
+        - ❌
+
+
+   .. list-table:: **test-windows11-64-24h2/opt**
+      :widths: 30 15 15 15 15
+      :header-rows: 1
+
+      * - **Test Name**
+        - mozilla-central
+        - autoland
+        - mozilla-release
+        - mozilla-beta
+      * - **browsertime-media-seek-firefox-media-seek**
+        - ❌
+        - ❌
+        - ❌
+        - ❌
+
+
+
 .. dropdown:: prefetch-conservative
    :class-container: anchor-id-prefetch-conservative-c
 

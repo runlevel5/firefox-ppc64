@@ -904,6 +904,19 @@ browsertime-custom:
     tier: 1
     treeherder-symbol: Btime(ps)
 
+browsertime-media-seek:
+    raptor:
+        apps: [firefox]
+        subtests: [[media-seek, mseek]]
+    description: Raptor (browsertime) media seek-latency test
+    max-run-time: 2700
+    run-on-projects:
+        by-test-platform:
+            .*64(?!.*nightlyasrelease).*shippable.*: [trunk]
+            default: []
+    tier: 2
+    treeherder-symbol: Btime(mseek)
+
 browsertime-first-install:
     raptor:
         apps: [firefox]
