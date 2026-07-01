@@ -20,6 +20,7 @@
 #include "nsNetUtil.h"
 #include "mozilla/AutoRestore.h"
 #include <algorithm>
+#include <limits>
 #include "mozilla/StaticPrefs_browser.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "mozilla/glean/NetwerkCache2Metrics.h"
@@ -418,6 +419,42 @@ void CacheIndex::PreShutdownInternal() {
 
   // We should end up in READY state
   MOZ_ASSERT(mState == READY);
+}
+
+// static
+void CacheIndex::WriteIndexToDiskNow() {
+  StaticMutexAutoLock lock(sLock);
+
+  RefPtr<CacheIndex> index = gInstance;
+  if (!index || index->mShuttingDown) {
+    return;
+  }
+
+  LOG(("CacheIndex::WriteIndexToDiskNow()"));
+
+  nsCOMPtr<nsIEventTarget> ioTarget = CacheFileIOManager::IOTarget();
+  if (!ioTarget) {
+    return;
+  }
+
+  nsCOMPtr<nsIRunnable> event =
+      NewRunnableMethod("net::CacheIndex::WriteIndexToDiskNowInternal", index,
+                        &CacheIndex::WriteIndexToDiskNowInternal);
+  (void)ioTarget->Dispatch(event, nsIEventTarget::DISPATCH_NORMAL);
+}
+
+void CacheIndex::WriteIndexToDiskNowInternal() {
+  StaticMutexAutoLock lock(sLock);
+
+  LOG(("CacheIndex::WriteIndexToDiskNowInternal() [state=%d, dirty=%u]", mState,
+       mIndexStats.Dirty()));
+
+  if (mState != READY || mShuttingDown || mRWPending ||
+      mIndexStats.Dirty() == 0) {
+    return;
+  }
+
+  WriteIndexToDisk(lock);
 }
 
 // static
@@ -1740,14 +1777,28 @@ bool CacheIndex::WriteIndexToDiskIfNeeded(
     return false;
   }
 
-  if (!mLastDumpTime.IsNull() &&
-      (TimeStamp::NowLoRes() - mLastDumpTime).ToMilliseconds() <
-          StaticPrefs::browser_cache_disk_index_min_dump_interval_ms()) {
+  if (mIndexStats.Dirty() == 0) {
     return false;
   }
 
+  double sinceLastDump =
+      mLastDumpTime.IsNull()
+          ? std::numeric_limits<double>::infinity()
+          : (TimeStamp::NowLoRes() - mLastDumpTime).ToMilliseconds();
+
+  if (sinceLastDump <
+      StaticPrefs::browser_cache_disk_index_min_dump_interval_ms()) {
+    return false;
+  }
+
+  // Write either once enough changes have accumulated, or once the maximum
+  // interval has elapsed with any dirty entry. The latter is a safety net so
+  // that recently-updated frecency is not lost on a crash or process kill under
+  // light browsing, where the dirty-count threshold may never be reached.
   if (mIndexStats.Dirty() <
-      StaticPrefs::browser_cache_disk_index_min_unwritten_changes()) {
+          StaticPrefs::browser_cache_disk_index_min_unwritten_changes() &&
+      sinceLastDump <
+          StaticPrefs::browser_cache_disk_index_max_dump_interval_ms()) {
     return false;
   }
 

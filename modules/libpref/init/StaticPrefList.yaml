@@ -1132,6 +1132,15 @@
   value: 20000
   mirror: always
 
+# Maximum delay in milliseconds before the disk cache index is written back when
+# there is at least one dirty entry, regardless of min_unwritten_changes. This
+# bounds how much recently-updated frecency can be lost on a crash or Android
+# process kill under light browsing. Must be >= min_dump_interval_ms.
+- name: browser.cache.disk.index.max_dump_interval_ms
+  type: RelaxedAtomicUint32
+  value: 60000
+  mirror: always
+
 # Delay in milliseconds after startup before the disk cache index build/update
 # process is started. Lowering it (e.g. to 0) makes the index reach the ready
 # state sooner; intended for tests.

@@ -745,6 +745,13 @@ class CacheIndex final : public CacheFileIOListener, public nsIRunnable {
   static nsresult PreShutdown();
   static nsresult Shutdown();
 
+  // Force the in-memory index to be persisted to disk without shutting the
+  // cache down, used when the app is backgrounded (e.g. on Android, where the
+  // process is typically killed rather than cleanly shut down). The write is
+  // dispatched to the IO thread; the dirty flag is intentionally left set so a
+  // subsequent kill still triggers the normal recovery/update pass on restart.
+  static void WriteIndexToDiskNow();
+
   // Following methods can be called only on IO thread.
 
   // Add entry to the index. The entry shouldn't be present in index. This
@@ -925,6 +932,9 @@ class CacheIndex final : public CacheFileIOListener, public nsIRunnable {
   // minimum number of changes in index) were exceeded.
   bool WriteIndexToDiskIfNeeded(const StaticMutexAutoLock& aProofOfLock)
       MOZ_REQUIRES(sLock);
+  // IO-thread half of WriteIndexToDiskNow(): force a write if the index is
+  // READY and has any dirty entry.
+  void WriteIndexToDiskNowInternal();
   // Starts writing of index file.
   void WriteIndexToDisk(const StaticMutexAutoLock& aProofOfLock)
       MOZ_REQUIRES(sLock);
