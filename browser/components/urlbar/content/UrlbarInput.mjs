@@ -188,7 +188,7 @@ ${
   }
 
   static get observedAttributes() {
-    return ["focused", "open"];
+    return ["open"];
   }
 
   /**
@@ -410,17 +410,11 @@ ${
   }
 
   attributeChangedCallback(attribute, _oldValue, _newValue) {
-    if (attribute != "focused" && attribute != "open") {
+    if (attribute != "open") {
       return;
     }
 
-    if (
-      Services.prefs.getBoolPref("browser.nova.enabled", false) ||
-      attribute == "open"
-    ) {
-      // Update only if 'open' attribute is changed for not Nova.
-      this.updateLayoutExtend();
-    }
+    this.updateLayoutExtend();
   }
 
   connectedCallback() {
@@ -2919,10 +2913,7 @@ ${
       return;
     }
 
-    if (
-      !this.view.isOpen &&
-      !Services.prefs.getBoolPref("browser.nova.enabled", false)
-    ) {
+    if (!this.view.isOpen) {
       return;
     }
 
@@ -2948,11 +2939,7 @@ ${
       return;
     }
 
-    if (
-      this.view.isOpen &&
-      this.view.visibleRowCount &&
-      !Services.prefs.getBoolPref("browser.nova.enabled", false)
-    ) {
+    if (this.view.isOpen && this.view.visibleRowCount) {
       return;
     }
 
@@ -2961,16 +2948,7 @@ ${
   }
 
   updateLayoutExtend() {
-    if (!Services.prefs.getBoolPref("browser.nova.enabled", false)) {
-      if (this.view.isOpen) {
-        this.startLayoutExtend();
-      } else {
-        this.endLayoutExtend();
-      }
-      return;
-    }
-
-    if (this.focused || this.view.isOpen) {
+    if (this.view.isOpen) {
       this.startLayoutExtend();
     } else {
       this.endLayoutExtend();

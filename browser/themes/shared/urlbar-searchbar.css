@@ -397,12 +397,13 @@ toolbar[inactive="true"] .urlbar,
       height: auto;
     }
 
+    &[focused] > .urlbar-input-container,
     &[breakout-extend] > .urlbar-input-container {
       outline-width: var(--urlbar-input-container-border-width-breakout);
       outline-offset: calc(-1 * var(--urlbar-input-container-border-width-breakout));
     }
 
-    &[breakout-extend][focused] > .urlbar-input-container {
+    &[focused] > .urlbar-input-container {
       outline-color: var(--focus-outline-color);
     }
   }
