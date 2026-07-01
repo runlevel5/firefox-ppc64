@@ -512,6 +512,20 @@ mozilla::ipc::IPCResult BackgroundParentImpl::RecvCreateNotificationParent(
   AssertIsInMainProcess();
   AssertIsOnBackgroundThread();
 
+  if (!BackgroundParent::ValidatePrincipal(this, aPrincipal, {})) {
+    ContentParent::LogAndAssertFailedPrincipalValidationInfo(aPrincipal,
+                                                             __func__);
+    return IPC_FAIL(this, "Invalid aPrincipal for CreateNotificationParent");
+  }
+  if (!BackgroundParent::ValidatePrincipal(this, aEffectiveStoragePrincipal,
+                                           {})) {
+    ContentParent::LogAndAssertFailedPrincipalValidationInfo(
+        aEffectiveStoragePrincipal, __func__);
+    return IPC_FAIL(
+        this,
+        "Invalid aEffectiveStoragePrincipal for CreateNotificationParent");
+  }
+
   dom::notification::NotificationParentArgs args{
       aPrincipal, aEffectiveStoragePrincipal, aIsSecureContext,
       nsString(aScope), aNotification};
