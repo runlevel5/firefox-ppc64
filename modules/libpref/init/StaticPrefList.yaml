@@ -17654,6 +17654,13 @@
   value: "Warn"
   mirror: never
 
+# When true, disable the URLClassifier while the ContentClassifier (channel
+# classifier) engine is active.
+- name: privacy.trackingprotection.urlclassifier.disable_for_channel_classifier
+  type: bool
+  value: false
+  mirror: always
+
 # Enable the "baseline" allow-list for fixing severe site breakage (e.g. blank
 # page).
 - name: privacy.trackingprotection.allow_list.baseline.enabled

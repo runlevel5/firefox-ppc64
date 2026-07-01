@@ -5547,6 +5547,14 @@ contentClassifier:
       setPref:
         branch: default
         pref: "privacy.trackingprotection.content.mirror.enabled"
+    skipURLClassifier:
+      description: >-
+        Whether to skip the URLClassifier while the ContentClassifier engine is
+        active.
+      type: boolean
+      setPref:
+        branch: default
+        pref: "privacy.trackingprotection.urlclassifier.disable_for_channel_classifier"
 
 auto-pip:
   description: "Automatic Picture-in-Picture"
