@@ -790,25 +790,6 @@ export const AIWindow = {
     );
   },
 
-  _getTabStateManager(win) {
-    return this._aiWindowTabStateManagers.get(win) ?? null;
-  },
-
-  /**
-   * Restore a conversation with the tab of the given browser
-   *
-   * @param {MozBrowser} browser The browser whose tab is being updated
-   * @param {ChatConversation} conversation
-   */
-  restoreTabConversation(browser, conversation) {
-    const win = browser.documentGlobal;
-    const tab = win?.gBrowser.getTabForBrowser(browser);
-    if (!tab) {
-      return;
-    }
-    this._getTabStateManager(win)?.setTabStateConversation(tab, conversation);
-  },
-
   unloadWindow(win) {
     if (this.isAIWindowActive(win)) {
       const duration_ms = this._consumeActiveDuration(win);
