@@ -154,14 +154,13 @@ is_clang = true
 is_debug = false
 angle_build_all = false
 angle_enable_abseil = false
-angle_enable_apple_translator_workarounds = true
 angle_enable_essl = true
 angle_enable_gl = false
-angle_enable_gl_desktop_frontend = false
 angle_enable_glsl = true
 angle_enable_null = false
 angle_enable_share_context_lock = true
 angle_enable_vulkan = false
+angle_enable_wgpu = false
 angle_has_astc_encoder = false
 use_custom_libcxx = false
 """[
@@ -206,6 +205,31 @@ angle_common = libraries["//:angle_common"]
 angle_common["sources"] += EXTRA_ANGLE_COMMON_SOURCES
 angle_common["sources"] = sorted(angle_common["sources"])
 
+# Similar hack as above, to ensure apple-specific translator sources are
+# included. This used to be achieved with the gn arg
+# "angle_enable_apple_translator_workarounds", but it has been removed upstream.
+EXTRA_TRANSLATOR_APPLE_SOURCES = [
+    "//src/compiler/translator/tree_ops/glsl/apple/AddAndTrueToLoopCondition.cpp",
+    "//src/compiler/translator/tree_ops/glsl/apple/RewriteRowMajorMatrices.cpp",
+    "//src/compiler/translator/tree_ops/glsl/apple/UnfoldShortCircuitAST.cpp",
+]
+
+translator = libraries["//:translator"]
+translator["sources"] += EXTRA_TRANSLATOR_APPLE_SOURCES
+translator["sources"] = sorted(translator["sources"])
+
+# xxhash.c is pulled into both angle_common and angle_common_shader_state
+# causing linker errors. Since these libraries are both always linked into the
+# same final library, we can simply remove it from one or the other.
+angle_common_shader_state = libraries["//:angle_common_shader_state"]
+angle_common_shader_state["sources"].remove("//src/common/third_party/xxhash/xxhash.c")
+
+# angle_version_info.cpp is pulled into both translator and libGLESv2 causing
+# linker errors. libGLESv2 depends on translator, so remove the duplicate from
+# libGLESv2.
+libglesv2 = libraries["//:libGLESv2"]
+libglesv2["sources"].remove("//src/common/angle_version_info.cpp")
+
 # -
 # Reuse our own zlib
 
@@ -248,8 +272,10 @@ REGISTERED_DEFINES = {
     "ADLER32_SIMD_SSSE3": False,
     "ANGLE_CAPTURE_ENABLED": True,
     "ANGLE_DISABLE_POOL_ALLOC": True,
+    "ANGLE_DISPATCH_LIBRARY": True,
     "ANGLE_EGL_LIBRARY_NAME": False,
     "ANGLE_ENABLE_APPLE_WORKAROUNDS": True,
+    "ANGLE_ENABLE_CONTEXT_MUTEX": True,
     "ANGLE_ENABLE_D3D11": True,
     "ANGLE_ENABLE_D3D11_COMPOSITOR_NATIVE_WINDOW": True,
     "ANGLE_ENABLE_D3D9": True,
@@ -267,6 +293,10 @@ REGISTERED_DEFINES = {
     "ANGLE_HAS_VULKAN_SYSTEM_INFO": False,
     "ANGLE_IS_64_BIT_CPU": False,
     "ANGLE_IS_WIN": False,
+    "ANGLE_MESA_EGL_LIBRARY_NAME": True,
+    "ANGLE_MESA_GLESV2_LIBRARY_NAME": True,
+    "ANGLE_OUTSIDE_WEBKIT": True,
+    "ANGLE_PLATFORM_EXPORT": True,
     "ANGLE_PRELOADED_D3DCOMPILER_MODULE_NAMES": False,
     "ANGLE_SHARED_LIBVULKAN": True,
     "ANGLE_USE_CUSTOM_LIBVULKAN": True,
@@ -274,6 +304,8 @@ REGISTERED_DEFINES = {
     "ANGLE_VK_LAYERS_DIR": True,
     "ANGLE_VK_MOCK_ICD_JSON": True,
     "ANGLE_VMA_VERSION": True,
+    "ANGLE_VULKAN_SECONDARIES_EGL_LIBRARY_NAME": True,
+    "ANGLE_VULKAN_SECONDARIES_GLESV2_LIBRARY_NAME": True,
     "ASTCENC_DECOMPRESS_ONLY": True,
     "CERT_CHAIN_PARA_HAS_EXTRA_FIELDS": False,
     "CHROMIUM_BUILD": False,
@@ -310,6 +342,7 @@ REGISTERED_DEFINES = {
     "WIN32": False,
     "WIN32_LEAN_AND_MEAN": False,
     "WINAPI_FAMILY": False,
+    "WINCRYPT_USE_SYMBOL_PREFIX": True,
     "WINVER": True,
     # Otherwise:
     # gfx/angle/targets/libANGLE
@@ -329,6 +362,7 @@ REGISTERED_DEFINES = {
     "_DEBUG": False,
     "_HAS_EXCEPTIONS": True,
     "_HAS_ITERATOR_DEBUGGING": False,
+    "_LIBCPP_HARDENING_MODE": True,
     "_SCL_SECURE_NO_DEPRECATE": True,
     "_SECURE_ATL": True,
     "_UNICODE": True,
@@ -352,6 +386,9 @@ required_files.add("//LICENSE")
 
 run_checked("ninja", "-C", str(OUT_DIR), ":angle_commit_id", shell=True)
 required_files.add("//out/gen/angle/angle_commit.h")
+
+run_checked("ninja", "-C", str(OUT_DIR), ":angle_program_version_id", shell=True)
+required_files.add("//out/gen/angle/ANGLEShaderProgramVersion.h")
 
 # -
 
@@ -431,7 +468,11 @@ def export_target(target_full_name) -> Set[str]:
             elif b.endswith("_linux"):
                 # Include these on BSDs too.
                 config = 'CONFIG["OS_ARCH"] not in ("Darwin", "WINNT")'
-            elif b.endswith("_apple") or b.endswith("_mac"):
+            elif (
+                b.endswith("_apple")
+                or b.endswith("_mac")
+                or x in fixup_paths(EXTRA_TRANSLATOR_APPLE_SOURCES)
+            ):
                 config = 'CONFIG["OS_ARCH"] == "Darwin"'
             elif b.endswith("_posix"):
                 config = 'CONFIG["OS_ARCH"] != "WINNT"'
@@ -469,6 +510,9 @@ def export_target(target_full_name) -> Set[str]:
             ldflags.remove(x)
 
     os_libs = list(map(lambda x: x[: -len(".lib")], set(desc.get("libs", []))))
+    # Prevent //third_party/llvm-build/Release+Asserts/lib/clang/23/lib/windows/clang_rt.builtins-x86_64.lib
+    # being brought in as a dependency.
+    os_libs = [x for x in os_libs if not x.startswith("//")]
 
     def append_arr_commented(dest, name, src):
         lines = []
@@ -504,6 +548,7 @@ def export_target(target_full_name) -> Set[str]:
     # Those directories are added by gfx/angle/moz.build.
     already_added_dirs = [
         "angle_common",
+        "angle_common_shader_state",
         "translator",
         "libEGL",
         "libGLESv2",
@@ -513,7 +558,13 @@ def export_target(target_full_name) -> Set[str]:
     append_arr(
         lines, "DIRS", ["../" + x for x in dep_dirs if x not in already_added_dirs]
     )
-    append_arr(lines, "OS_LIBS", os_libs)
+    # Only add to OS_LIBS on windows. This avoids attempting to link to
+    # "synchronization" on other platforms where it doesn't exist.
+    # This only works because we don't need any OS_LIBS on other platforms.
+    # Switching to gn_processor.py in bug 2035532 will fix this properly.
+    if os_libs:
+        lines.append('if CONFIG["OS_ARCH"] == "WINNT":')
+        append_arr(lines, "OS_LIBS", os_libs, indent=1)
     append_arr_commented(lines, "LDFLAGS", ldflags)
 
     for k, v in sorted(extras.items()):

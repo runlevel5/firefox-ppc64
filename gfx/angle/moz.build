@@ -4,6 +4,7 @@
 
 DIRS += [
     "targets/angle_common",
+    "targets/angle_common_shader_state",
     "targets/translator",
 ]
 
