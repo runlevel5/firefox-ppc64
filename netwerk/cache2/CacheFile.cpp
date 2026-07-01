@@ -1252,16 +1252,9 @@ nsresult CacheFile::SetNetworkTimes(uint64_t aOnStartTime,
     return rv;
   }
 
-  uint16_t onStartTime16 = aOnStartTime <= kIndexTimeOutOfBound
-                               ? aOnStartTime
-                               : kIndexTimeOutOfBound;
-  uint16_t onStopTime16 =
-      aOnStopTime <= kIndexTimeOutOfBound ? aOnStopTime : kIndexTimeOutOfBound;
-
-  if (mHandle && !mHandle->IsDoomed()) {
-    CacheFileIOManager::UpdateIndexEntry(
-        mHandle, nullptr, nullptr, &onStartTime16, &onStopTime16, nullptr);
-  }
+  // The onStart/onStop times are persisted in the entry metadata only; they are
+  // no longer mirrored into the index (those record bytes now hold
+  // lastFetched/fetchCount).
   return NS_OK;
 }
 
@@ -1396,7 +1389,16 @@ nsresult CacheFile::OnFetched() {
   NS_ENSURE_TRUE(mMetadata, NS_ERROR_UNEXPECTED);
 
   // No PostWriteTimer(): updating access stats must not rewrite the entry file.
+  // The updated lastFetched/fetchCount are persisted durably through the index
+  // instead.
   mMetadata->OnFetched();
+
+  if (mHandle && !mHandle->IsDoomed()) {
+    uint32_t lastFetched = mMetadata->GetLastFetched();
+    uint32_t fetchCount = mMetadata->GetFetchCount();
+    CacheFileIOManager::UpdateIndexEntry(mHandle, nullptr, nullptr,
+                                         &lastFetched, &fetchCount, nullptr);
+  }
   return NS_OK;
 }
 
@@ -2575,22 +2577,8 @@ nsresult CacheFile::InitIndexEntry() {
   bool hasAltData =
       mMetadata->GetElement(CacheFileUtils::kAltDataKey) != nullptr;
 
-  static auto toUint16 = [](const char* s) -> uint16_t {
-    if (s) {
-      nsresult rv;
-      uint64_t n64 = nsDependentCString(s).ToInteger64(&rv);
-      MOZ_ASSERT(NS_SUCCEEDED(rv));
-      return n64 <= kIndexTimeOutOfBound ? n64 : kIndexTimeOutOfBound;
-    }
-    return kIndexTimeNotAvailable;
-  };
-
-  const char* onStartTimeStr =
-      mMetadata->GetElement("net-response-time-onstart");
-  uint16_t onStartTime = toUint16(onStartTimeStr);
-
-  const char* onStopTimeStr = mMetadata->GetElement("net-response-time-onstop");
-  uint16_t onStopTime = toUint16(onStopTimeStr);
+  uint32_t lastFetched = mMetadata->GetLastFetched();
+  uint32_t fetchCount = mMetadata->GetFetchCount();
 
   const char* contentTypeStr = mMetadata->GetElement("ctid");
   uint8_t contentType = nsICacheEntry::CONTENT_TYPE_UNKNOWN;
@@ -2604,7 +2592,7 @@ nsresult CacheFile::InitIndexEntry() {
   }
 
   rv = CacheFileIOManager::UpdateIndexEntry(
-      mHandle, &frecency, &hasAltData, &onStartTime, &onStopTime, &contentType);
+      mHandle, &frecency, &hasAltData, &lastFetched, &fetchCount, &contentType);
   NS_ENSURE_SUCCESS(rv, rv);
 
   return NS_OK;
