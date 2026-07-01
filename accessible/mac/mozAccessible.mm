@@ -879,6 +879,10 @@ static bool ProvidesTitle(const Accessible* aAccessible, nsString& aName) {
   return [self getRelationsByType:RelationType::FLOWS_TO];
 }
 
+- (NSArray*)moxDetailsElements {
+  return [self getRelationsByType:RelationType::DETAILS];
+}
+
 - (NSArray*)moxARIAControls {
   return [self getRelationsByType:RelationType::CONTROLLER_FOR];
 }

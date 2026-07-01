@@ -90,3 +90,31 @@ addAccessibleTask(
     );
   }
 );
+
+/**
+ * Test aria-details
+ */
+addAccessibleTask(
+  `<button aria-details="summary full" id="info-button">Show info</button>
+   <p id="summary">Summary.</p>
+   <p id="full">Full information.</p>`,
+  async function testDetailsRelation(browser, accDoc) {
+    const infoButton = getNativeInterface(accDoc, "info-button");
+    await untilCacheOk(
+      () => infoButton.getAttributeValue("AXDetailsElements").length === 2,
+      "info-button exposes both details elements"
+    );
+
+    const detailsElements = infoButton.getAttributeValue("AXDetailsElements");
+    is(
+      detailsElements[0].getAttributeValue("AXDOMIdentifier"),
+      "summary",
+      "First details element is the summary"
+    );
+    is(
+      detailsElements[1].getAttributeValue("AXDOMIdentifier"),
+      "full",
+      "Second details element is the full information"
+    );
+  }
+);
