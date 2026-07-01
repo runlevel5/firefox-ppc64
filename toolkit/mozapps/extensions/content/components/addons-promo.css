@@ -71,6 +71,11 @@ moz-card {
   flex-direction: column;
   gap: var(--space-small);
   padding-inline: var(--addons-promo-text-padding-inline);
+
+  :host([textcentered]) & {
+    align-items: center;
+    text-align: center;
+  }
 }
 
 .image-container {

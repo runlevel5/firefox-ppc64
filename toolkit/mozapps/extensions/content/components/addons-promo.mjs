@@ -14,6 +14,7 @@ class AddonsPromo extends MozLitElement {
     message: { type: String, fluent: true },
     imageSrc: { type: String, reflect: true },
     imageAlignment: { type: String, reflect: true },
+    textCentered: { type: Boolean, reflect: true },
   };
 
   imageTemplate() {

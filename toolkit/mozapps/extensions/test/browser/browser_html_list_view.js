@@ -1050,11 +1050,14 @@ add_task(async function testEmptyMessage() {
   ];
 
   for (let test of tests) {
+    info(`Testing list view type ${test.type}`);
+
     let win = await loadInitialView(test.type);
     let doc = win.document;
     let enabledSection = getSection(doc, `${test.type}-enabled-section`);
     let disabledSection = getSection(doc, `${test.type}-disabled-section`);
     const message = doc.querySelector("#empty-addons-message");
+    const emptyStatePromo = doc.querySelector("#empty-addons-promo");
 
     // Test if the correct locale has been applied.
     ok(
@@ -1064,7 +1067,17 @@ add_task(async function testEmptyMessage() {
 
     // With at least one enabled/disabled add-on (see testSectionHeadingKeys),
     // the message is hidden.
-    is_element_hidden(message, "Empty addons message hidden");
+    is_element_hidden(
+      message,
+      `Empty addons message hidden on list view type ${test.type}`
+    );
+
+    // Technically this would be always hidden unless browser.nova.enabled is
+    // set to true.
+    is_element_hidden(
+      emptyStatePromo,
+      `Empty addons promo hidden on list view type ${test.type}`
+    );
 
     // The test runner (Mochitest) relies on add-ons that should not be removed.
     // Simulate the scenario of zero add-ons by clearing all rendered sections.
@@ -1077,7 +1090,48 @@ add_task(async function testEmptyMessage() {
     }
 
     // Message should now be displayed
-    is_element_visible(message, "Empty addons message visible");
+    if (Services.prefs.getBoolPref("browser.nova.enabled")) {
+      switch (test.type) {
+        case "extension":
+          is_element_visible(
+            emptyStatePromo,
+            `Empty addons promo visible on list view type ${test.type}`
+          );
+          break;
+        case "theme": // eslint-disable-line no-fallthrough
+        // NOTE: Given that built-in themes are being preinstalled by default,
+        // is it really worth to have an promo to show for an unlikely empty
+        // theme list view?
+        case "plugin": // eslint-disable-line no-fallthrough
+        case "locale": // eslint-disable-line no-fallthrough
+        case "dictionary":
+          // NOTE: plugin, locale and dictionary category buttons should only
+          // be shown when there are addons of this type installed (or being
+          // installed) is it really worth to show a promo for the empty state
+          // of these lists?
+          //
+          // TODO(Bug 2050920): determine what to show for locale and dictionary
+          // types, because unlike plugins we do have AMO pages to direct users
+          // to.
+          todo(
+            false,
+            "Should we keep the old empty message or add new strings for " +
+              "per-type message and button label to set on the promo?"
+          );
+          is_element_hidden(
+            emptyStatePromo,
+            `Empty addons promo hidden on non empty list view type ${test.type}`
+          );
+          break;
+        default:
+          ok(false, `Unexpected list view type ${test.type}`);
+      }
+    } else {
+      is_element_visible(
+        message,
+        `Empty addons message visible on list view type ${test.type}`
+      );
+    }
 
     await closeView(win);
   }

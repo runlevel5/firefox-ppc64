@@ -9,3 +9,11 @@ find-more-addons-promo =
   .message = Explore the world of { -brand-product-name } extensions - Discover popular extensions for inspiration and see how they engage millions!
 
 find-more-addons-promo-open-amo-button = Find your favorite extension
+
+# Promo shown in about:addons extensions list view when no extension is yet installed
+# and Project Nova is enabled.
+list-empty-get-extensions-promo =
+  .heading = A few extensions go a long way
+  .message = We’ve got recommendations to help you improve focus, privacy and more.
+
+list-empty-get-extensions-promo-button = Find your first extension
