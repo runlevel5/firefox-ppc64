@@ -2,6 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+import { UrlbarShared } from "chrome://browser/content/urlbar/UrlbarShared.mjs";
+
 const { AppConstants } = ChromeUtils.importESModule(
   "resource://gre/modules/AppConstants.sys.mjs"
 );
@@ -10,13 +12,8 @@ const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
   UrlbarPrefs: "moz-src:///browser/components/urlbar/UrlbarPrefs.sys.mjs",
-  UrlbarShared: "chrome://browser/content/urlbar/UrlbarShared.mjs",
   UrlbarUtils: "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs",
 });
-
-ChromeUtils.defineLazyGetter(lazy, "logger", () =>
-  lazy.UrlbarUtils.getLogger({ prefix: "ChildController" })
-);
 
 /**
  * @import {UrlbarChild} from "../../../actors/UrlbarChild.sys.mjs"
@@ -42,6 +39,18 @@ ChromeUtils.defineLazyGetter(lazy, "logger", () =>
  * without touching `UrlbarInput`, `UrlbarView`, or other callers.
  */
 export class UrlbarChildController {
+  /** @type {Console} */
+  static #logger;
+
+  get logger() {
+    if (!UrlbarChildController.#logger) {
+      UrlbarChildController.#logger = UrlbarShared.getLogger({
+        prefix: "ChildController",
+      });
+    }
+    return UrlbarChildController.#logger;
+  }
+
   /** @type {UrlbarParentController} */
   #parent;
 
@@ -265,7 +274,7 @@ export class UrlbarChildController {
         }
       // Fall through, we want the SPACE key to activate this element.
       case KeyEvent.DOM_VK_RETURN:
-        lazy.logger.debug(`Enter pressed${executeAction ? "" : " delayed"}`);
+        this.logger.debug(`Enter pressed${executeAction ? "" : " delayed"}`);
         if (executeAction) {
           this.input.handleCommand(event);
         }
@@ -363,8 +372,7 @@ export class UrlbarChildController {
         let allowTabbingThroughResults =
           this.input.focusedViaMousedown ||
           this.input.searchMode?.isPreview ||
-          this.input.searchMode?.source ==
-            lazy.UrlbarShared.RESULT_SOURCE.ACTIONS ||
+          this.input.searchMode?.source == UrlbarShared.RESULT_SOURCE.ACTIONS ||
           this.view.selectedElement ||
           (this.input.value &&
             this.input.getAttribute("pageproxystate") != "valid");

@@ -3,9 +3,10 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 /**
- * This module exports urlbar related constants and other stateless helpers.
- * It can be imported into system and content realms, so it should not hold
- * state or use content only globals like `window`.
+ * This module exports urlbar related constants and helpers. It can be imported
+ * into system and content realms, so it should not use content-only globals
+ * like `window`. Any state it holds is per-realm (each importing realm gets
+ * its own copy of the module).
  */
 
 const lazy = {};
@@ -115,4 +116,90 @@ export const UrlbarShared = {
     }
     return new Set(keys);
   },
+
+  /**
+   * Creates a console logger.
+   *
+   * In non-chrome contexts, `console.createInstance` is unavailable, so this
+   * falls back to the global `console`.
+   *
+   * @param {object} [options]
+   * @param {string} [options.prefix]
+   *   Prefix to use for the logged messages.
+   * @returns {Console}
+   *   The console logger.
+   */
+  getLogger({ prefix = "" } = {}) {
+    let logger = loggers.get(prefix);
+    if (logger) {
+      return logger;
+    }
+
+    let fullPrefix = `URLBar${prefix ? " - " + prefix : ""}`;
+    if (console.createInstance) {
+      logger = createLoggerChrome(fullPrefix);
+    } else {
+      logger = createLoggerContent(fullPrefix);
+    }
+    loggers.set(prefix, logger);
+    return logger;
+  },
 };
+
+/**
+ * Create a logger that uses `console.createInstance`.
+ *
+ * @param {string} prefix
+ * @returns {Console}
+ */
+function createLoggerChrome(prefix) {
+  let logger = console.createInstance({
+    prefix,
+    maxLogLevelPref: "browser.urlbar.loglevel",
+  });
+  // Casting from ConsoleInstance to Console. Note that it is technically not a
+  // `Console` because it is missing the chrome-only property `createInstance`.
+  return /** @type {Console} */ (/** @type {unknown} */ (logger));
+}
+
+/**
+ * Create a logger that uses the global `console`.
+ *
+ * @param {string} prefix
+ * @returns {Console}
+ */
+function createLoggerContent(prefix) {
+  let tag = `[${prefix}]`;
+  const LEVEL_NUMBERS = {
+    all: 0,
+    trace: 1,
+    debug: 2,
+    log: 3,
+    info: 3,
+    warn: 4,
+    error: 5,
+    off: Infinity,
+  };
+  const LEVELS = ["debug", "log", "info", "trace", "warn", "error"];
+
+  let shouldLog = level => {
+    let maxLevel =
+      LEVEL_NUMBERS[lazy.UrlbarPrefs.get("loglevel").toLowerCase()] ??
+      LEVEL_NUMBERS.warn;
+    return maxLevel <= LEVEL_NUMBERS[level];
+  };
+
+  return new Proxy(console, {
+    get(target, prop) {
+      if (typeof prop == "string" && LEVELS.includes(prop)) {
+        return (...args) => shouldLog(prop) && target[prop](tag, ...args);
+      }
+
+      let value = target[prop];
+      return typeof value == "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+/** @type {Map<string, Console>} */
+const loggers = new Map();

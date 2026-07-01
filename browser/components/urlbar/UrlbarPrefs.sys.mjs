@@ -204,6 +204,10 @@ const PREF_URLBAR_DEFAULTS = /** @type {PreferenceDefinition[]} */ ([
   // than `NONE`.
   ["keywordExposureResults", ""],
 
+  // Enable a certain level of urlbar logging to the Browser Console. See
+  // ConsoleInstance.webidl.
+  ["loglevel", "Error"],
+
   // Feature gate pref for stock market suggestions in the urlbar.
   ["market.featureGate", false],
 

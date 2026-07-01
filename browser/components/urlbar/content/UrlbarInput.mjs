@@ -92,7 +92,7 @@ const lazy = XPCOMUtils.declareLazy({
     pref: "privacy.query_stripping.strip_on_share.enabled",
     default: false,
   },
-  logger: () => lazy.UrlbarUtils.getLogger({ prefix: "Input" }),
+  logger: () => UrlbarShared.getLogger({ prefix: "Input" }),
 });
 
 const UNLIMITED_MAX_RESULTS = 99;

@@ -27,7 +27,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
 });
 
 ChromeUtils.defineLazyGetter(lazy, "logger", () =>
-  UrlbarUtils.getLogger({ prefix: "MuxerUnifiedComplete" })
+  lazy.UrlbarShared.getLogger({ prefix: "MuxerUnifiedComplete" })
 );
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;

@@ -94,7 +94,7 @@ const lazy = XPCOMUtils.declareLazy({
     pref: "privacy.query_stripping.strip_on_share.enabled",
     default: false,
   },
-  logger: () => lazy.UrlbarUtils.getLogger({ prefix: "SmartbarInput" }),
+  logger: () => UrlbarShared.getLogger({ prefix: "SmartbarInput" }),
   getCurrentTabUrl:
     "moz-src:///browser/components/aiwindow/ui/modules/ChatUtils.sys.mjs",
 });

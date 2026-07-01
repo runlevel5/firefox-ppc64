@@ -1624,30 +1624,6 @@ export var UrlbarUtils = {
   },
 
   /**
-   * Creates a console logger.
-   * Logging level can be controlled through the `browser.urlbar.loglevel`
-   * preference.
-   *
-   * @param {object} [options] Options for the logger.
-   * @param {string} [options.prefix] Prefix to use for the logged messages.
-   * @returns {ConsoleInstance} The console logger.
-   */
-  getLogger({ prefix = "" } = {}) {
-    if (!this._loggers) {
-      this._loggers = new Map();
-    }
-    let logger = this._loggers.get(prefix);
-    if (!logger) {
-      logger = console.createInstance({
-        prefix: `URLBar${prefix ? " - " + prefix : ""}`,
-        maxLogLevelPref: "browser.urlbar.loglevel",
-      });
-      this._loggers.set(prefix, logger);
-    }
-    return logger;
-  },
-
-  /**
    * Returns the name of a result source.  The name is the lowercase name of the
    * corresponding property in the RESULT_SOURCE object.
    *
@@ -3334,7 +3310,7 @@ export class UrlbarMuxer {
  */
 export class UrlbarProvider {
   #lazy = XPCOMUtils.declareLazy({
-    logger: () => UrlbarUtils.getLogger({ prefix: `Provider.${this.name}` }),
+    logger: () => UrlbarShared.getLogger({ prefix: `Provider.${this.name}` }),
   });
 
   get logger() {
@@ -3807,7 +3783,7 @@ export class SkippableTimer {
    * @param {number} [options.time] A delay in milliseconds to wait for
    * @param {boolean} [options.reportErrorOnTimeout] If true and the timer times
    *                  out, an error will be logged with Cu.reportError
-   * @param {ConsoleInstance} [options.logger] An optional logger
+   * @param {Console} [options.logger] An optional logger
    */
   constructor({
     name = "<anonymous timer>",

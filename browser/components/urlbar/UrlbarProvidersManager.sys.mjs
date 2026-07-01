@@ -32,7 +32,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
 });
 
 ChromeUtils.defineLazyGetter(lazy, "logger", () =>
-  lazy.UrlbarUtils.getLogger({ prefix: "ProvidersManager" })
+  lazy.UrlbarShared.getLogger({ prefix: "ProvidersManager" })
 );
 
 // List of available local providers, each is implemented in its own module and

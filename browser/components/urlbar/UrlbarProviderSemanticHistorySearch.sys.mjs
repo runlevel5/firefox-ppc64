@@ -27,7 +27,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
 });
 
 ChromeUtils.defineLazyGetter(lazy, "logger", function () {
-  return UrlbarUtils.getLogger({ prefix: "SemanticHistorySearch" });
+  return lazy.UrlbarShared.getLogger({ prefix: "SemanticHistorySearch" });
 });
 
 /**
