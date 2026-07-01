@@ -141,6 +141,8 @@ skip-if = [
 
 ["test_segmented_control.html"]
 
+["test_theme_picker.html"]
+
 ["test_tree_column_reorder.xhtml"]
 
 ["test_videocontrols_focus.html"]
