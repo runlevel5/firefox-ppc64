@@ -9,6 +9,17 @@ const { AddonTestUtils } = ChromeUtils.importESModule(
 
 AddonTestUtils.initMochitest(this);
 
+const AMO_TEST_HOST = "addons.allizom.org";
+// eslint-disable-next-line @microsoft/sdl/no-insecure-url
+const AMO_TEST_URL = `http://${AMO_TEST_HOST}/`;
+
+const amoServer = AddonTestUtils.createHttpServer({
+  hosts: [AMO_TEST_HOST],
+});
+amoServer.registerPrefixHandler("/", (request, response) => {
+  response.write("");
+});
+
 function makeResult({ guid, type }) {
   return {
     addon: {
@@ -309,6 +320,67 @@ add_task(async function testRecommendationsDisabled() {
     let recommendedList = doc.querySelector("recommended-addon-list");
     ok(!recommendedList, `There are no recommendations on the ${type} page`);
 
+    await closeView(win);
+  }
+
+  await SpecialPowers.popPrefEnv();
+});
+
+add_task(async function testRecommendationsFooterAmoButtonUtmContent() {
+  await SpecialPowers.pushPrefEnv({
+    set: [["extensions.getAddons.link.url", AMO_TEST_URL]],
+  });
+
+  async function clickAndCheckUtm(win, selector, expectedUtmContent) {
+    let button = win.document.querySelector(selector);
+    ok(button, `Found button: ${selector}`);
+    let tabbrowser = win.windowRoot.window.gBrowser;
+    let tabPromise = BrowserTestUtils.waitForNewTab(tabbrowser, url =>
+      url.startsWith(AMO_TEST_URL)
+    );
+    button.click();
+    let tab = await tabPromise;
+    let tabUrl = new URL(tab.linkedBrowser.currentURI.spec);
+    Assert.deepEqual(
+      tabUrl.searchParams.getAll("utm_content"),
+      [expectedUtmContent],
+      `utm_content should be "${expectedUtmContent}" and only have one entry`
+    );
+    BrowserTestUtils.removeTab(tab);
+    return tabUrl;
+  }
+
+  // Extension list: Nova promo button vs legacy AMO button.
+  {
+    let win = await loadInitialView("extension");
+    if (Services.prefs.getBoolPref("browser.nova.enabled")) {
+      await clickAndCheckUtm(
+        win,
+        'footer moz-button[action="open-amo"]',
+        "find-more-promo-bottom"
+      );
+    } else {
+      await clickAndCheckUtm(
+        win,
+        'footer button[action="open-amo"]',
+        "find-more-link-bottom"
+      );
+    }
+    await closeView(win);
+  }
+
+  // Theme list: footer AMO button opens themes path with correct utm_content.
+  {
+    let win = await loadInitialView("theme");
+    let tabUrl = await clickAndCheckUtm(
+      win,
+      'button[action="open-amo"]',
+      "find-more-link-bottom"
+    );
+    ok(
+      tabUrl.pathname.includes("/themes"),
+      "AMO URL includes the /themes path"
+    );
     await closeView(win);
   }
 

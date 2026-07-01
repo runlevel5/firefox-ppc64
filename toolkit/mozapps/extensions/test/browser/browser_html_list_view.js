@@ -6,6 +6,17 @@ const { AddonTestUtils } = ChromeUtils.importESModule(
 
 AddonTestUtils.initMochitest(this);
 
+const AMO_TEST_HOST = "addons.allizom.org";
+// eslint-disable-next-line @microsoft/sdl/no-insecure-url
+const AMO_TEST_URL = `http://${AMO_TEST_HOST}/`;
+
+const amoServer = AddonTestUtils.createHttpServer({
+  hosts: [AMO_TEST_HOST],
+});
+amoServer.registerPrefixHandler("/", (request, response) => {
+  response.write("");
+});
+
 let promptService;
 
 const SUPPORT_URL = Services.urlFormatter.formatURL(
@@ -1135,4 +1146,49 @@ add_task(async function testEmptyMessage() {
 
     await closeView(win);
   }
+});
+
+add_task(async function testEmptyPromoButtonUtmContent() {
+  await SpecialPowers.pushPrefEnv({
+    set: [
+      ["browser.nova.enabled", true],
+      ["extensions.getAddons.link.url", AMO_TEST_URL],
+    ],
+  });
+
+  let win = await loadInitialView("extension");
+  let doc = win.document;
+  let enabledSection = getSection(doc, "extension-enabled-section");
+  let disabledSection = getSection(doc, "extension-disabled-section");
+
+  // Simulate empty list so the promo is shown.
+  while (enabledSection.firstChild) {
+    enabledSection.firstChild.remove();
+  }
+  while (disabledSection.firstChild) {
+    disabledSection.firstChild.remove();
+  }
+
+  const emptyStatePromo = doc.querySelector("#empty-addons-promo");
+  is_element_visible(emptyStatePromo, "Empty state promo is visible");
+
+  let promoButton = emptyStatePromo.querySelector("moz-button");
+  ok(promoButton, "Found the promo button");
+
+  let tabbrowser = win.windowRoot.window.gBrowser;
+  let tabPromise = BrowserTestUtils.waitForNewTab(tabbrowser, url =>
+    url.startsWith(AMO_TEST_URL)
+  );
+  promoButton.click();
+  let tab = await tabPromise;
+  let tabUrl = new URL(tab.linkedBrowser.currentURI.spec);
+  Assert.deepEqual(
+    tabUrl.searchParams.getAll("utm_content"),
+    "find-more-promo-empty-list",
+    'empty promo button utm_content is "find-more-promo-empty-list"'
+  );
+  BrowserTestUtils.removeTab(tab);
+
+  await closeView(win);
+  await SpecialPowers.popPrefEnv();
 });

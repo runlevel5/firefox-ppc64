@@ -53,7 +53,13 @@ export class RecommendedFooter extends AboutAddonsHTMLElement {
     let action = event.target.getAttribute("action");
     switch (action) {
       case "open-amo":
-        openAmoInTab(this);
+        // TODO: remove the conditional utmContent value along with
+        // removing the old pre-nova open-amo button.
+        openAmoInTab(null, {
+          utmContent: event.target.closest("addons-promo")
+            ? "find-more-promo-bottom"
+            : "find-more-link-bottom",
+        });
         break;
     }
   }

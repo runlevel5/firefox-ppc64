@@ -257,7 +257,10 @@ export class AddonList extends HTMLElement {
     let promoBoxBtn = document.createElement("moz-button");
     promoBoxBtn.size = "large";
     promoBoxBtn.slot = "actions";
-    promoBoxBtn.onclick = () => openAmoInTab();
+    promoBoxBtn.onclick = () =>
+      openAmoInTab(null, {
+        utmContent: "find-more-promo-empty-list",
+      });
     document.l10n.setAttributes(
       promoBoxBtn,
       "list-empty-get-extensions-promo-button"
