@@ -118,8 +118,6 @@ interface nsIWindowsShellService : nsIShellService
    * The APIs used within this function are MSIX only and
    * will also not work on MINGW.
    *
-   * @param aCheckOnly If only testing whether pinning is possible
-   *
    * @return True if the application was successfully pinned
    *              to the Start Menu.
    *
@@ -133,7 +131,7 @@ interface nsIWindowsShellService : nsIShellService
    *         For Windows API failures
    */
   [implicit_jscontext]
-  Promise pinCurrentAppToStartMenuAsync(in boolean aCheckOnly);
+  Promise pinCurrentAppToStartMenuAsync();
 
   /*
    * Whether the current app is among Windows Start Menu pins
