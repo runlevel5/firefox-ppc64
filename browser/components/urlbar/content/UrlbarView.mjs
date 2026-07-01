@@ -2538,13 +2538,13 @@ export class UrlbarView {
       if (isRelative) {
         this.document.l10n.setAttributes(
           explanation,
-          "urlbar-result-explanation-last-visited-relative",
+          "urlbar-result-explanation-last-visited-relative-2",
           { date: formattedDate }
         );
       } else {
         this.document.l10n.setAttributes(
           explanation,
-          "urlbar-result-explanation-last-visited-absolute",
+          "urlbar-result-explanation-last-visited-absolute-2",
           { date: formattedDate }
         );
       }
