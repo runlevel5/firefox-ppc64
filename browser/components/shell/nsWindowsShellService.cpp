@@ -1692,23 +1692,18 @@ NS_IMETHODIMP nsWindowsShellService::HasPinnableShortcut(
           "HasPinnableShortcut",
           [aAppUserModelId = nsString{aAppUserModelId}, aPrivateBrowsing,
            promiseHolder = std::move(promiseHolder)] {
-            bool rv = false;
-            HRESULT hr = CoInitialize(nullptr);
-
-            if (SUCCEEDED(hr)) {
-              nsAutoString shortcutSubstring;
-              shortcutSubstring.AssignLiteral(MOZ_APP_DISPLAYNAME);
-              rv = HasPinnableShortcutImpl(aAppUserModelId, aPrivateBrowsing,
-                                           shortcutSubstring);
-              CoUninitialize();
-            }
+            nsAutoString shortcutSubstring;
+            shortcutSubstring.AssignLiteral(MOZ_APP_DISPLAYNAME);
+            bool hasPinnableShortcut = HasPinnableShortcutImpl(
+                aAppUserModelId, aPrivateBrowsing, shortcutSubstring);
 
             NS_DispatchToMainThread(NS_NewRunnableFunction(
                 "HasPinnableShortcut callback",
-                [rv, promiseHolder = std::move(promiseHolder)] {
+                [hasPinnableShortcut,
+                 promiseHolder = std::move(promiseHolder)] {
                   dom::Promise* promise = promiseHolder.get()->get();
 
-                  promise->MaybeResolve(rv);
+                  promise->MaybeResolve(hasPinnableShortcut);
                 }));
           }),
       NS_DISPATCH_EVENT_MAY_BLOCK);
@@ -2232,13 +2227,7 @@ nsWindowsShellService::IsCurrentAppPinnedToTaskbarAsync(
       NS_NewRunnableFunction(
           "IsCurrentAppPinnedToTaskbarAsync",
           [capturedAumid, promiseHolder = std::move(promiseHolder)] {
-            bool isPinned = false;
-
-            HRESULT hr = CoInitialize(nullptr);
-            if (SUCCEEDED(hr)) {
-              isPinned = IsCurrentAppPinnedToTaskbarSync(capturedAumid);
-              CoUninitialize();
-            }
+            bool isPinned = IsCurrentAppPinnedToTaskbarSync(capturedAumid);
 
             // Dispatch back to the main thread to resolve the promise.
             NS_DispatchToMainThread(NS_NewRunnableFunction(
