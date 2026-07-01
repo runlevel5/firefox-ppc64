@@ -500,6 +500,10 @@ prefs = ["browser.cache.disk.encryption.enabled=true"]
 
 ["test_cache2-39-index-corruption-recovery.js"]
 
+["test_cache2-40-index-format-upgrade.js"]
+
+["test_cache2-41-fetchcount-durable.js"]
+
 ["test_cache2_clear_with_principal.js"]
 run-sequentially = ["true"] # httpd server
 
