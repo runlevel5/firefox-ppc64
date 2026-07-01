@@ -2,10 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "mozilla/StaticPrefs_browser.h"
 #define UNICODE
 
 #include "nsWindowsShellService.h"
 #include "nsWindowsShellServiceInternal.h"
+#include "WindowsShellServiceRust.h"
 
 #include "BinaryPath.h"
 #include "gfxUtils.h"
@@ -56,6 +58,7 @@
 #include "WindowsUIOverlayImage.h"
 #include "WindowsUserChoice.h"
 #include "WinUtils.h"
+#include "xpcpublic.h"
 
 #include <comutil.h>
 #include <knownfolders.h>
@@ -134,9 +137,6 @@ static LazyLogModule sLog("nsWindowsShellService");
 
 static bool PollAppsFolderForShortcut(const nsAString& aAppUserModelId,
                                       const TimeDuration aTimeout);
-static nsresult PinCurrentAppToTaskbarWin10(bool aCheckOnly,
-                                            const nsAString& aAppUserModelId,
-                                            const nsAString& aShortcutPath);
 static nsresult WriteBitmap(nsIFile* aFile, imgIContainer* aImage);
 
 static nsresult OpenKeyForReading(HKEY aKeyRoot, const nsAString& aKeyName,
@@ -1175,6 +1175,11 @@ static nsresult CreateShortcutImpl(nsIFile* aBinary,
   NS_ENSURE_ARG(aBinary);
   NS_ENSURE_ARG(aIconFile);
 
+  if (xpc::IsInAutomation() && !StaticPrefs::browser_shell_shortcut_test()) {
+    // Don't create shortcuts under test.
+    return NS_OK;
+  }
+
   nsresult rv =
       UpdateShortcutInLog(location.shortcutsLogDir, location.folderId,
                           ShortcutsLogChange::Add, aShortcutRelativePath);
@@ -1311,6 +1316,11 @@ nsWindowsShellService::CreateShortcut(nsIFile* aBinary,
 
 static nsresult DeleteShortcutImpl(const ShortcutLocations& aLocation,
                                    const nsAString& aShortcutRelativePath) {
+  if (xpc::IsInAutomation() && !StaticPrefs::browser_shell_shortcut_test()) {
+    // Don't delete shortcuts under test.
+    return NS_OK;
+  }
+
   // Do the removal first so an error keeps it in the log.
   nsresult rv = aLocation.shortcutFile->Remove(false);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -1495,7 +1505,7 @@ nsWindowsShellService::GetLaunchOnLoginShortcuts(
 static nsresult GetMatchingShortcut(int aCSIDL, const nsAString& aAUMID,
                                     const wchar_t aExePath[MAXPATHLEN],
                                     const nsAString& aShortcutSubstring,
-                                    /* out */ nsAutoString& aShortcutPath) {
+                                    /* out */ nsAString& aShortcutPath) {
   nsresult result = NS_ERROR_FAILURE;
 
   wchar_t folderPath[MAX_PATH] = {};
@@ -1615,7 +1625,7 @@ static nsresult GetMatchingShortcut(int aCSIDL, const nsAString& aAUMID,
 static nsresult FindPinnableShortcut(const nsAString& aAppUserModelId,
                                      const nsAString& aShortcutSubstring,
                                      const bool aPrivateBrowsing,
-                                     nsAutoString& aShortcutPath) {
+                                     nsAString& aShortcutPath) {
   wchar_t exePath[MAXPATHLEN] = {};
   if (NS_WARN_IF(NS_FAILED(BinaryPath::GetLong(exePath)))) {
     return NS_ERROR_FAILURE;
@@ -1857,118 +1867,22 @@ static bool IsCurrentAppPinnedToTaskbarSync(const nsAString& aumid) {
   return isPinned;
 }
 
-static nsresult ManageShortcutTaskbarPins(bool aCheckOnly, bool aPinType,
-                                          const nsAString& aShortcutPath) {
-  // This enum is likely only used for Windows telemetry, INT_MAX is chosen to
-  // avoid confusion with existing uses.
-  enum PINNEDLISTMODIFYCALLER { PLMC_INT_MAX = INT_MAX };
+static nsresult EnsureShellAppsFolderShortcut(
+    bool aCheckOnly, const nsAString& aAppUserModelId) {
+  MOZ_ASSERT(!NS_IsMainThread());
 
-  // The types below, and the idea of using IPinnedList3::Modify,
-  // are thanks to Gee Law <https://geelaw.blog/entries/msedge-pins/>
-  static constexpr GUID CLSID_TaskbandPin = {
-      0x90aa3a4e,
-      0x1cba,
-      0x4233,
-      {0xb8, 0xbb, 0x53, 0x57, 0x73, 0xd4, 0x84, 0x49}};
-
-  static constexpr GUID IID_IPinnedList3 = {
-      0x0dd79ae2,
-      0xd156,
-      0x45d4,
-      {0x9e, 0xeb, 0x3b, 0x54, 0x97, 0x69, 0xe9, 0x40}};
-
-  struct IPinnedList3Vtbl;
-  struct IPinnedList3 {
-    IPinnedList3Vtbl* vtbl;
-  };
-
-  typedef ULONG STDMETHODCALLTYPE ReleaseFunc(IPinnedList3 * that);
-  typedef HRESULT STDMETHODCALLTYPE ModifyFunc(
-      IPinnedList3 * that, PCIDLIST_ABSOLUTE unpin, PCIDLIST_ABSOLUTE pin,
-      PINNEDLISTMODIFYCALLER caller);
-
-  struct IPinnedList3Vtbl {
-    void* QueryInterface;  // 0
-    void* AddRef;          // 1
-    ReleaseFunc* Release;  // 2
-    void* Other[13];       // 3-15
-    ModifyFunc* Modify;    // 16
-  };
-
-  struct ILFreeDeleter {
-    void operator()(LPITEMIDLIST aPtr) {
-      if (aPtr) {
-        ILFree(aPtr);
-      }
-    }
-  };
-
-  mozilla::UniquePtr<__unaligned ITEMIDLIST, ILFreeDeleter> path(
-      ILCreateFromPathW(nsString(aShortcutPath).get()));
-  if (NS_WARN_IF(!path)) {
-    return NS_ERROR_FILE_NOT_FOUND;
-  }
-
-  IPinnedList3* pinnedList = nullptr;
-  HRESULT hr = CoCreateInstance(CLSID_TaskbandPin, NULL, CLSCTX_INPROC_SERVER,
-                                IID_IPinnedList3, (void**)&pinnedList);
-  if (FAILED(hr) || !pinnedList) {
-    return NS_ERROR_NOT_AVAILABLE;
-  }
-
-  if (!aCheckOnly) {
-    hr = pinnedList->vtbl->Modify(pinnedList, aPinType ? NULL : path.get(),
-                                  aPinType ? path.get() : NULL, PLMC_INT_MAX);
-  }
-
-  pinnedList->vtbl->Release(pinnedList);
-
-  if (FAILED(hr)) {
-    return NS_ERROR_FILE_ACCESS_DENIED;
-  }
-  return NS_OK;
-}
-
-static nsresult PinShortcutToTaskbarImpl(bool aCheckOnly,
-                                         const nsAString& aAppUserModelId,
-                                         const nsAString& aShortcutPath,
-                                         const bool aFireAndForget = false) {
   // Verify shortcut is visible to `shell:appsfolder`. Shortcut creation -
   // during install or runtime - causes a race between it propagating to the
   // virtual `shell:appsfolder` and attempts to pin via `ITaskbarManager`,
   // resulting in pin failures when the latter occurs before the former. We can
-  // skip this when we're in a MSIX build or only checking whether we're pinned.
+  // skip this when we're in a MSIX build.
   if (!widget::WinUtils::HasPackageIdentity() && !aCheckOnly &&
       !PollAppsFolderForShortcut(aAppUserModelId,
                                  TimeDuration::FromSeconds(15))) {
     return NS_ERROR_FILE_NOT_FOUND;
   }
 
-  auto pinWithWin11TaskbarAPIResults =
-      PinCurrentAppToTaskbarWin11(aCheckOnly, aAppUserModelId, aFireAndForget);
-  switch (pinWithWin11TaskbarAPIResults.result) {
-    case Win11PinToTaskBarResultStatus::NotSupported:
-      // Fall through to the win 10 mechanism
-      break;
-
-    case Win11PinToTaskBarResultStatus::Success:
-    case Win11PinToTaskBarResultStatus::AlreadyPinned:
-      return NS_OK;
-
-    case Win11PinToTaskBarResultStatus::NotPinned:
-    case Win11PinToTaskBarResultStatus::NotCurrentlyAllowed:
-    case Win11PinToTaskBarResultStatus::Failed:
-      // return NS_ERROR_FAILURE;
-
-      // Fall through to the old mechanism for now
-      // In future, we should be sending telemetry for when
-      // an error occurs or for when pinning is not allowed
-      // with the Win 11 APIs.
-      break;
-  }
-
-  return PinCurrentAppToTaskbarWin10(aCheckOnly, aAppUserModelId,
-                                     aShortcutPath);
+  return NS_OK;
 }
 
 /* This function pins a shortcut to the taskbar based on its location. While
@@ -2015,22 +1929,18 @@ nsWindowsShellService::PinShortcutToTaskbar(
           "pinShortcutToTaskbar",
           [aumid = nsString{aAppUserModelId}, location = std::move(location),
            promiseHolder = std::move(promiseHolder)] {
-            nsresult rv = NS_ERROR_FAILURE;
-            HRESULT hr = CoInitialize(nullptr);
-
-            if (SUCCEEDED(hr)) {
-              rv = PinShortcutToTaskbarImpl(
-                  false, aumid, location.shortcutFile->NativePath());
-              CoUninitialize();
-            }
+            nsresult rv = EnsureShellAppsFolderShortcut(false, aumid);
 
             NS_DispatchToMainThread(NS_NewRunnableFunction(
                 "pinShortcutToTaskbar callback",
-                [rv, promiseHolder = std::move(promiseHolder)] {
+                [aumid, rv, location,
+                 promiseHolder = std::move(promiseHolder)] {
                   dom::Promise* promise = promiseHolder.get()->get();
 
+                  auto shortcut_path = location.shortcutFile->NativePath();
                   if (NS_SUCCEEDED(rv)) {
-                    promise->MaybeResolveWithUndefined();
+                    shell_windows_taskbar_pin_app_to_taskbar(
+                        false, &aumid, &shortcut_path, false, promise);
                   } else {
                     promise->MaybeReject(rv);
                   }
@@ -2045,26 +1955,11 @@ nsWindowsShellService::PinShortcutToTaskbar(
 NS_IMETHODIMP
 nsWindowsShellService::UnpinShortcutFromTaskbar(
     const nsAString& aShortcutFolder, const nsAString& aShortcutRelativePath) {
-  const bool pinType = false;  // false means unpin
-  const bool runInTestMode = false;
-
   ShortcutLocations location =
       MOZ_TRY(GetShortcutPaths(aShortcutFolder, aShortcutRelativePath));
 
-  return ManageShortcutTaskbarPins(runInTestMode, pinType,
-                                   location.shortcutFile->NativePath());
-}
-
-static nsresult PinCurrentAppToTaskbarWin10(bool aCheckOnly,
-                                            const nsAString& aAppUserModelId,
-                                            const nsAString& aShortcutPath) {
-  // The behavior here is identical if we're only checking or if we try to pin
-  // but the app is already pinned so we update the variable accordingly.
-  if (!aCheckOnly) {
-    aCheckOnly = IsCurrentAppPinnedToTaskbarSync(aAppUserModelId);
-  }
-  const bool pinType = true;  // true means pin
-  return ManageShortcutTaskbarPins(aCheckOnly, pinType, aShortcutPath);
+  mozilla::PathString path = location.shortcutFile->NativePath();
+  return shell_windows_taskbar_unpin_shortcut_from_taskbar(&path);
 }
 
 // There's a delay between shortcuts being created in locations visible to
@@ -2150,16 +2045,15 @@ static bool PollAppsFolderForShortcut(const nsAString& aAppUserModelId,
   return false;
 }
 
-static nsresult PinCurrentAppToTaskbarImpl(
-    bool aCheckOnly, bool aPrivateBrowsing, const bool aFireAndForget,
-    const nsAString& aAppUserModelId, const nsAString& aShortcutName,
-    const nsAString& aShortcutSubstring, nsIFile* aGreDir,
-    const ShortcutLocations& location) {
+static Result<nsString, nsresult> EnsurePinnableShortcutExists(
+    bool aCheckOnly, bool aPrivateBrowsing, const nsAString& aAppUserModelId,
+    const nsAString& aShortcutName, const nsAString& aShortcutSubstring,
+    nsIFile* aGreDir, const ShortcutLocations& location) {
   MOZ_DIAGNOSTIC_ASSERT(
       !NS_IsMainThread(),
-      "PinCurrentAppToTaskbarImpl should be called off main thread only");
+      "EnsurePinnableShortcutExists should be called off main thread only");
 
-  nsAutoString shortcutPath;
+  nsString shortcutPath;
   nsresult rv = FindPinnableShortcut(aAppUserModelId, aShortcutSubstring,
                                      aPrivateBrowsing, shortcutPath);
   if (NS_FAILED(rv)) {
@@ -2170,7 +2064,7 @@ static nsresult PinCurrentAppToTaskbarImpl(
       // Later checks rely on a shortcut already existing.
       // We don't want to create a shortcut in check only mode
       // so the best we can do is assume those parts will work.
-      return NS_OK;
+      return nsString(u""_ns);
     }
 
     nsAutoString linkName(aShortcutName);
@@ -2178,34 +2072,24 @@ static nsresult PinCurrentAppToTaskbarImpl(
     nsCOMPtr<nsIFile> exeFile(aGreDir);
     if (aPrivateBrowsing) {
       nsAutoString pbExeStr(PRIVATE_BROWSING_BINARY);
-      nsresult rv = exeFile->Append(pbExeStr);
-      if (!NS_SUCCEEDED(rv)) {
-        return NS_ERROR_FAILURE;
-      }
+      MOZ_TRY(exeFile->Append(pbExeStr));
     } else {
       wchar_t exePath[MAXPATHLEN] = {};
-      if (NS_WARN_IF(NS_FAILED(BinaryPath::GetLong(exePath)))) {
-        return NS_ERROR_FAILURE;
-      }
+      MOZ_TRY(BinaryPath::GetLong(exePath));
       nsAutoString exeStr(exePath);
-      nsresult rv = NS_NewLocalFile(exeStr, getter_AddRefs(exeFile));
-      if (!NS_SUCCEEDED(rv)) {
-        return NS_ERROR_FILE_NOT_FOUND;
-      }
+      MOZ_TRY(NS_NewLocalFile(exeStr, getter_AddRefs(exeFile)));
     }
 
     nsTArray<nsString> arguments;
-    rv = CreateShortcutImpl(exeFile, arguments, aShortcutName, exeFile,
-                            // Icon indexes are defined as Resource IDs, but
-                            // CreateShortcutImpl needs an index.
-                            IDI_APPICON - 1, aAppUserModelId, location,
-                            linkName);
-    if (!NS_SUCCEEDED(rv)) {
-      return NS_ERROR_FILE_NOT_FOUND;
-    }
+    MOZ_TRY(CreateShortcutImpl(exeFile, arguments, aShortcutName, exeFile,
+                               // Icon indexes are defined as Resource IDs, but
+                               // CreateShortcutImpl needs an index.
+                               IDI_APPICON - 1, aAppUserModelId, location,
+                               linkName));
   }
-  return PinShortcutToTaskbarImpl(aCheckOnly, aAppUserModelId, shortcutPath,
-                                  aFireAndForget);
+  MOZ_TRY(EnsureShellAppsFolderShortcut(aCheckOnly, aAppUserModelId));
+
+  return shortcutPath;
 }
 
 static nsresult PinCurrentAppToTaskbarAsyncImpl(
@@ -2279,27 +2163,24 @@ static nsresult PinCurrentAppToTaskbarAsyncImpl(
           [aCheckOnly, aPrivateBrowsing, aFireAndForget, shortcutName,
            aumid = nsString{aumid}, greDir, location = std::move(location),
            promiseHolder = std::move(promiseHolder)] {
-            nsresult rv = NS_ERROR_FAILURE;
-            HRESULT hr = CoInitialize(nullptr);
-
-            if (SUCCEEDED(hr)) {
-              nsAutoString shortcutSubstring;
-              shortcutSubstring.AssignLiteral(MOZ_APP_DISPLAYNAME);
-              rv = PinCurrentAppToTaskbarImpl(
-                  aCheckOnly, aPrivateBrowsing, aFireAndForget, aumid,
-                  shortcutName, shortcutSubstring, greDir.get(), location);
-              CoUninitialize();
-            }
+            nsAutoString shortcutSubstring;
+            shortcutSubstring.AssignLiteral(MOZ_APP_DISPLAYNAME);
+            Result<nsString, nsresult> rv = EnsurePinnableShortcutExists(
+                aCheckOnly, aPrivateBrowsing, aumid, shortcutName,
+                shortcutSubstring, greDir.get(), location);
 
             NS_DispatchToMainThread(NS_NewRunnableFunction(
                 "CheckPinCurrentAppToTaskbarAsync callback",
-                [rv, promiseHolder = std::move(promiseHolder)] {
+                [aCheckOnly, aFireAndForget, aumid, rv = std::move(rv),
+                 promiseHolder = std::move(promiseHolder)] {
                   dom::Promise* promise = promiseHolder.get()->get();
 
-                  if (NS_SUCCEEDED(rv)) {
-                    promise->MaybeResolveWithUndefined();
+                  if (rv.isOk()) {
+                    shell_windows_taskbar_pin_app_to_taskbar(
+                        aCheckOnly, &aumid, &rv.inspect(), aFireAndForget,
+                        promise);
                   } else {
-                    promise->MaybeReject(rv);
+                    promise->MaybeReject(rv.inspectErr());
                   }
                 }));
           }),

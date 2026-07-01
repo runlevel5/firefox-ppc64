@@ -78,6 +78,7 @@ elif CONFIG["OS_ARCH"] == "WINNT":
     LOCAL_INCLUDES += [
         "../../../other-licenses/nsis/Contrib/CityHash/cityhash",
         "/toolkit/xre",
+        "rust/shell_windows/src",
     ]
     OS_LIBS += [
         "bcrypt",

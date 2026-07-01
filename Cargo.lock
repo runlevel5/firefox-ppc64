@@ -7396,9 +7396,11 @@ dependencies = [
  "moz_task",
  "nserror",
  "nsstring",
+ "scopeguard",
  "sha2",
  "thin-vec",
  "windows",
+ "windows-core",
  "xpcom",
 ]
 

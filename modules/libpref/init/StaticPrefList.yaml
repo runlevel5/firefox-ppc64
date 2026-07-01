@@ -2032,6 +2032,12 @@
   mirror: once
   do_not_use_directly: true
 
+# Enables file IO for testing Windows shortcut and shortcut log.
+- name: browser.shell.shortcut.test
+  type: RelaxedAtomicBool
+  value: false
+  mirror: always
+
 # Whether to show an about:blank window as early as possible for quick startup feedback.
 # Held to nightly on Linux due to bug 1450626.
 # Disabled on Mac because the bouncing dock icon already provides feedback.

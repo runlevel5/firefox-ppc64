@@ -1,0 +1,118 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+//! # Taskbar Pinning
+//!
+//! This module abstracts over the WinRT and COM APIs to pin a given shortcut
+//! with matching AppUserModelId (AUMID) to the Windows taskbar.
+
+use crate::util::thread::{self, MainThreadGuard};
+use nserror::{NS_ERROR_NOT_SAME_THREAD, NS_OK, nsresult};
+use nsstring::{nsAString, nsString};
+use xpcom::{Promise, RefPtr};
+
+mod com;
+mod winrt;
+
+// Result from the attempt to pin to taskbar.
+enum PinResult {
+    // Pin request affirmed by user or system.
+    Pinned,
+    // Pin request rejected by user or system.
+    Rejected,
+    // Either returned before pin request was acted upon, or fell back to an API
+    // where success isn't known.
+    Unknown,
+    // Only verified a pinning API is available.
+    CheckOnly,
+}
+
+/// Pins the shortcut with matching AUMID to the taskbar.
+async fn pin_app(
+    check_only: bool,
+    aumid: &nsAString,
+    shortcut_path: &nsAString,
+    fire_and_forget: bool,
+    main_guard: MainThreadGuard,
+) -> Result<PinResult, nsresult> {
+    // Attempt to use the documented WinRT pinning API.
+    winrt::pin_to_taskbar(check_only, aumid, fire_and_forget, main_guard)
+        .await
+        .or_else(|_| {
+            // Fallback to undocumented COM API.
+            com::modify_taskbar(check_only, com::PinOp::Pin, shortcut_path, main_guard)
+        })
+}
+
+/// FFI accessible interface to asynchronously pin a given shortcut and AUMID to
+/// the taskbar.
+///
+/// # Safety
+///
+/// The caller is responsible for ensuring all pointers point to initialized
+/// memory if non-null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shell_windows_taskbar_pin_app_to_taskbar(
+    check_only: bool,
+    aumid: &nsAString,
+    shortcut_path: &nsAString,
+    fire_and_forget: bool,
+    promise: &Promise,
+) -> nsresult {
+    let main_guard = match thread::get_main_thread_guard() {
+        Some(m) => m,
+        None => {
+            log::error!("Pinning must be called from main thread to resolve DOM promise.");
+            return NS_ERROR_NOT_SAME_THREAD;
+        }
+    };
+
+    let aumid = nsString::from(aumid);
+    let shortcut_path = nsString::from(shortcut_path);
+    let promise = RefPtr::new(promise);
+
+    moz_task::spawn_local("Pin to Taskbar", async move {
+        match pin_app(
+            check_only,
+            &aumid,
+            &shortcut_path,
+            fire_and_forget,
+            main_guard,
+        )
+        .await
+        {
+            Ok(_) => promise.resolve_with_undefined(),
+            Err(e) => promise.reject_with_nsresult(e),
+        }
+    })
+    .detach();
+
+    NS_OK
+}
+
+/// FFI accessible interface to unpin a given shortcut from the taskbar.
+///
+/// # Safety
+///
+/// The caller is responsible for ensuring all pointers point to initialized
+/// memory if non-null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shell_windows_taskbar_unpin_shortcut_from_taskbar(
+    shortcut_path: &nsAString,
+) -> nsresult {
+    let main_guard = match thread::get_main_thread_guard() {
+        Some(m) => m,
+        None => {
+            log::error!(
+                "Unpinning must be called from the main thread to ensure the underlying COM API is run from an STA thread."
+            );
+            return NS_ERROR_NOT_SAME_THREAD;
+        }
+    };
+
+    match com::modify_taskbar(false, com::PinOp::UnPin, shortcut_path, main_guard) {
+        Ok(_) => NS_OK,
+        Err(e) => e,
+    }
+}

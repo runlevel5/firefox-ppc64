@@ -5,3 +5,4 @@
 //! Utilities for shell_windows.
 
 pub(crate) mod async_timer;
+pub(crate) mod thread;
