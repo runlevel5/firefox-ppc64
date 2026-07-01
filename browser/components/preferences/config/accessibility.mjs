@@ -555,7 +555,7 @@ SettingGroupManager.registerGroups({
             items: [
               {
                 id: "colors",
-                l10nId: "preferences-colors-manage-button",
+                l10nId: "preferences-colors-manage-button2",
                 control: "moz-box-button",
                 controlAttrs: {
                   "search-l10n-ids":
