@@ -15,3 +15,5 @@ support-files = [
 ["browser_content_classifier_pref_mirror.js"]
 
 ["browser_content_classifier_remote_settings.js"]
+
+["browser_urlclassifier_disable_for_channel_classifier.js"]
