@@ -1598,6 +1598,18 @@ static bool ArrayCopyFromData(JSContext* cx, Handle<WasmArrayObject*> arrayObj,
     MOZ_RELEASE_ASSERT(seg);
     memcpy(&arrayObj->data_[dstByteOffset], &seg->bytes[segByteOffset],
            size_t(numBytesToCopy.value()));
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // Data segments hold little-endian element values, but scalar array
+    // elements are stored native-endian. (v128 elements keep the
+    // little-endian image, like linear memory.)
+    if (elemSize == 2 || elemSize == 4 || elemSize == 8) {
+      uint8_t* data = &arrayObj->data_[dstByteOffset];
+      for (uint32_t i = 0; i < numElements; i++) {
+        uint8_t* elem = data + size_t(i) * elemSize;
+        std::reverse(elem, elem + elemSize);
+      }
+    }
+#endif
   }
 
   return true;
