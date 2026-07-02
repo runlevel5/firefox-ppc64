@@ -37,29 +37,36 @@ function value(type, value) {
   }, value);
 }
 
+// The buffer passed to wasmGlobalFromArrayBuffer holds the v128's
+// little-endian image, so lanes are written explicitly little-endian.
+function laneBuffer(setter, laneBytes, elements) {
+  let view = new DataView(new ArrayBuffer(16));
+  elements.forEach((v, i) => setter.call(view, i * laneBytes, v, true));
+  return view.buffer;
+}
 function i8x16(elements) {
   let typedBuffer = new Uint8Array(elements);
   return wasmGlobalFromArrayBuffer("v128", typedBuffer.buffer);
 }
 function i16x8(elements) {
-  let typedBuffer = new Uint16Array(elements);
-  return wasmGlobalFromArrayBuffer("v128", typedBuffer.buffer);
+  return wasmGlobalFromArrayBuffer(
+      "v128", laneBuffer(DataView.prototype.setUint16, 2, elements));
 }
 function i32x4(elements) {
-  let typedBuffer = new Uint32Array(elements);
-  return wasmGlobalFromArrayBuffer("v128", typedBuffer.buffer);
+  return wasmGlobalFromArrayBuffer(
+      "v128", laneBuffer(DataView.prototype.setUint32, 4, elements));
 }
 function i64x2(elements) {
-  let typedBuffer = new BigUint64Array(elements);
-  return wasmGlobalFromArrayBuffer("v128", typedBuffer.buffer);
+  return wasmGlobalFromArrayBuffer(
+      "v128", laneBuffer(DataView.prototype.setBigUint64, 8, elements));
 }
 function f32x4(elements) {
-  let typedBuffer = new Float32Array(elements);
-  return wasmGlobalFromArrayBuffer("v128", typedBuffer.buffer);
+  return wasmGlobalFromArrayBuffer(
+      "v128", laneBuffer(DataView.prototype.setFloat32, 4, elements));
 }
 function f64x2(elements) {
-  let typedBuffer = new Float64Array(elements);
-  return wasmGlobalFromArrayBuffer("v128", typedBuffer.buffer);
+  return wasmGlobalFromArrayBuffer(
+      "v128", laneBuffer(DataView.prototype.setFloat64, 8, elements));
 }
 
 function either(...arr) {
