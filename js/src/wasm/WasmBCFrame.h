@@ -890,18 +890,6 @@ class BaseStackFrame final : public BaseStackFrameAllocator {
 #endif
   }
 
-  // An i32 stack result that did not need shuffling stays in the low word
-  // (offset +4) of its 8-byte value-stack slot on big-endian, but the result
-  // consumer reads a 32-bit value at offset 0 (matching the constant path's
-  // store32). Copy it to offset 0 in place.
-  void normalizeI32StackResultInPlace(uint32_t height, Register temp) {
-#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-    masm.load32(Address(sp_, stackOffset(height) + int32_t(sizeof(int32_t))),
-                temp);
-    masm.store32(temp, Address(sp_, stackOffset(height)));
-#endif
-  }
-
   void loadStackI64(int32_t offset, RegI64 dest) {
     masm.load64(Address(sp_, stackOffset(offset)), dest);
   }
@@ -957,8 +945,7 @@ class BaseStackFrame final : public BaseStackFrameAllocator {
 
   // |srcHeight| and |destHeight| are stack heights *including* |bytes|.
   void shuffleStackResultsTowardFP(uint32_t srcHeight, uint32_t destHeight,
-                                   uint32_t bytes, Register temp,
-                                   bool srcIsI32 = false) {
+                                   uint32_t bytes, Register temp) {
     MOZ_ASSERT(destHeight < srcHeight);
     MOZ_ASSERT(bytes % sizeof(uint32_t) == 0);
     // The shuffleStackResultsTowardFP is used when SP/framePushed is not
@@ -971,13 +958,7 @@ class BaseStackFrame final : public BaseStackFrameAllocator {
       srcOffset -= sizeof(intptr_t);
       bytes -= sizeof(intptr_t);
       masm.loadPtr(Address(FramePointer, srcOffset), temp);
-      if (srcIsI32) {
-        // See the comment in shuffleStackResultsTowardSP: an i32 result lives in
-        // the low word of an 8-byte slot; store the low word at result offset 0.
-        masm.store32(temp, Address(FramePointer, destOffset));
-      } else {
-        masm.storePtr(temp, Address(FramePointer, destOffset));
-      }
+      masm.storePtr(temp, Address(FramePointer, destOffset));
     }
     if (bytes) {
       MOZ_ASSERT(bytes == sizeof(uint32_t));
@@ -1004,24 +985,14 @@ class BaseStackFrame final : public BaseStackFrameAllocator {
 
   // |srcHeight| and |destHeight| are stack heights *including* |bytes|.
   void shuffleStackResultsTowardSP(uint32_t srcHeight, uint32_t destHeight,
-                                   uint32_t bytes, Register temp,
-                                   bool srcIsI32 = false) {
+                                   uint32_t bytes, Register temp) {
     MOZ_ASSERT(destHeight > srcHeight);
     MOZ_ASSERT(bytes % sizeof(uint32_t) == 0);
     uint32_t destOffset = stackOffset(destHeight);
     uint32_t srcOffset = stackOffset(srcHeight);
     while (bytes >= sizeof(intptr_t)) {
       masm.loadPtr(Address(sp_, srcOffset), temp);
-      if (srcIsI32) {
-        // An i32 result occupies a pointer-sized (8-byte) value-stack slot, but
-        // only its low 32 bits hold the value; the result slot expects a 32-bit
-        // value at offset 0 (the constant path stores it with store32). loadPtr
-        // reads the value into the low word of |temp| on both endiannesses, so
-        // store the low word.
-        masm.store32(temp, Address(sp_, destOffset));
-      } else {
-        masm.storePtr(temp, Address(sp_, destOffset));
-      }
+      masm.storePtr(temp, Address(sp_, destOffset));
       destOffset += sizeof(intptr_t);
       srcOffset += sizeof(intptr_t);
       bytes -= sizeof(intptr_t);
@@ -1095,10 +1066,6 @@ class BaseStackFrame final : public BaseStackFrameAllocator {
     static_assert(StackSizeOfPtr == 4);
     store32BitsToStack(int32_t(imm), destHeight, temp);
 #endif
-  }
-
-  void storeImmediate32ToStack(int32_t imm, uint32_t destHeight, Register temp) {
-    store32BitsToStack(imm, destHeight, temp);
   }
 
   void storeImmediateI64ToStack(int64_t imm, uint32_t destHeight,

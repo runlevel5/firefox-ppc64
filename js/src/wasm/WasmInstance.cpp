@@ -235,7 +235,18 @@ static bool UnpackResults(JSContext* cx, const ValTypeVector& resultTypes,
     }
 #endif
     char* loc = stackResultsArea.value() + result.stackOffset();
-    if (!ToWebAssemblyValue(cx, rval, result.type(), loc, result_size == 8)) {
+    bool mustWrite64 = result_size == 8;
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // The wasm caller reads an i32 stack result from the low word of its
+    // pointer-sized slot, at byte offset +4. ToWebAssemblyValue's mustWrite64
+    // widening assumes little-endian layout, so write the 32-bit value
+    // directly at the right offset instead.
+    if (result.type().kind() == ValType::I32) {
+      loc += sizeof(int32_t);
+      mustWrite64 = false;
+    }
+#endif
+    if (!ToWebAssemblyValue(cx, rval, result.type(), loc, mustWrite64)) {
       return false;
     }
   }
@@ -3580,6 +3591,13 @@ bool wasm::ResultsToJSValue(JSContext* cx, ResultType type,
     const ABIResult& result = iter.cur();
     if (result.onStack()) {
       char* loc = stackResultsLoc.value() + result.stackOffset();
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      // An i32 stack result occupies a pointer-sized slot and is written as a
+      // 64-bit store, so its value is the low word at byte offset +4.
+      if (result.type().kind() == ValType::I32) {
+        loc += sizeof(int32_t);
+      }
+#endif
       if (!ToJSValue<DebugCodegenVal>(cx, loc, result.type(), &tmp, level)) {
         return false;
       }

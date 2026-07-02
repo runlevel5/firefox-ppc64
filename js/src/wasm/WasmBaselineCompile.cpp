@@ -1365,8 +1365,8 @@ void BaseCompiler::popStackResults(ABIResultIter& iter, StackHeight stackBase) {
       if (srcHeight <= destHeight) {
         break;
       }
-      fr.shuffleStackResultsTowardFP(srcHeight, destHeight, result.size(), temp,
-                                     result.type().kind() == ValType::I32);
+      fr.shuffleStackResultsTowardFP(srcHeight, destHeight, result.size(),
+                                     temp);
     }
   }
 
@@ -1390,8 +1390,8 @@ void BaseCompiler::popStackResults(ABIResultIter& iter, StackHeight stackBase) {
       if (srcHeight >= destHeight) {
         break;
       }
-      fr.shuffleStackResultsTowardSP(srcHeight, destHeight, result.size(), temp,
-                                     result.type().kind() == ValType::I32);
+      fr.shuffleStackResultsTowardSP(srcHeight, destHeight, result.size(),
+                                     temp);
     }
   }
 
@@ -1410,12 +1410,7 @@ void BaseCompiler::popStackResults(ABIResultIter& iter, StackHeight stackBase) {
     Stk& v = stk_.back();
     switch (v.kind()) {
       case Stk::ConstI32:
-#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-        // An i32 result occupies the low 4 bytes of its slot, which on
-        // big-endian is the high address word; a 64-bit store would leave the
-        // slot's low word -- the one the consumer reads -- zero. Store 32 bits.
-        fr.storeImmediate32ToStack(v.i32val_, resultHeight, temp);
-#elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
+#if defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
     defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
         fr.storeImmediatePtrToStack(v.i32val_, resultHeight, temp);
 #else
@@ -1445,12 +1440,6 @@ void BaseCompiler::popStackResults(ABIResultIter& iter, StackHeight stackBase) {
         break;
       default:
         MOZ_ASSERT(v.isMem());
-        // A non-shuffled (in-place) i32 stack result sits at offset +4 of its
-        // 8-byte slot on big-endian; the consumer reads offset 0, so move it.
-        if (result.type().kind() == ValType::I32 &&
-            uint32_t(v.offs()) == resultHeight) {
-          fr.normalizeI32StackResultInPlace(resultHeight, temp);
-        }
         break;
     }
     stk_.popBack();
