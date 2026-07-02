@@ -716,6 +716,10 @@ export class ChatConversation extends Conversation {
    * Takes a new prompt and generates LLM context messages before
    * adding new user prompt to messages.
    *
+   * SECURITY: each data source added here may carry private or untrusted
+   * content and MUST raise the matching SecurityProperties flag before commit(),
+   * and add a security test asserting the flags it sets.
+   *
    * @param {string} prompt - new user prompt
    * @param {?URL} pageUrl - The URL of the page when prompt was submitted
    * @param {UserRoleOpts} [userOpts]
@@ -803,6 +807,10 @@ export class ChatConversation extends Conversation {
    * Fetch real-time browser/tab data, render the prompt, mutate
    * `userMessage.content.userContext.realTimeContext` in place.
    *
+   * SECURITY: current-tab info is private, so it raises setPrivateData() when
+   * hasTabInfo is true. Context mentions inject only a URL and sanitized
+   * label, not page content, so they raise no flag.
+   *
    * @param {ChatMessage} userMessage
    * @param {object} [opts]
    * @param {ContextWebsite[]} [opts.contextMentions]
@@ -857,6 +865,9 @@ export class ChatConversation extends Conversation {
   /**
    * Fetch relevant memories, mutate
    * `userMessage.content.userContext.memoriesContext` in place.
+   *
+   * SECURITY: retrieved memories are private user data, so this raises
+   * setPrivateData() whenever memories are returned.
    *
    * @todo Bug2009434 Rename type and change enum to renamed values
    * @param {ChatMessage} userMessage
