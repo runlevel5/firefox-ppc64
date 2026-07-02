@@ -87,31 +87,13 @@ void Val::readFromHeapLocation(const void* loc) {
   memcpy(&cell_, loc, type_.size());
 }
 
-// Copy a non-ref Val's payload of `size` bytes from `cell` to a heap slot. A
-// v128 in a global slot is accessed by JIT code with the raw (unaligned) SIMD
-// load/store, so the slot holds the value in the canonical register byte order,
-// which on big-endian is the reverse of the value's little-endian image in the
-// cell. Scalars store their native value and need no swap.
-static void CopyValPayloadToHeap(const void* cell, size_t size, void* loc) {
-#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-  if (size == 16) {
-    const uint8_t* src = reinterpret_cast<const uint8_t*>(cell);
-    uint8_t* dst = reinterpret_cast<uint8_t*>(loc);
-    for (size_t i = 0; i < 16; i++) {
-      dst[i] = src[15 - i];
-    }
-    return;
-  }
-#endif
-  memcpy(loc, cell, size);
-}
-
 void Val::writeToHeapLocation(gc::Cell* owner, void* loc) const {
   if (isAnyRef()) {
     BarrieredSet(owner, loc, toAnyRef());
     return;
   }
-  CopyValPayloadToHeap(&cell_, type_.size(), loc);
+
+  memcpy(loc, &cell_, type_.size());
 }
 
 void Val::writeToTenuredHeapLocation(void* loc) const {
@@ -119,7 +101,8 @@ void Val::writeToTenuredHeapLocation(void* loc) const {
     BarrieredSet(false, loc, toAnyRef());
     return;
   }
-  CopyValPayloadToHeap(&cell_, type_.size(), loc);
+
+  memcpy(loc, &cell_, type_.size());
 }
 
 bool Val::fromJSValue(JSContext* cx, ValType targetType, HandleValue val,
