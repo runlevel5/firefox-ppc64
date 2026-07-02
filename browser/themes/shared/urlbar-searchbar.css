@@ -287,12 +287,32 @@ toolbar[inactive="true"] .urlbar,
 #searchbar {
   background-color: var(--urlbar-background-background-color);
   background-clip: border-box;
-  border: var(--urlbar-input-container-border);
   border-radius: var(--urlbar-border-radius);
+  outline: var(--urlbar-input-container-border);
+  outline-offset: calc(-1 * var(--urlbar-input-container-border-width));
   overflow: clip;
 
   &:focus-within {
     background-color: var(--urlbar-background-background-color-focused);
+    outline-color: var(--focus-outline-color);
+    outline-width: var(--urlbar-input-container-border-width-breakout);
+    outline-offset: calc(-1 * var(--urlbar-input-container-border-width-breakout));
+  }
+
+  @media not -moz-pref("browser.nova.enabled") {
+    outline: none;
+    border: var(--urlbar-input-container-border);
+
+    &:focus-within {
+      outline: var(--focus-outline);
+
+      /* We used --focus-outline above to inherit its width and style properties,
+         but we still want to use the theme's border-color.
+         --toolbar-field-border-color-focus is set equal to --focus-outline-color
+         on :root, but LWT themes can override this value. */
+      outline-color: var(--toolbar-field-border-color-focus);
+      border-color: transparent;
+    }
   }
 }
 
@@ -367,17 +387,6 @@ toolbar[inactive="true"] .urlbar,
   #urlbar:not([focused])[textoverflow="left"][domaindir="rtl"] > .urlbar-input-container > .urlbar-input-box > &:valid {
     visibility: visible;
   }
-}
-
-#searchbar:focus-within {
-  outline: var(--focus-outline);
-
-  /* We used --focus-outline above to inherit its width and style properties,
-     but we still want to use the theme's border-color.
-     --toolbar-field-border-color-focus is set equal to --focus-outline-color
-     on :root, but LWT themes can override this value. */
-  outline-color: var(--toolbar-field-border-color-focus);
-  border-color: transparent;
 }
 
 .urlbar:is([focused], [open]),
