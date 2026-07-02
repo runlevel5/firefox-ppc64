@@ -151,7 +151,27 @@ static EnterJitStatus JS_HAZ_JSNATIVE_CALLER EnterJit(JSContext* cx,
 bool js::jit::EnterInterpreterEntryTrampoline(uint8_t* code, JSContext* cx,
                                               RunState* state) {
   using EnterTrampolineCodePtr = bool (*)(JSContext* cx, RunState*);
+#if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
+    __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // PPC64 ELFv1: |code| is a raw JIT entry, but the compiler emits every
+  // function-pointer call as a descriptor dereference. Wrap it in a synthetic
+  // descriptor; see JitRuntime::enterJit.
+  static struct alignas(8) Descriptor {
+    void* entry;
+    void* toc;
+    void* env;
+  } desc;
+  if (!desc.toc) {
+    void* toc;
+    asm volatile("mr %0, 2" : "=r"(toc));
+    desc.env = nullptr;
+    desc.toc = toc;
+  }
+  desc.entry = code;
+  auto funcPtr = reinterpret_cast<EnterTrampolineCodePtr>(&desc);
+#else
   auto funcPtr = JS_DATA_TO_FUNC_PTR(EnterTrampolineCodePtr, code);
+#endif
   return CALL_GENERATED_2(funcPtr, cx, state);
 }
 
