@@ -386,19 +386,22 @@ toolbar[inactive="true"] .urlbar,
 }
 
 @media -moz-pref("browser.nova.enabled") {
-  .urlbar:not(moz-smartbar)[breakout] {
+  .urlbar:not(moz-smartbar) {
     > .urlbar-input-container {
-      height: var(--urlbar-height);
       outline: var(--urlbar-input-container-border);
       outline-offset: calc(-1 * var(--urlbar-input-container-border-width));
     }
 
-    &[breakout-extend] {
+    &[breakout] > .urlbar-input-container {
+      height: var(--urlbar-height);
+    }
+
+    &[breakout][breakout-extend] {
       height: auto;
     }
 
     &[focused] > .urlbar-input-container,
-    &[breakout-extend] > .urlbar-input-container {
+    &[breakout][breakout-extend] > .urlbar-input-container {
       outline-width: var(--urlbar-input-container-border-width-breakout);
       outline-offset: calc(-1 * var(--urlbar-input-container-border-width-breakout));
     }
