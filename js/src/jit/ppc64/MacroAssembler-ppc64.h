@@ -424,8 +424,11 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
       // No LR clobber, no embedded data — pure instruction sequence.
       uint32_t lo32 = (uint32_t)(imm.value);
       uint32_t hi32 = (uint32_t)(imm.value >> 32);
-      Register temp = (dest != SecondScratchReg) ? SecondScratchReg
-                                                 : SavedScratchRegister;
+      // The temp must be volatile in the C ABI: r16 leaked through code that
+      // is entered from C++ without an enterJit-style non-volatile save (the
+      // per-script interpreter entry trampolines). r0 is safe here since
+      // lis/ori/rldimi are computational (no base-register zero semantics).
+      Register temp = (dest != SecondScratchReg) ? SecondScratchReg : r0;
       m_buffer.ensureSpace(5 * sizeof(uint32_t));
       xs_lis(dest, (int16_t)(lo32 >> 16));
       as_ori(dest, dest, lo32 & 0xFFFF);
