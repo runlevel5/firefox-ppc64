@@ -1084,7 +1084,14 @@ class BaseStackFrame final : public BaseStackFrameAllocator {
     if (StackSizeOfFloat == 4) {
       store32BitsToStack(bits.i32, destHeight, temp);
     } else {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      // Readers load the f32 from the slot's first four bytes; place the
+      // value bits there.
+      store64BitsToStack(int64_t(uint64_t(uint32_t(bits.i32)) << 32),
+                         destHeight, temp);
+#else
       store64BitsToStack(uint32_t(bits.i32), destHeight, temp);
+#endif
     }
   }
 
