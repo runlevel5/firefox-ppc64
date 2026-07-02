@@ -12,6 +12,7 @@ from support.addons import get_internal_addon_id
 from tests.support.classic.asserts import assert_error, assert_success
 from tests.support.helpers import get_base64_for_extension_file
 from tests.support.sync import Poll
+from webdriver.error import NoSuchWindowException
 
 from ..addon_install import install_addon, uninstall_addon
 from . import navigate_to
@@ -63,7 +64,10 @@ def install_new_tab_extension(session):
 
         return False
 
-    wait = Poll(session, timeout=5)
+    # Bug 2051944 - On Android the extension's page might be loaded
+    # with a delay, causing the retrieval of the URL to fail due to
+    # a non-existent currentWindowGlobal.
+    wait = Poll(session, timeout=5, ignored_exceptions=NoSuchWindowException)
     ext_handle, ext_url = wait.until(find_extension_tab)
 
     session.window_handle = original_handle
