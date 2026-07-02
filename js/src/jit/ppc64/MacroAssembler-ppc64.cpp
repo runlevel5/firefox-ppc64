@@ -601,15 +601,16 @@ void MacroAssembler::call(ImmPtr target) {
 CodeOffset MacroAssembler::call(wasm::SymbolicAddress target) {
   movePtr(target, CallReg);
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-  // ELFv1: a SymbolicAddress (a C function) resolves to a {entry,toc,env}
-  // function descriptor, not a raw code entry. call(Register) uses the ELFv2
-  // convention (branch straight to the address), which on ELFv1 would branch
-  // into the descriptor's non-executable data. Dereference it like the
-  // callWithABI sites do.
-  return callABIDescriptorELFv1(CallReg);
-#else
-  return call(CallReg);
+  // ELFv1: a non-thunked SymbolicAddress (a C function) resolves to a
+  // {entry,toc,env} function descriptor, not a raw code entry, so it must be
+  // dereferenced like the callWithABI sites do. Thunked symbols are patched
+  // to the builtin thunk, which is raw JIT code; the dance would jump to its
+  // first eight instruction bytes read as an address.
+  if (!wasm::NeedsBuiltinThunk(target)) {
+    return callABIDescriptorELFv1(CallReg);
+  }
 #endif
+  return call(CallReg);
 }
 
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
