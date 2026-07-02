@@ -48,32 +48,32 @@ data class WebCompatReporterState(
     enum class BrokenSiteReason(
         @param:StringRes val displayStringId: Int,
     ) {
+        NotSupported(
+            displayStringId = R.string.webcompat_reporter_reason_notsupported_2,
+        ),
         Load(
             displayStringId = R.string.webcompat_reporter_reason_load,
-        ),
-        Checkout(
-            displayStringId = R.string.webcompat_reporter_reason_checkout,
-        ),
-        Slow(
-            displayStringId = R.string.webcompat_reporter_reason_slow2,
         ),
         Media(
             displayStringId = R.string.webcompat_reporter_reason_media2,
         ),
+        DeceptiveSite(
+            displayStringId = R.string.webcompat_reporter_reason_site_is_deceptive,
+        ),
         Content(
             displayStringId = R.string.webcompat_reporter_reason_content2,
+        ),
+        Slow(
+            displayStringId = R.string.webcompat_reporter_reason_slow2,
+        ),
+        Checkout(
+            displayStringId = R.string.webcompat_reporter_reason_checkout,
         ),
         Account(
             displayStringId = R.string.webcompat_reporter_reason_account2,
         ),
         AdBlocker(
             displayStringId = R.string.webcompat_reporter_reason_turn_off_adblocker,
-        ),
-        NotSupported(
-            displayStringId = R.string.webcompat_reporter_reason_notsupported_2,
-        ),
-        DeceptiveSite(
-            displayStringId = R.string.webcompat_reporter_reason_site_is_deceptive,
         ),
         Other(
             displayStringId = R.string.webcompat_reporter_reason_other,
