@@ -29,8 +29,14 @@ const ins = wasmEvalText(`(module
   (func (export "sext2") (result i64) (i64.extend_i32_s (i32x4.extract_lane 2 (call $v))))
 )`).exports;
 
-const mem = new Int32Array(ins.mem.buffer);
-function setLanes(a, b, c, d) { mem[0] = a; mem[1] = b; mem[2] = c; mem[3] = d; }
+// Wasm memory is little-endian, so write lanes with explicit byte order.
+const mem = new DataView(ins.mem.buffer);
+function setLanes(a, b, c, d) {
+  mem.setInt32(0, a, true);
+  mem.setInt32(4, b, true);
+  mem.setInt32(8, c, true);
+  mem.setInt32(12, d, true);
+}
 
 // Each lane = 0 surrounded by nonzero neighbours: ctz must be 32, never -1.
 setLanes(0, -1, -1, -1); assertEq(ins.ctz0(), 32);

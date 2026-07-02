@@ -1176,6 +1176,23 @@ function Zero(sz) {
     return 0n;
 }
 
+// Wasm memory is little-endian, so when JS and wasm both access the same
+// cell, do the JS access with an explicit byte order.
+function readMem(mem, i) {
+    let dv = new DataView(mem.buffer);
+    if (mem.BYTES_PER_ELEMENT == 4)
+        return dv.getInt32(i * 4, true);
+    return dv.getBigInt64(i * 8, true);
+}
+
+function writeMem(mem, i, v) {
+    let dv = new DataView(mem.buffer);
+    if (mem.BYTES_PER_ELEMENT == 4)
+        dv.setInt32(i * 4, v, true);
+    else
+        dv.setBigInt64(i * 8, v, true);
+}
+
 function testRead(ins, mem, LOC, prefix) {
     let r = 0;
     let SZ = mem.BYTES_PER_ELEMENT;
@@ -1185,28 +1202,28 @@ function testRead(ins, mem, LOC, prefix) {
     // Read in-bounds
 
     r = Random(SZ);
-    mem[LOC / SZ] = r;
+    writeMem(mem, LOC / SZ, r);
     assertEq(ins.exports[NM + "@0"](BigInt(LOC)), r);
     assertEq(ins.exports[NM + "/const@0"](), r);
 
-    mem[(len / SZ) - 1] = Zero(SZ);
+    writeMem(mem, (len / SZ) - 1, Zero(SZ));
     assertEq(ins.exports[NM + "@0"](BigInt(len - SZ)), Zero(SZ)); // Just barely in-bounds
 
     r = Random(SZ);
-    mem[(LOC + SMALL) / SZ] = r;
+    writeMem(mem, (LOC + SMALL) / SZ, r);
     assertEq(ins.exports[NM + "@small"](BigInt(LOC)), r);
     assertEq(ins.exports[NM + "/const@small"](), r);
 
     if (len >= LOC + BIG + SZ) {
         r = Random(SZ);
-        mem[(LOC + BIG) / SZ] = r;
+        writeMem(mem, (LOC + BIG) / SZ, r);
         assertEq(ins.exports[NM + "@big"](BigInt(LOC)), r);
         assertEq(ins.exports[NM + "/const@big"](), r);
     }
 
     if (len >= LOC + VAST + SZ) {
         r = Random(SZ);
-        mem[(LOC + VAST) / SZ] = r;
+        writeMem(mem, (LOC + VAST) / SZ, r);
         assertEq(ins.exports[NM + "@vast"](BigInt(LOC)), r);
         assertEq(ins.exports[NM + "/const@vast"](), r);
     }
@@ -1463,20 +1480,20 @@ function testAtomicRMW(ins, mem, LOC, op, fn) {
     let NM = op + "i" + (SZ * 8);
 
     [r,s] = Random2(SZ);
-    mem[LOC / SZ] = r;
+    writeMem(mem, LOC / SZ, r);
     assertEq(ins.exports[NM + "@0"](BigInt(LOC), s), r);
-    assertEq(mem[LOC / SZ], fn(r, s));
+    assertEq(readMem(mem, LOC / SZ), fn(r, s));
 
     [r,s] = Random2(SZ);
-    mem[(LOC + SMALL) / SZ] = r;
+    writeMem(mem, (LOC + SMALL) / SZ, r);
     assertEq(ins.exports[NM + "@small"](BigInt(LOC), s), r);
-    assertEq(mem[(LOC + SMALL) / SZ], fn(r, s));
+    assertEq(readMem(mem, (LOC + SMALL) / SZ), fn(r, s));
 
     if (len >= LOC + BIG + SZ) {
         [r,s] = Random2(SZ);
-        mem[(LOC + BIG) / SZ] = r;
+        writeMem(mem, (LOC + BIG) / SZ, r);
         assertEq(ins.exports[NM + "@big"](BigInt(LOC), s), r);
-        assertEq(mem[(LOC + BIG) / SZ], fn(r, s));
+        assertEq(readMem(mem, (LOC + BIG) / SZ), fn(r, s));
     }
 
 
@@ -1502,23 +1519,23 @@ function testAtomicCmpxchg(ins, mem, LOC) {
     let NM = "cmpxchgi" + (SZ * 8);
 
     [r,s] = Random2(SZ);
-    mem[LOC / SZ] = r;
+    writeMem(mem, LOC / SZ, r);
     assertEq(ins.exports[NM + "@0"](BigInt(LOC), Zero(SZ), s), r);
     assertEq(ins.exports[NM + "@0"](BigInt(LOC), r, s), r);
-    assertEq(mem[LOC / SZ], s);
+    assertEq(readMem(mem, LOC / SZ), s);
 
     [r,s] = Random2(SZ);
-    mem[(LOC + SMALL) / SZ] = r;
+    writeMem(mem, (LOC + SMALL) / SZ, r);
     assertEq(ins.exports[NM + "@0"](BigInt(LOC + SMALL), Zero(SZ), s), r);
     assertEq(ins.exports[NM + "@0"](BigInt(LOC + SMALL), r, s), r);
-    assertEq(mem[(LOC + SMALL) / SZ], s);
+    assertEq(readMem(mem, (LOC + SMALL) / SZ), s);
 
     if (len >= LOC + BIG + SZ) {
         [r,s] = Random2(SZ);
-        mem[(LOC + BIG) / SZ] = r;
+        writeMem(mem, (LOC + BIG) / SZ, r);
         assertEq(ins.exports[NM + "@0"](BigInt(LOC + BIG), Zero(SZ), s), r);
         assertEq(ins.exports[NM + "@0"](BigInt(LOC + BIG), r, s), r);
-        assertEq(mem[(LOC + BIG) / SZ], s);
+        assertEq(readMem(mem, (LOC + BIG) / SZ), s);
     }
 
     assertErrorMessage(() => ins.exports[NM + "@0"](BigInt(len), Zero(SZ), Zero(SZ)),
