@@ -5,6 +5,7 @@
 plugins {
     id 'com.android.library'
     alias(libs.plugins.dependency.analysis)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -30,6 +31,7 @@ dependencies {
     implementation libs.androidx.lifecycle.process
     implementation libs.androidx.work.runtime
     implementation libs.kotlinx.coroutines
+    implementation libs.kotlinx.serialization.json
 
     testImplementation project(':components:support-test')
     testImplementation project(':components:support-test-libstate')
