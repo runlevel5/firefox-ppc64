@@ -434,8 +434,15 @@ static void SetupABIArguments(MacroAssembler& masm, const FuncExport& fe,
         switch (type) {
           case MIRType::Int32:
             masm.load32(src, scratch);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            // The callee reads an i32 stack argument as 32 bits at the slot
+            // offset; a 64-bit store would put the value in the wrong word.
+            masm.store32(scratch, Address(masm.getStackPointer(),
+                                          iter->offsetFromArgBase()));
+#else
             masm.storePtr(scratch, Address(masm.getStackPointer(),
                                            iter->offsetFromArgBase()));
+#endif
             break;
           case MIRType::Int64: {
             RegisterOrSP sp = masm.getStackPointer();
