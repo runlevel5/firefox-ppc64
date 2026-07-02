@@ -414,6 +414,12 @@ static void SetupABIArguments(MacroAssembler& masm, const FuncExport& fe,
             // wasmLosslessInvoke, and is guarded against in normal JS-API
             // call paths.
             masm.loadUnalignedSimd128(src, iter->fpu());
+#  if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
+      __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            // The ExportArg slot holds the little-endian image; byte-reverse
+            // the raw load into the canonical register value.
+            masm.as_xxbrq(iter->fpu(), iter->fpu());
+#  endif
             break;
 #else
             MOZ_CRASH("V128 not supported in SetupABIArguments");
@@ -462,6 +468,13 @@ static void SetupABIArguments(MacroAssembler& masm, const FuncExport& fe,
             // call paths.
             ScratchSimd128Scope fpscratch(masm);
             masm.loadUnalignedSimd128(src, fpscratch);
+#  if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
+      __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            // The ExportArg slot holds the little-endian image, but a v128
+            // stack argument slot holds the raw store of the canonical value;
+            // byte-reverse in between.
+            masm.as_xxbrq(fpscratch, fpscratch);
+#  endif
             masm.storeUnalignedSimd128(
                 fpscratch,
                 Address(masm.getStackPointer(), iter->offsetFromArgBase()));
@@ -505,7 +518,18 @@ static void StoreRegisterResult(MacroAssembler& masm, const FuncExport& fe,
           break;
         case ValType::V128:
 #ifdef ENABLE_WASM_SIMD
+#  if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
+      __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+          // The result slot holds the little-endian image; byte-reverse the
+          // canonical register value before the raw store.
+          {
+            ScratchSimd128Scope fpscratch(masm);
+            masm.as_xxbrq(fpscratch, result.fpr());
+            masm.storeUnalignedSimd128(fpscratch, Address(loc, 0));
+          }
+#  else
           masm.storeUnalignedSimd128(result.fpr(), Address(loc, 0));
+#  endif
           break;
 #else
           MOZ_CRASH("V128 not supported in StoreABIReturn");
