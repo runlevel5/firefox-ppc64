@@ -646,8 +646,9 @@ static bool GenerateInterpEntry(MacroAssembler& masm, const FuncExport& fe,
 
   // Save the return address if it wasn't already saved by the call insn.
 #ifdef JS_USE_LINK_REGISTER
-#  if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS64) || \
-      defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64)
+#  if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS64) ||      \
+      defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64) || \
+      defined(JS_CODEGEN_PPC64)
   masm.pushReturnAddress();
 #  elif defined(JS_CODEGEN_ARM64)
   // WasmPush updates framePushed() unlike pushReturnAddress(), but that's
@@ -2123,9 +2124,10 @@ static bool GenerateImportInterpExit(MacroAssembler& masm, const FuncImport& fi,
   // The native ABI preserves the instance, heap and global registers since they
   // are non-volatile.
   MOZ_ASSERT(NonVolatileRegs.has(InstanceReg));
-#if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM) ||      \
-    defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS64) || \
-    defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64)
+#if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM) ||         \
+    defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS64) ||    \
+    defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64) || \
+    defined(JS_CODEGEN_PPC64)
   MOZ_ASSERT(NonVolatileRegs.has(HeapReg));
 #endif
 
@@ -2572,6 +2574,15 @@ bool wasm::GenerateBuiltinThunk(MacroAssembler& masm, ABIFunctionType abiType,
         }
       }
 #endif
+#ifdef JS_CODEGEN_PPC64
+      // PPC64 32-bit operations do not zero-extend to 64 bits (unlike
+      // x86-64/ARM64/LA64). The ELFv2 ABI requires callers to zero/sign-extend
+      // narrow args. Wasm i32 values may have garbage upper bits in 64-bit
+      // registers, so zero-extend them before calling C++ builtins.
+      if (selfArgs.mirType() == MIRType::Int32) {
+        masm.move32ZeroExtendToPtr(selfArgs->gpr(), selfArgs->gpr());
+      }
+#endif
       continue;
     }
 
@@ -2658,6 +2669,28 @@ static const LiveRegisterSet RegsToPreserve(
     FloatRegisterSet(FloatRegisters::AllDoubleMask));
 #  ifdef ENABLE_WASM_SIMD
 #    error "high lanes of SIMD registers need to be saved too."
+#  endif
+#elif defined(JS_CODEGEN_PPC64)
+// Exclude r0 (ScratchRegister, not allocatable, special addressing semantics),
+// r1 (SP), r2 (TOC pointer, reserved), and r13 (TLS pointer, reserved).
+static const LiveRegisterSet RegsToPreserve(
+    GeneralRegisterSet(Registers::AllMask & ~((uint32_t(1) << Registers::r0) |
+                                              (uint32_t(1) << Registers::r1) |
+                                              (uint32_t(1) << Registers::r2) |
+                                              (uint32_t(1) << Registers::r13))),
+#  ifdef ENABLE_WASM_SIMD
+    // Unlike ARM64, where the vector registers alias the doubles, PPC64
+    // doubles live in the FPRs (VSR0-31) while wasm v128 values live in the
+    // VRs (VSR32-63) -- two disjoint physical pools, so both must be
+    // preserved. Saving only the doubles loses the entire live v128 state: a
+    // trap firing while a v128 is live (notably the interrupt-check trap,
+    // which fires constantly in hot loops) resumes with whatever the C++
+    // handler's libc left in the VRs (e.g. glibc's vector memcpy leaves lvsl
+    // alignment-control patterns in low VRs).
+    FloatRegisterSet(FloatRegisters::AllDoubleMask |
+                     FloatRegisters::AllSimd128Mask));
+#  else
+    FloatRegisterSet(FloatRegisters::AllDoubleMask));
 #  endif
 #elif defined(JS_CODEGEN_ARM64)
 // We assume that traps do not happen while lr is live. This both ensures that

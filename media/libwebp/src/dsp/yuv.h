@@ -183,6 +183,27 @@ void VP8YuvToRgb56532_SSE2(const uint8_t* WEBP_RESTRICT y,
 #endif    // WEBP_USE_SSE2
 
 //-----------------------------------------------------------------------------
+// VSX extra functions (mostly for upsampling_vsx.c)
+
+#if defined(WEBP_USE_VSX)
+
+// Process 32 pixels and store the 32b-per-pixel result in *dst.
+void VP8YuvToRgba32_VSX(const uint8_t* WEBP_RESTRICT y,
+                        const uint8_t* WEBP_RESTRICT u,
+                        const uint8_t* WEBP_RESTRICT v,
+                        uint8_t* WEBP_RESTRICT dst);
+void VP8YuvToBgra32_VSX(const uint8_t* WEBP_RESTRICT y,
+                        const uint8_t* WEBP_RESTRICT u,
+                        const uint8_t* WEBP_RESTRICT v,
+                        uint8_t* WEBP_RESTRICT dst);
+void VP8YuvToArgb32_VSX(const uint8_t* WEBP_RESTRICT y,
+                        const uint8_t* WEBP_RESTRICT u,
+                        const uint8_t* WEBP_RESTRICT v,
+                        uint8_t* WEBP_RESTRICT dst);
+
+#endif    // WEBP_USE_VSX
+
+//-----------------------------------------------------------------------------
 // SSE41 extra functions (mostly for upsampling_sse41.c)
 
 #if defined(WEBP_USE_SSE41)

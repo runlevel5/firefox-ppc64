@@ -207,6 +207,7 @@ extern void WebPRescalerDspInitMIPS32(void);
 extern void WebPRescalerDspInitMIPSdspR2(void);
 extern void WebPRescalerDspInitMSA(void);
 extern void WebPRescalerDspInitNEON(void);
+extern void WebPRescalerDspInitVSX(void);
 
 WEBP_DSP_INIT_FUNC(WebPRescalerDspInit) {
 #if !defined(WEBP_REDUCE_SIZE)
@@ -237,6 +238,11 @@ WEBP_DSP_INIT_FUNC(WebPRescalerDspInit) {
 #if defined(WEBP_USE_MSA)
     if (VP8GetCPUInfo(kMSA)) {
       WebPRescalerDspInitMSA();
+    }
+#endif
+#if defined(WEBP_HAVE_VSX)
+    if (VP8GetCPUInfo(kVSX)) {
+      WebPRescalerDspInitVSX();
     }
 #endif
   }

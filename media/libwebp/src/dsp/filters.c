@@ -217,6 +217,7 @@ extern void VP8FiltersInitMIPSdspR2(void);
 extern void VP8FiltersInitMSA(void);
 extern void VP8FiltersInitNEON(void);
 extern void VP8FiltersInitSSE2(void);
+extern void VP8FiltersInitVSX(void);
 
 WEBP_DSP_INIT_FUNC(VP8FiltersInit) {
   WebPUnfilters[WEBP_FILTER_NONE] = NoneUnfilter_C;
@@ -247,6 +248,11 @@ WEBP_DSP_INIT_FUNC(VP8FiltersInit) {
 #if defined(WEBP_USE_MSA)
     if (VP8GetCPUInfo(kMSA)) {
       VP8FiltersInitMSA();
+    }
+#endif
+#if defined(WEBP_HAVE_VSX)
+    if (VP8GetCPUInfo(kVSX)) {
+      VP8FiltersInitVSX();
     }
 #endif
   }
