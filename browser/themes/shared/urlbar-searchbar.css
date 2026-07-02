@@ -329,6 +329,11 @@ toolbar[inactive="true"] .urlbar,
   outline: none;
 }
 
+.urlbar-input::selection {
+  /* urlbar and searchbar */
+  border-radius: var(--urlbar-selection-border-radius);
+}
+
 #urlbar-input {
   mask-repeat: no-repeat;
   unicode-bidi: plaintext;
@@ -368,10 +373,6 @@ toolbar[inactive="true"] .urlbar,
   }
   .urlbar:not([focused])[textoverflow="left"][domaindir="rtl"] > .urlbar-input-container > .urlbar-input-box > & {
     mask-image: linear-gradient(to right, transparent var(--urlbar-scheme-size), black calc(var(--urlbar-scheme-size) + 3ch));
-  }
-
-  &::selection {
-    border-radius: var(--urlbar-selection-border-radius);
   }
 }
 
@@ -759,7 +760,8 @@ toolbar[inactive="true"] .urlbar,
 #urlbar-revert-button-container,
 .urlbar-page-action,
 .urlbar-go-button,
-.search-go-button {
+.search-go-button,
+.urlbar-input::-moz-search-clear-button {
   width: var(--urlbar-basic-component-size);
   height: var(--urlbar-basic-component-size);
   border-radius: var(--urlbar-inner-border-radius);
@@ -781,6 +783,23 @@ toolbar[inactive="true"] .urlbar,
     color: var(--urlbar-box-text-color-hover);
     outline-color: var(--toolbarbutton-outline-color-active);
   }
+}
+
+.urlbar-input::-moz-search-clear-button {
+  /* Overrides forms.css */
+  padding: 0;
+}
+
+.urlbar-input::-moz-search-clear-button:hover {
+  background-color: var(--urlbar-box-background-color-hover);
+  color: var(--urlbar-box-text-color-hover);
+  outline-color: var(--toolbarbutton-outline-color-hover);
+}
+
+.urlbar-input::-moz-search-clear-button:hover:active {
+  background-color: var(--urlbar-box-background-color-active);
+  color: var(--urlbar-box-text-color-hover);
+  outline-color: var(--toolbarbutton-outline-color-active);
 }
 
 .urlbar-page-action {
