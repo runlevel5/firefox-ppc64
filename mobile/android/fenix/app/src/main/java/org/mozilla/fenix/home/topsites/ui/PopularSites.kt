@@ -47,8 +47,7 @@ import org.mozilla.fenix.home.topsites.store.PopularSite
 import org.mozilla.fenix.theme.FirefoxTheme
 import mozilla.components.ui.icons.R as iconsR
 
-private const val BADGE_SIZE = 20
-private const val BADGE_BORDER_WIDTH = 2
+private const val BADGE_SIZE = 16
 private const val PREVIEW_SITE_COUNT = 8
 
 @Composable
@@ -138,7 +137,11 @@ private fun FaviconCard(
         modifier = modifier.size(TOP_SITES_FAVICON_CARD_SIZE.dp),
         shape = CircleShape,
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceDim,
+            containerColor = MaterialTheme.colorScheme.surface,
+        ),
+        border = BorderStroke(
+            width = FirefoxTheme.layout.border.thin,
+            color = MaterialTheme.colorScheme.outlineVariant,
         ),
     ) {
         Box(
@@ -166,11 +169,11 @@ private fun AddBadge() {
         modifier = Modifier.size(BADGE_SIZE.dp),
         shape = CircleShape,
         border = BorderStroke(
-            width = BADGE_BORDER_WIDTH.dp,
-            color = MaterialTheme.colorScheme.surfaceBright,
+            width = FirefoxTheme.layout.border.normal,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
         ),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceDim,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
         ),
     ) {
         Box(
