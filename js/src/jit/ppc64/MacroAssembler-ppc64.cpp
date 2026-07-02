@@ -3521,18 +3521,20 @@ void MacroAssemblerPPC64Compat::wasmLoadImpl(
         // through ScratchDoubleReg (FPR f0, encoding 0).
         ScratchDoubleScope dscratch(asMasm());
         as_lfdx(dscratch, memoryBase, ptr);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+        // wasm memory is little-endian, so reload the 8 bytes byte-reversed
+        // (the lfdx above is overwritten on big-endian but keeps the trap
+        // site). mtvsrd places the value in dw0 exactly like lfdx, so the
+        // xxpermdi shuffles below are unchanged.
+        {
+          UseScratchRegisterScope temps(asMasm());
+          Register tmp = temps.Acquire();
+          as_ldbrx(tmp, memoryBase, ptr);
+          as_mtvsrd(dscratch, tmp);
+        }
+#endif
         if (access.isZeroExtendSimd128Load()) {
           // Loaded value goes to BE dw1 (= LE dw0 = lane 0); BE dw0 = 0.
-          // wasm memory is little-endian, so reload the 8 bytes byte-reversed
-          // (the lfdx above is overwritten on big-endian).
-#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-          {
-            UseScratchRegisterScope temps(asMasm());
-            Register tmp = temps.Acquire();
-            as_ldbrx(tmp, memoryBase, ptr);
-            as_mtvsrd(dscratch, tmp);
-          }
-#endif
           as_xxlxor(ScratchSimd128Reg, ScratchSimd128Reg, ScratchSimd128Reg);
           as_xxpermdi(output.fpu(), ScratchSimd128Reg, dscratch, 0);
         } else if (access.isSplatSimd128Load()) {
