@@ -249,6 +249,15 @@ static bool UnpackResults(JSContext* cx, const ValTypeVector& resultTypes,
     if (!ToWebAssemblyValue(cx, rval, result.type(), loc, mustWrite64)) {
       return false;
     }
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // The baseline compiler pops the whole slot and asserts it holds a
+    // canonical sign-extended value, so widen in place.
+    if (result.type().kind() == ValType::I32 && result_size == 8) {
+      char* slot = loc - sizeof(int32_t);
+      int64_t wide = *reinterpret_cast<int32_t*>(loc);
+      memcpy(slot, &wide, sizeof(wide));
+    }
+#endif
   }
 
   return true;
