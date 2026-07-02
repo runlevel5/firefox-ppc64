@@ -5747,7 +5747,13 @@ void MacroAssembler::minMaxArrayNumber(Register array, FloatRegister result,
 void MacroAssembler::loadRegExpLastIndex(Register regexp, Register string,
                                          Register lastIndex,
                                          Label* notFoundZeroLastIndex) {
+  // The flags are stored as an Int32Value and only ever tested with 32-bit
+  // loads; on big-endian the payload is in the high-address half of the slot.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  Address flagsSlot(regexp, RegExpObject::offsetOfFlags() + sizeof(int32_t));
+#else
   Address flagsSlot(regexp, RegExpObject::offsetOfFlags());
+#endif
   Address lastIndexSlot(regexp, RegExpObject::offsetOfLastIndex());
   Address stringLength(string, JSString::offsetOfLength());
 

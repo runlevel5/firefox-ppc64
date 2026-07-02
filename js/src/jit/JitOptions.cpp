@@ -168,15 +168,7 @@ DefaultJitOptions::DefaultJitOptions() {
   SET_DEFAULT(jitForTrustedPrincipals, false);
 
   // Whether the RegExp JIT is enabled.
-#if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
-    __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-  // The regexp JIT codegen is not yet ported to big-endian PPC64 (the ELFv1
-  // entry call and the compiled code's internal control flow need work); use
-  // the portable regexp interpreter until that lands.
-  SET_DEFAULT(nativeRegExp, false);
-#else
   SET_DEFAULT(nativeRegExp, true);
-#endif
 
   // Whether offthread baseline compilation should be batched.
   SET_DEFAULT(baselineBatching, false);

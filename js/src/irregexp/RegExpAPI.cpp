@@ -884,7 +884,28 @@ RegExpRunStatus ExecuteRaw(jit::JitCode* code, const CharT* chars,
                 v8::internal::RegExp::kInternalRegExpFailure);
 
   using RegExpCodeSignature = int (*)(InputOutputData*);
+#if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
+    __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // PPC64 ELFv1: |code->raw()| is a raw JIT entry, but the compiler emits
+  // every function-pointer call as a descriptor dereference. Wrap it in a
+  // synthetic per-call descriptor; see EnterInterpreterEntryTrampoline. The
+  // asm barrier forces the descriptor to be stored before the call, since
+  // the compiler cannot see the dereference through the cast.
+  struct alignas(8) Descriptor {
+    void* entry;
+    void* toc;
+    void* env;
+  } desc;
+  void* toc;
+  asm volatile("mr %0, 2" : "=r"(toc));
+  desc.entry = code->raw();
+  desc.toc = toc;
+  desc.env = nullptr;
+  auto function = reinterpret_cast<RegExpCodeSignature>(&desc);
+  asm volatile("" : : "r"(&desc) : "memory");
+#else
   auto function = reinterpret_cast<RegExpCodeSignature>(code->raw());
+#endif
   {
     JS::AutoSuppressGCAnalysis nogc;
     return (RegExpRunStatus)CALL_GENERATED_1(function, &data);

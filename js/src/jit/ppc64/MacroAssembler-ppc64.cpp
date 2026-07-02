@@ -1262,6 +1262,19 @@ void MacroAssembler::callWithABINoProfiler(Register fun, ABIType result) {
   callWithABIPost(stackAdjust, result);
 }
 
+void MacroAssembler::callWithABIJitCode(Register fun, ABIType result) {
+  AutoProfilerCallInstrumentation profiler(*this);
+  UseScratchRegisterScope temps(asMasm());
+  Register scratch = temps.Acquire();
+  movePtr(fun, scratch);
+
+  uint32_t stackAdjust;
+  callWithABIPre(&stackAdjust);
+  // The target is JIT code, never an ELFv1 descriptor, on either endianness.
+  call(scratch);
+  callWithABIPost(stackAdjust, result);
+}
+
 // ===============================================================
 // Additional arithmetic helpers.
 

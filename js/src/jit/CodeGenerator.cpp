@@ -2528,7 +2528,13 @@ static bool PrepareAndExecuteRegExp(MacroAssembler& masm, Register regexp,
   codePointer = temp3;
 #endif
   masm.passABIArg(temp2);
+#if defined(JS_CODEGEN_PPC64)
+  // The regexp code pointer is a raw JIT entry, not an ELFv1 function
+  // descriptor, so it must not be called through the descriptor path.
+  masm.callWithABIJitCode(codePointer);
+#else
   masm.callWithABI(codePointer);
+#endif
   masm.storeCallInt32Result(temp1);
   masm.PopRegsInMask(volatileRegs);
 
@@ -2919,7 +2925,13 @@ static JitCode* GenerateRegExpMatchStubShared(JSContext* cx,
     maybeTemp5 = regs.takeAny();
   }
 
+  // The flags are stored as an Int32Value and only ever tested with 32-bit
+  // loads; on big-endian the payload is in the high-address half of the slot.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  Address flagsSlot(regexp, RegExpObject::offsetOfFlags() + sizeof(int32_t));
+#else
   Address flagsSlot(regexp, RegExpObject::offsetOfFlags());
+#endif
   Address lastIndexSlot(regexp, RegExpObject::offsetOfLastIndex());
 
   TempAllocator temp(&cx->tempLifoAlloc());
@@ -3518,7 +3530,13 @@ JitCode* JitZone::generateRegExpExecTestStub(JSContext* cx) {
   Register temp2 = regs.takeAny();
   Register temp3 = regs.takeAny();
 
+  // The flags are stored as an Int32Value and only ever tested with 32-bit
+  // loads; on big-endian the payload is in the high-address half of the slot.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  Address flagsSlot(regexp, RegExpObject::offsetOfFlags() + sizeof(int32_t));
+#else
   Address flagsSlot(regexp, RegExpObject::offsetOfFlags());
+#endif
   Address lastIndexSlot(regexp, RegExpObject::offsetOfLastIndex());
 
   // Load lastIndex and skip RegExp execution if needed.
