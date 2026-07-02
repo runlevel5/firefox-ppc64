@@ -1557,7 +1557,12 @@ void CodeGenerator::visitWrapInt64ToInt32(LWrapInt64ToInt32* lir) {
 
   if (lir->mir()->bottomHalf()) {
     if (input.value().isMemory()) {
-      masm.load32(ToAddress(input), output);
+      Address addr = ToAddress(input);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      // The low word of the spilled 64-bit value is at byte offset +4.
+      addr = Address(addr.base, addr.offset + sizeof(int32_t));
+#endif
+      masm.load32(addr, output);
     } else {
       masm.move64To32(ToRegister64(input), output);
     }
