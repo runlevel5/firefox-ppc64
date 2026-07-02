@@ -1190,7 +1190,13 @@ static bool GenerateJitEntry(MacroAssembler& masm, size_t funcExportIndex,
         masm.unboxInt32(argv, target);
         GenPrintIsize(DebugChannel::Function, masm, target);
         if (isStackArg) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+          // Callees read i32 stack arguments as 32 bits at the slot offset; a
+          // 64-bit store would put the value in the wrong word.
+          masm.store32(target, Address(sp, iter->offsetFromArgBase()));
+#else
           masm.storePtr(target, Address(sp, iter->offsetFromArgBase()));
+#endif
         }
         break;
       }
