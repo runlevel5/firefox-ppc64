@@ -3140,7 +3140,9 @@ void CodeGenerator::visitWasmPermuteSimd128(LWasmPermuteSimd128* ins) {
       break;
     }
     case SimdPermuteOp::BROADCAST_16x8: {
-      uint8_t lane = reinterpret_cast<const int8_t*>(ctrl.bytes())[0];
+      // control has int16 halfword indices; a byte-sized read of element 0
+      // would pick up the wrong half on big-endian.
+      uint8_t lane = uint8_t(ctrl.asInt16x8()[0] & 0x7);
       for (int i = 0; i < 8; i++) {
         rawLanes[i * 2] = lane * 2;
         rawLanes[i * 2 + 1] = lane * 2 + 1;
