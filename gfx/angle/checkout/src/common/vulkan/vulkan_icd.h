@@ -20,11 +20,6 @@ namespace angle
 namespace vk
 {
 
-// The minimum version of Vulkan that ANGLE requires.  If an instance or device below this version
-// is encountered, initialization will skip the device if possible, or if no other suitable device
-// is available then initialization will fail.
-constexpr uint32_t kMinimumVulkanAPIVersion = VK_API_VERSION_1_1;
-
 enum class ICD
 {
     Default,
@@ -41,16 +36,17 @@ struct SimpleDisplayWindow
 class [[nodiscard]] ScopedVkLoaderEnvironment : angle::NonCopyable
 {
   public:
-    ScopedVkLoaderEnvironment(bool enableDebugLayers, vk::ICD icd);
+    ScopedVkLoaderEnvironment(bool enableValidationLayers, vk::ICD icd);
     ~ScopedVkLoaderEnvironment();
 
-    bool canEnableDebugLayers() const { return mEnableDebugLayers; }
+    bool canEnableValidationLayers() const { return mEnableValidationLayers; }
     vk::ICD getEnabledICD() const { return mICD; }
 
   private:
     bool setICDEnvironment(const char *icd);
+    bool setCustomExtensionsEnvironment();
 
-    bool mEnableDebugLayers;
+    bool mEnableValidationLayers;
     vk::ICD mICD;
     bool mChangedCWD;
     Optional<std::string> mPreviousCWD;
@@ -61,18 +57,13 @@ class [[nodiscard]] ScopedVkLoaderEnvironment : angle::NonCopyable
     Optional<std::string> mPreviousNoDeviceSelectEnv;
 };
 
-void ChoosePhysicalDevice(PFN_vkGetPhysicalDeviceProperties2 pGetPhysicalDeviceProperties2,
+void ChoosePhysicalDevice(PFN_vkGetPhysicalDeviceProperties pGetPhysicalDeviceProperties,
                           const std::vector<VkPhysicalDevice> &physicalDevices,
                           vk::ICD preferredICD,
                           uint32_t preferredVendorID,
                           uint32_t preferredDeviceID,
-                          const uint8_t *preferredDeviceUUID,
-                          const uint8_t *preferredDriverUUID,
-                          VkDriverId preferredDriverID,
                           VkPhysicalDevice *physicalDeviceOut,
-                          VkPhysicalDeviceProperties2 *physicalDeviceProperties2Out,
-                          VkPhysicalDeviceIDProperties *physicalDeviceIDPropertiesOut,
-                          VkPhysicalDeviceDriverProperties *physicalDeviceDriverPropertiesOut);
+                          VkPhysicalDeviceProperties *physicalDevicePropertiesOut);
 
 }  // namespace vk
 

@@ -14,9 +14,7 @@ int GetANGLERevision();
 const char *GetANGLEVersionString();
 const char *GetANGLECommitHash();
 int GetANGLECommitHashSize();
-const char *GetANGLEShaderProgramVersion();
-int GetANGLEShaderProgramVersionHashSize();
-int GetANGLESHVersion();
+bool GetANGLEHasBinaryLoading();
 }  // namespace angle
 
 #endif  // COMMON_VERSION_INFO_H_

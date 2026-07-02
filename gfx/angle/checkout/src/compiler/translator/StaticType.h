@@ -10,10 +10,6 @@
 #ifndef COMPILER_TRANSLATOR_STATIC_TYPE_H_
 #define COMPILER_TRANSLATOR_STATIC_TYPE_H_
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "compiler/translator/Types.h"
 
 namespace sh
@@ -139,7 +135,7 @@ static constexpr TType instance =
           qualifier,
           primarySize,
           secondarySize,
-          angle::Span<const unsigned int>(),
+          TSpan<const unsigned int>(),
           kMangledNameInstance<basicType, precision, qualifier, primarySize, secondarySize>.name);
 
 // Same as instance, but for array types.
@@ -156,7 +152,7 @@ static constexpr TType arrayInstance =
           qualifier,
           primarySize,
           secondarySize,
-          angle::Span<const unsigned int>(arraySizes, numArraySizes),
+          TSpan<const unsigned int>(arraySizes, numArraySizes),
           kMangledNameArrayInstance<basicType, precision, qualifier, primarySize, secondarySize, arraySizes, numArraySizes>.name);
 
 }  // namespace Helpers
@@ -221,7 +217,7 @@ template <TBasicType basicType,
           TQualifier qualifier,
           uint8_t primarySize   = 1,
           uint8_t secondarySize = 1>
-constexpr const TType *GetQualified()
+const TType *GetQualified()
 {
     return Get<basicType, precision, qualifier, primarySize, secondarySize>();
 }

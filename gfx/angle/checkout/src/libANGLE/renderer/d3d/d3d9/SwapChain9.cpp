@@ -62,7 +62,7 @@ void SwapChain9::release()
 
 static DWORD convertInterval(EGLint interval)
 {
-#if !ANGLE_VSYNC
+#if ANGLE_VSYNC == ANGLE_DISABLED
     return D3DPRESENT_INTERVAL_IMMEDIATE;
 #else
     switch (interval)
@@ -425,7 +425,7 @@ void *SwapChain9::getKeyedMutex()
 egl::Error SwapChain9::getSyncValues(EGLuint64KHR *ust, EGLuint64KHR *msc, EGLuint64KHR *sbc)
 {
     UNREACHABLE();
-    return egl::Error(EGL_BAD_SURFACE);
+    return egl::EglBadSurface();
 }
 
 void SwapChain9::recreate()

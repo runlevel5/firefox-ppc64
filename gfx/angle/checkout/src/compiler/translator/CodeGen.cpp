@@ -4,31 +4,29 @@
 // found in the LICENSE file.
 //
 
-#include "compiler/translator/null/TranslatorNULL.h"
-
 #ifdef ANGLE_ENABLE_ESSL
-#    include "compiler/translator/glsl/TranslatorESSL.h"
+#    include "compiler/translator/TranslatorESSL.h"
 #endif  // ANGLE_ENABLE_ESSL
 
 #ifdef ANGLE_ENABLE_GLSL
-#    include "compiler/translator/glsl/TranslatorGLSL.h"
+#    include "compiler/translator/TranslatorGLSL.h"
 #endif  // ANGLE_ENABLE_GLSL
 
 #ifdef ANGLE_ENABLE_HLSL
-#    include "compiler/translator/hlsl/TranslatorHLSL.h"
+#    include "compiler/translator/TranslatorHLSL.h"
 #endif  // ANGLE_ENABLE_HLSL
 
 #ifdef ANGLE_ENABLE_VULKAN
-#    include "compiler/translator/spirv/TranslatorSPIRV.h"
+#    include "compiler/translator/TranslatorVulkan.h"
 #endif  // ANGLE_ENABLE_VULKAN
 
 #ifdef ANGLE_ENABLE_METAL
-#    include "compiler/translator/msl/TranslatorMSL.h"
+#    include "compiler/translator/TranslatorMetalDirect.h"
 #endif  // ANGLE_ENABLE_METAL
 
-#ifdef ANGLE_ENABLE_WGPU
-#    include "compiler/translator/wgsl/TranslatorWGSL.h"
-#endif  // ANGLE_ENABLE_WGPU
+#ifdef ANGLE_ENABLE_METAL_SPIRV
+#    include "compiler/translator/TranslatorMetal.h"
+#endif  // ANGLE_ENABLE_METAL_SPIRV
 
 #include "compiler/translator/util.h"
 
@@ -42,11 +40,6 @@ namespace sh
 //
 TCompiler *ConstructCompiler(sh::GLenum type, ShShaderSpec spec, ShShaderOutput output)
 {
-    if (IsOutputNULL(output))
-    {
-        return new TranslatorNULL(type, spec);
-    }
-
 #ifdef ANGLE_ENABLE_ESSL
     if (IsOutputESSL(output))
     {
@@ -69,25 +62,24 @@ TCompiler *ConstructCompiler(sh::GLenum type, ShShaderSpec spec, ShShaderOutput 
 #endif  // ANGLE_ENABLE_HLSL
 
 #ifdef ANGLE_ENABLE_VULKAN
-    if (IsOutputSPIRV(output))
+    if (IsOutputVulkan(output))
     {
-        return new TranslatorSPIRV(type, spec);
+        return new TranslatorVulkan(type, spec);
     }
 #endif  // ANGLE_ENABLE_VULKAN
 
-#ifdef ANGLE_ENABLE_METAL
-    if (IsOutputMSL(output))
+#ifdef ANGLE_ENABLE_METAL_SPIRV
+    if (IsOutputMetal(output))
     {
-        return new TranslatorMSL(type, spec, output);
+        return new TranslatorMetal(type, spec);
+    }
+#endif
+#ifdef ANGLE_ENABLE_METAL
+    if (IsOutputMetalDirect(output))
+    {
+        return new TranslatorMetalDirect(type, spec, output);
     }
 #endif  // ANGLE_ENABLE_METAL
-
-#ifdef ANGLE_ENABLE_WGPU
-    if (IsOutputWGSL(output))
-    {
-        return new TranslatorWGSL(type, spec, output);
-    }
-#endif  // ANGLE_ENABLE_WGPU
 
     // Unsupported compiler or unknown format. Return nullptr per the sh::ConstructCompiler API.
     return nullptr;

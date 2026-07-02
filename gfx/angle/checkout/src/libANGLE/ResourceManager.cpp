@@ -30,23 +30,17 @@ namespace
 {
 
 template <typename ResourceType, typename IDType>
-bool AllocateEmptyObject(HandleAllocator *handleAllocator,
-                         ResourceMap<ResourceType, IDType> *objectMap,
-                         IDType *outID)
+IDType AllocateEmptyObject(HandleAllocator *handleAllocator,
+                           ResourceMap<ResourceType, IDType> *objectMap)
 {
-    if (!handleAllocator->allocate(&outID->value))
-    {
-        return false;
-    }
-    objectMap->assign(*outID, nullptr);
-    return true;
+    IDType handle = PackParam<IDType>(handleAllocator->allocate());
+    objectMap->assign(handle, nullptr);
+    return handle;
 }
 
 }  // anonymous namespace
 
-ResourceManagerBase::ResourceManagerBase()
-    : mHandleAllocator(IMPLEMENTATION_MAX_OBJECT_HANDLES), mRefCount(1)
-{}
+ResourceManagerBase::ResourceManagerBase() : mRefCount(1) {}
 
 ResourceManagerBase::~ResourceManagerBase() = default;
 
@@ -67,17 +61,14 @@ void ResourceManagerBase::release(const Context *context)
 template <typename ResourceType, typename ImplT, typename IDType>
 TypedResourceManager<ResourceType, ImplT, IDType>::~TypedResourceManager()
 {
-    using UnsafeResourceMapIterTyped = UnsafeResourceMapIter<ResourceType, IDType>;
-    ASSERT(UnsafeResourceMapIterTyped(mObjectMap).empty());
+    ASSERT(mObjectMap.empty());
 }
 
 template <typename ResourceType, typename ImplT, typename IDType>
 void TypedResourceManager<ResourceType, ImplT, IDType>::reset(const Context *context)
 {
-    // Note: this function is called when the last context in the share group is destroyed.  Thus
-    // there are no thread safety concerns.
     this->mHandleAllocator.reset();
-    for (const auto &resource : UnsafeResourceMapIter(mObjectMap))
+    for (const auto &resource : mObjectMap)
     {
         if (resource.second)
         {
@@ -97,13 +88,8 @@ void TypedResourceManager<ResourceType, ImplT, IDType>::deleteObject(const Conte
         return;
     }
 
-    // if `BindGeneratesResource` is disabled then we do not recycle the handle ID until the object
-    // has had the `onDestroy` method called.
-    if (!context->retainIdUntilObjectDestroyed())
-    {
-        // Requires an explicit this-> because of C++ template rules.
-        this->mHandleAllocator.release(GetIDValue(handle));
-    }
+    // Requires an explicit this-> because of C++ template rules.
+    this->mHandleAllocator.release(GetIDValue(handle));
 
     if (resource)
     {
@@ -115,7 +101,7 @@ template class TypedResourceManager<Buffer, BufferManager, BufferID>;
 template class TypedResourceManager<Texture, TextureManager, TextureID>;
 template class TypedResourceManager<Renderbuffer, RenderbufferManager, RenderbufferID>;
 template class TypedResourceManager<Sampler, SamplerManager, SamplerID>;
-template class TypedResourceManager<Sync, SyncManager, SyncID>;
+template class TypedResourceManager<Sync, SyncManager, GLuint>;
 template class TypedResourceManager<Framebuffer, FramebufferManager, FramebufferID>;
 template class TypedResourceManager<ProgramPipeline, ProgramPipelineManager, ProgramPipelineID>;
 
@@ -136,9 +122,9 @@ void BufferManager::DeleteObject(const Context *context, Buffer *buffer)
     buffer->release(context);
 }
 
-bool BufferManager::createBuffer(BufferID *outBuffer)
+BufferID BufferManager::createBuffer()
 {
-    return AllocateEmptyObject(&mHandleAllocator, &mObjectMap, outBuffer);
+    return AllocateEmptyObject(&mHandleAllocator, &mObjectMap);
 }
 
 Buffer *BufferManager::getBuffer(BufferID handle) const
@@ -152,45 +138,32 @@ ShaderProgramManager::ShaderProgramManager() {}
 
 ShaderProgramManager::~ShaderProgramManager()
 {
-    ASSERT(UnsafeResourceMapIter(mPrograms).empty());
-    ASSERT(UnsafeResourceMapIter(mShaders).empty());
+    ASSERT(mPrograms.empty());
+    ASSERT(mShaders.empty());
 }
 
 void ShaderProgramManager::reset(const Context *context)
 {
-    // Note: this function is called when the last context in the share group is destroyed.  Thus
-    // there are no thread safety concerns.
-    mHandleAllocator.reset();
-    for (const auto &program : UnsafeResourceMapIter(mPrograms))
+    while (!mPrograms.empty())
     {
-        if (program.second)
-        {
-            program.second->onDestroy(context);
-        }
-    }
-    for (const auto &shader : UnsafeResourceMapIter(mShaders))
-    {
-        if (shader.second)
-        {
-            shader.second->onDestroy(context);
-        }
+        deleteProgram(context, {mPrograms.begin()->first});
     }
     mPrograms.clear();
+    while (!mShaders.empty())
+    {
+        deleteShader(context, {mShaders.begin()->first});
+    }
     mShaders.clear();
 }
 
-bool ShaderProgramManager::createShader(rx::GLImplFactory *factory,
-                                        const gl::Limitations &rendererLimitations,
-                                        ShaderType type,
-                                        ShaderProgramID *outShader)
+ShaderProgramID ShaderProgramManager::createShader(rx::GLImplFactory *factory,
+                                                   const gl::Limitations &rendererLimitations,
+                                                   ShaderType type)
 {
     ASSERT(type != ShaderType::InvalidEnum);
-    if (!mHandleAllocator.allocate(&outShader->value))
-    {
-        return false;
-    }
-    mShaders.assign(*outShader, new Shader(this, factory, rendererLimitations, type, *outShader));
-    return true;
+    ShaderProgramID handle = ShaderProgramID{mHandleAllocator.allocate()};
+    mShaders.assign(handle, new Shader(this, factory, rendererLimitations, type, handle));
+    return handle;
 }
 
 void ShaderProgramManager::deleteShader(const Context *context, ShaderProgramID shader)
@@ -203,14 +176,11 @@ Shader *ShaderProgramManager::getShader(ShaderProgramID handle) const
     return mShaders.query(handle);
 }
 
-bool ShaderProgramManager::createProgram(rx::GLImplFactory *factory, ShaderProgramID *outProgram)
+ShaderProgramID ShaderProgramManager::createProgram(rx::GLImplFactory *factory)
 {
-    if (!mHandleAllocator.allocate(&outProgram->value))
-    {
-        return false;
-    }
-    mPrograms.assign(*outProgram, new Program(factory, this, *outProgram));
-    return true;
+    ShaderProgramID handle = ShaderProgramID{mHandleAllocator.allocate()};
+    mPrograms.assign(handle, new Program(factory, this, handle));
+    return handle;
 }
 
 void ShaderProgramManager::deleteProgram(const gl::Context *context, ShaderProgramID program)
@@ -261,16 +231,14 @@ void TextureManager::DeleteObject(const Context *context, Texture *texture)
     texture->release(context);
 }
 
-bool TextureManager::createTexture(TextureID *outTexture)
+TextureID TextureManager::createTexture()
 {
-    return AllocateEmptyObject(&mHandleAllocator, &mObjectMap, outTexture);
+    return AllocateEmptyObject(&mHandleAllocator, &mObjectMap);
 }
 
 void TextureManager::signalAllTexturesDirty() const
 {
-    // Note: this function is called with glRequestExtensionANGLE.  The
-    // GL_ANGLE_request_extension explicitly requires the application to ensure thread safety.
-    for (const auto &texture : UnsafeResourceMapIter(mObjectMap))
+    for (const auto &texture : mObjectMap)
     {
         if (texture.second)
         {
@@ -284,22 +252,6 @@ void TextureManager::signalAllTexturesDirty() const
 void TextureManager::enableHandleAllocatorLogging()
 {
     mHandleAllocator.enableLogging(true);
-}
-
-size_t TextureManager::getTotalMemorySize() const
-{
-    size_t totalBytes = 0;
-
-    for (const auto &texture : UnsafeResourceMapIter(mObjectMap))
-    {
-        if (texture.second->getBoundSurface() || texture.second->isEGLImageTarget())
-        {
-            // Skip external texture
-            continue;
-        }
-        totalBytes += static_cast<size_t>(texture.second->getMemorySize());
-    }
-    return totalBytes;
 }
 
 // RenderbufferManager Implementation.
@@ -321,9 +273,9 @@ void RenderbufferManager::DeleteObject(const Context *context, Renderbuffer *ren
     renderbuffer->release(context);
 }
 
-bool RenderbufferManager::createRenderbuffer(RenderbufferID *outRenderbuffer)
+RenderbufferID RenderbufferManager::createRenderbuffer()
 {
-    return AllocateEmptyObject(&mHandleAllocator, &mObjectMap, outRenderbuffer);
+    return {AllocateEmptyObject(&mHandleAllocator, &mObjectMap)};
 }
 
 Renderbuffer *RenderbufferManager::getRenderbuffer(RenderbufferID handle) const
@@ -349,9 +301,19 @@ void SamplerManager::DeleteObject(const Context *context, Sampler *sampler)
     sampler->release(context);
 }
 
-bool SamplerManager::createSampler(SamplerID *outSampler)
+SamplerID SamplerManager::createSampler()
 {
-    return AllocateEmptyObject(&mHandleAllocator, &mObjectMap, outSampler);
+    return AllocateEmptyObject(&mHandleAllocator, &mObjectMap);
+}
+
+Sampler *SamplerManager::getSampler(SamplerID handle) const
+{
+    return mObjectMap.query(handle);
+}
+
+bool SamplerManager::isSampler(SamplerID sampler) const
+{
+    return mObjectMap.contains(sampler);
 }
 
 // SyncManager Implementation.
@@ -364,19 +326,16 @@ void SyncManager::DeleteObject(const Context *context, Sync *sync)
     sync->release(context);
 }
 
-bool SyncManager::createSync(rx::GLImplFactory *factory, const Context *context, SyncID *outSync)
+GLuint SyncManager::createSync(rx::GLImplFactory *factory)
 {
-    if (!mHandleAllocator.allocate(&outSync->value))
-    {
-        return false;
-    }
-    Sync *sync = new Sync(factory, *outSync, context);
+    GLuint handle = mHandleAllocator.allocate();
+    Sync *sync    = new Sync(factory, handle);
     sync->addRef();
-    mObjectMap.assign(*outSync, sync);
-    return true;
+    mObjectMap.assign(handle, sync);
+    return handle;
 }
 
-Sync *SyncManager::getSync(SyncID handle) const
+Sync *SyncManager::getSync(GLuint handle) const
 {
     return mObjectMap.query(handle);
 }
@@ -402,9 +361,9 @@ void FramebufferManager::DeleteObject(const Context *context, Framebuffer *frame
     delete framebuffer;
 }
 
-bool FramebufferManager::createFramebuffer(FramebufferID *outFramebuffer)
+FramebufferID FramebufferManager::createFramebuffer()
 {
-    return AllocateEmptyObject(&mHandleAllocator, &mObjectMap, outFramebuffer);
+    return AllocateEmptyObject(&mHandleAllocator, &mObjectMap);
 }
 
 Framebuffer *FramebufferManager::getFramebuffer(FramebufferID handle) const
@@ -425,8 +384,7 @@ Framebuffer *FramebufferManager::getDefaultFramebuffer() const
 
 void FramebufferManager::invalidateFramebufferCompletenessCache() const
 {
-    // Note: framebuffer objects are private to context and so the map doesn't need locking
-    for (const auto &framebuffer : UnsafeResourceMapIter(mObjectMap))
+    for (const auto &framebuffer : mObjectMap)
     {
         if (framebuffer.second)
         {
@@ -454,9 +412,9 @@ void ProgramPipelineManager::DeleteObject(const Context *context, ProgramPipelin
     pipeline->release(context);
 }
 
-bool ProgramPipelineManager::createProgramPipeline(ProgramPipelineID *outProgramPipeline)
+ProgramPipelineID ProgramPipelineManager::createProgramPipeline()
 {
-    return AllocateEmptyObject(&mHandleAllocator, &mObjectMap, outProgramPipeline);
+    return AllocateEmptyObject(&mHandleAllocator, &mObjectMap);
 }
 
 ProgramPipeline *ProgramPipelineManager::getProgramPipeline(ProgramPipelineID handle) const
@@ -470,35 +428,25 @@ MemoryObjectManager::MemoryObjectManager() {}
 
 MemoryObjectManager::~MemoryObjectManager()
 {
-    ASSERT(UnsafeResourceMapIter(mMemoryObjects).empty());
+    ASSERT(mMemoryObjects.empty());
 }
 
 void MemoryObjectManager::reset(const Context *context)
 {
-    // Note: this function is called when the last context in the share group is destroyed.  Thus
-    // there are no thread safety concerns.
-    mHandleAllocator.reset();
-    for (const auto &memoryObject : UnsafeResourceMapIter(mMemoryObjects))
+    while (!mMemoryObjects.empty())
     {
-        if (memoryObject.second)
-        {
-            memoryObject.second->release(context);
-        }
+        deleteMemoryObject(context, {mMemoryObjects.begin()->first});
     }
     mMemoryObjects.clear();
 }
 
-bool MemoryObjectManager::createMemoryObject(rx::GLImplFactory *factory,
-                                             MemoryObjectID *outMemoryObject)
+MemoryObjectID MemoryObjectManager::createMemoryObject(rx::GLImplFactory *factory)
 {
-    if (!mHandleAllocator.allocate(&outMemoryObject->value))
-    {
-        return false;
-    }
-    MemoryObject *memoryObject = new MemoryObject(factory, *outMemoryObject);
+    MemoryObjectID handle      = MemoryObjectID{mHandleAllocator.allocate()};
+    MemoryObject *memoryObject = new MemoryObject(factory, handle);
     memoryObject->addRef();
-    mMemoryObjects.assign(*outMemoryObject, memoryObject);
-    return true;
+    mMemoryObjects.assign(handle, memoryObject);
+    return handle;
 }
 
 void MemoryObjectManager::deleteMemoryObject(const Context *context, MemoryObjectID handle)
@@ -529,34 +477,25 @@ SemaphoreManager::SemaphoreManager() {}
 
 SemaphoreManager::~SemaphoreManager()
 {
-    ASSERT(UnsafeResourceMapIter(mSemaphores).empty());
+    ASSERT(mSemaphores.empty());
 }
 
 void SemaphoreManager::reset(const Context *context)
 {
-    // Note: this function is called when the last context in the share group is destroyed.  Thus
-    // there are no thread safety concerns.
-    mHandleAllocator.reset();
-    for (const auto &semaphore : UnsafeResourceMapIter(mSemaphores))
+    while (!mSemaphores.empty())
     {
-        if (semaphore.second)
-        {
-            semaphore.second->release(context);
-        }
+        deleteSemaphore(context, {mSemaphores.begin()->first});
     }
     mSemaphores.clear();
 }
 
-bool SemaphoreManager::createSemaphore(rx::GLImplFactory *factory, SemaphoreID *outSemaphoreHandle)
+SemaphoreID SemaphoreManager::createSemaphore(rx::GLImplFactory *factory)
 {
-    if (!mHandleAllocator.allocate(&outSemaphoreHandle->value))
-    {
-        return false;
-    }
-    Semaphore *semaphore = new Semaphore(factory, *outSemaphoreHandle);
+    SemaphoreID handle   = SemaphoreID{mHandleAllocator.allocate()};
+    Semaphore *semaphore = new Semaphore(factory, handle);
     semaphore->addRef();
-    mSemaphores.assign(*outSemaphoreHandle, semaphore);
-    return true;
+    mSemaphores.assign(handle, semaphore);
+    return handle;
 }
 
 void SemaphoreManager::deleteSemaphore(const Context *context, SemaphoreID handle)

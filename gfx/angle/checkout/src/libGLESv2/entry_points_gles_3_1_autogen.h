@@ -13,6 +13,7 @@
 
 #include <GLES3/gl31.h>
 #include <export.h>
+#include "common/platform.h"
 
 extern "C" {
 ANGLE_EXPORT void GL_APIENTRY GL_ActiveShaderProgram(GLuint pipeline, GLuint program);

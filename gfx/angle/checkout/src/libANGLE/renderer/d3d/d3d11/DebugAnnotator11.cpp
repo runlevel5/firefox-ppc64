@@ -11,7 +11,8 @@
 #include "libANGLE/renderer/d3d/d3d11/Context11.h"
 #include "libANGLE/renderer/d3d/d3d11/Renderer11.h"
 #include "libANGLE/renderer/d3d/d3d11/renderer11_utils.h"
-#include "libANGLE/renderer/driver_utils.h"
+
+#include <versionhelpers.h>
 
 #include "common/system_utils.h"
 
@@ -124,12 +125,14 @@ bool DebugAnnotatorContext11::loggingEnabledForThisThread() const
 
 void DebugAnnotatorContext11::initialize(ID3D11DeviceContext *context)
 {
+#if !defined(ANGLE_ENABLE_WINDOWS_UWP)
     // ID3DUserDefinedAnnotation.GetStatus only works on Windows10 or greater.
     // Returning true unconditionally from DebugAnnotatorContext11::getStatus() means
     // writing out all compiled shaders to temporary files even if debugging
     // tools are not attached. See rx::ShaderD3D::prepareSourceAndReturnOptions.
     // If you want debug annotations, you must use Windows 10.
-    if (IsWindows10OrLater())
+    if (IsWindows10OrGreater())
+#endif
     {
         mAnnotationThread = angle::GetCurrentThreadUniqueId();
         mUserDefinedAnnotation.Attach(

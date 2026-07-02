@@ -17,7 +17,7 @@
 #include <GLSLANG/ShaderVars.h>
 
 #include "common/PackedEnums.h"
-#include "common/span.h"
+#include "compiler/translator/BuiltInFunctionEmulator.h"
 #include "compiler/translator/CallDAG.h"
 #include "compiler/translator/Diagnostics.h"
 #include "compiler/translator/ExtensionBehavior.h"
@@ -36,16 +36,15 @@ class TParseContext;
 class TranslatorHLSL;
 #endif  // ANGLE_ENABLE_HLSL
 #ifdef ANGLE_ENABLE_METAL
-class TranslatorMSL;
+class TranslatorMetalDirect;
 #endif  // ANGLE_ENABLE_METAL
 
-using MetadataFlagBits   = angle::PackedEnumBitSet<sh::MetadataFlags, uint32_t>;
 using SpecConstUsageBits = angle::PackedEnumBitSet<vk::SpecConstUsage, uint32_t>;
 
 //
 // Helper function to check if the shader type is GLSL.
 //
-bool IsGLSL150OrNewer(ShShaderOutput output);
+bool IsGLSL130OrNewer(ShShaderOutput output);
 bool IsGLSL420OrNewer(ShShaderOutput output);
 bool IsGLSL410OrOlder(ShShaderOutput output);
 
@@ -65,12 +64,12 @@ class TShHandleBase
   public:
     TShHandleBase();
     virtual ~TShHandleBase();
-    virtual TCompiler *getAsCompiler() { return nullptr; }
+    virtual TCompiler *getAsCompiler() { return 0; }
 #ifdef ANGLE_ENABLE_HLSL
-    virtual TranslatorHLSL *getAsTranslatorHLSL() { return nullptr; }
+    virtual TranslatorHLSL *getAsTranslatorHLSL() { return 0; }
 #endif  // ANGLE_ENABLE_HLSL
 #ifdef ANGLE_ENABLE_METAL
-    virtual TranslatorMSL *getAsTranslatorMSL() { return nullptr; }
+    virtual TranslatorMetalDirect *getAsTranslatorMetalDirect() { return nullptr; }
 #endif  // ANGLE_ENABLE_METAL
 
   protected:
@@ -100,10 +99,12 @@ class TCompiler : public TShHandleBase
     // compileTreeForTesting should be used only when tests require access to
     // the AST. Users of this function need to manually manage the global pool
     // allocator. Returns nullptr whenever there are compilation errors.
-    TIntermBlock *compileTreeForTesting(angle::Span<const char *const> shaderStrings,
+    TIntermBlock *compileTreeForTesting(const char *const shaderStrings[],
+                                        size_t numStrings,
                                         const ShCompileOptions &compileOptions);
 
-    bool compile(angle::Span<const char *const> shaderStrings,
+    bool compile(const char *const shaderStrings[],
+                 size_t numStrings,
                  const ShCompileOptions &compileOptions);
 
     // Get results of the last compilation.
@@ -112,7 +113,8 @@ class TCompiler : public TShHandleBase
 
     bool specifyEarlyFragmentTests() { return mEarlyFragmentTestsSpecified = true; }
     bool isEarlyFragmentTestsSpecified() const { return mEarlyFragmentTestsSpecified; }
-    MetadataFlagBits getMetadataFlags() const { return mMetadataFlags; }
+    bool hasDiscard() const { return mHasDiscard; }
+    bool enablesPerSampleShading() const { return mEnablesPerSampleShading; }
     SpecConstUsageBits getSpecConstUsageBits() const { return mSpecConstUsageBits; }
 
     bool isComputeShaderLocalSizeDeclared() const { return mComputeShaderLocalSizeDeclared; }
@@ -135,15 +137,17 @@ class TCompiler : public TShHandleBase
     }
 
     ShHashFunction64 getHashFunction() const { return mResources.HashFunction; }
-    char getUserVariableNamePrefix() const { return mResources.UserVariableNamePrefix; }
     NameMap &getNameMap() { return mNameMap; }
     TSymbolTable &getSymbolTable() { return mSymbolTable; }
     ShShaderSpec getShaderSpec() const { return mShaderSpec; }
     ShShaderOutput getOutputType() const { return mOutputType; }
-    const ShBuiltInResources &getBuiltInResources() const { return mResources; }
+    ShBuiltInResources getBuiltInResources() const { return mResources; }
     const std::string &getBuiltInResourcesString() const { return mBuiltInResourcesString; }
 
+    bool isHighPrecisionSupported() const;
+
     bool shouldRunLoopAndIndexingValidation(const ShCompileOptions &compileOptions) const;
+    bool shouldLimitTypeSizes() const;
 
     // Get the resources set by InitBuiltInSymbolTable
     const ShBuiltInResources &getResources() const;
@@ -185,23 +189,11 @@ class TCompiler : public TShHandleBase
 
     AdvancedBlendEquations getAdvancedBlendEquations() const { return mAdvancedBlendEquations; }
 
-    bool hasPixelLocalStorageUniforms() const { return !mPixelLocalStorageLayouts.empty(); }
-    const std::vector<ShPixelLocalStorageLayout> &getPixelLocalStorageLayouts() const
-    {
-        return mPixelLocalStorageLayouts;
-    }
-
-    ShPixelLocalStorageType getPixelLocalStorageType() const { return mCompileOptions.pls.type; }
+    bool hasPixelLocalStorageUniforms() const { return mHasPixelLocalStorageUniforms; }
 
     unsigned int getSharedMemorySize() const;
 
     sh::GLenum getShaderType() const { return mShaderType; }
-
-    // Generate a self-contained binary representation of the shader.
-    bool getShaderBinary(const ShHandle compilerHandle,
-                         angle::Span<const char *const> shaderStrings,
-                         const ShCompileOptions &compileOptions,
-                         ShaderBinaryBlob *const binaryOut);
 
     // Validate the AST and produce errors if it is inconsistent.
     bool validateAST(TIntermNode *root);
@@ -215,36 +207,27 @@ class TCompiler : public TShHandleBase
     // it's expected to no longer transform.
     void enableValidateNoMoreTransformations();
 
-    bool areClipDistanceOrCullDistanceUsed() const
-    {
-        return mClipDistanceSize > 0 || mCullDistanceSize > 0;
-    }
-
-    uint8_t getClipDistanceArraySize() const { return mClipDistanceSize; }
-
-    uint8_t getCullDistanceArraySize() const { return mCullDistanceSize; }
-
-    bool usesDerivatives() const { return mUsesDerivatives; }
-
-    bool supportsAttributeAliasing() const
-    {
-        return mShaderVersion == 100 && !IsWebGLBasedSpec(mShaderSpec);
-    }
-
-    // Get built-in extensions with default behavior.
-    const TExtensionBehavior &getExtensionBehavior() const;
-
   protected:
+    // Add emulated functions to the built-in function emulator.
+    virtual void initBuiltInFunctionEmulator(BuiltInFunctionEmulator *emu,
+                                             const ShCompileOptions &compileOptions)
+    {}
     // Translate to object code. May generate performance warnings through the diagnostics.
     [[nodiscard]] virtual bool translate(TIntermBlock *root,
                                          const ShCompileOptions &compileOptions,
                                          PerformanceDiagnostics *perfDiagnostics) = 0;
+    // Get built-in extensions with default behavior.
+    const TExtensionBehavior &getExtensionBehavior() const;
     const char *getSourcePath() const;
     // Relies on collectVariables having been called.
     bool isVaryingDefined(const char *varyingName);
 
-    virtual bool shouldFlattenPragmaStdglInvariantAll() = 0;
+    const BuiltInFunctionEmulator &getBuiltInFunctionEmulator() const;
 
+    virtual bool shouldFlattenPragmaStdglInvariantAll() = 0;
+    virtual bool shouldCollectVariables(const ShCompileOptions &compileOptions);
+
+    bool wereVariablesCollected() const;
     std::vector<sh::ShaderVariable> mAttributes;
     std::vector<sh::ShaderVariable> mOutputVariables;
     std::vector<sh::ShaderVariable> mUniforms;
@@ -258,8 +241,6 @@ class TCompiler : public TShHandleBase
     // Track what should be validated given passes currently applied.
     ValidateASTOptions mValidateASTOptions;
 
-    MetadataFlagBits mMetadataFlags;
-
     // Specialization constant usage bits
     SpecConstUsageBits mSpecConstUsageBits;
 
@@ -268,6 +249,8 @@ class TCompiler : public TShHandleBase
     bool initBuiltInSymbolTable(const ShBuiltInResources &resources);
     // Compute the string representation of the built-in resources
     void setResourceString();
+    // Return false if the call depth is exceeded.
+    bool checkCallDepth();
     // Insert statements to reference all members in unused uniform blocks with standard and shared
     // layout. This is to work around a Mac driver that treats unused standard/shared
     // uniform blocks as inactive.
@@ -282,26 +265,28 @@ class TCompiler : public TShHandleBase
     [[nodiscard]] bool initializeGLPosition(TIntermBlock *root);
     // Return true if the maximum expression complexity is below the limit.
     bool limitExpressionComplexity(TIntermBlock *root);
-    // Creates the function call DAG for further analysis.
-    void initCallDag(TIntermNode *root);
-    void tagUsedFunctions();
+    // Creates the function call DAG for further analysis, returning false if there is a recursion
+    bool initCallDag(TIntermNode *root);
+    // Return false if "main" doesn't exist
+    bool tagUsedFunctions();
     void internalTagUsedFunction(size_t index);
 
-    void collectVariables(TIntermBlock *root);
     void collectInterfaceBlocks();
 
-    bool sortUniforms(TIntermBlock *root);
+    bool mVariablesCollected;
+
+    bool mGLPositionInitialized;
 
     // Removes unused function declarations and prototypes from the AST
     bool pruneUnusedFunctions(TIntermBlock *root);
 
-    ShCompileOptions adjustOptions(const ShCompileOptions &compileOptionsIn);
-    TIntermBlock *compileTreeImpl(angle::Span<const char *const> shaderStrings,
+    TIntermBlock *compileTreeImpl(const char *const shaderStrings[],
+                                  size_t numStrings,
                                   const ShCompileOptions &compileOptions);
 
     // Fetches and stores shader metadata that is not stored within the AST itself, such as shader
     // version.
-    void setShaderMetadata(const TParseContext &parseContext);
+    void setASTMetadata(const TParseContext &parseContext);
 
     // Check if shader version meets the requirement.
     bool checkShaderVersion(TParseContext *parseContext);
@@ -310,6 +295,8 @@ class TCompiler : public TShHandleBase
     bool checkAndSimplifyAST(TIntermBlock *root,
                              const TParseContext &parseContext,
                              const ShCompileOptions &compileOptions);
+
+    bool postParseChecks(const TParseContext &parseContext);
 
     sh::GLenum mShaderType;
     ShShaderSpec mShaderSpec;
@@ -327,17 +314,23 @@ class TCompiler : public TShHandleBase
     // Built-in extensions with default behavior.
     TExtensionBehavior mExtensionBehavior;
 
+    BuiltInFunctionEmulator mBuiltInFunctionEmulator;
+
     // Results of compilation.
     int mShaderVersion;
     TInfoSink mInfoSink;  // Output sink.
     TDiagnostics mDiagnostics;
     const char *mSourcePath;  // Path of source file or NULL
 
-    bool mVariablesCollected;
-    bool mGLPositionInitialized;
-
     // Fragment shader early fragment tests
     bool mEarlyFragmentTestsSpecified;
+
+    // Fragment shader has the discard instruction
+    bool mHasDiscard;
+
+    // Whether per-sample shading is enabled by the shader.  In OpenGL, this keyword should
+    // implicitly trigger per-sample shading without the API enabling it.
+    bool mEnablesPerSampleShading;
 
     // compute shader local group size
     bool mComputeShaderLocalSizeDeclared;
@@ -345,10 +338,6 @@ class TCompiler : public TShHandleBase
 
     // GL_OVR_multiview num_views.
     int mNumViews;
-
-    // Track gl_ClipDistance / gl_CullDistance usage.
-    uint8_t mClipDistanceSize;
-    uint8_t mCullDistanceSize;
 
     // geometry shader parameters.
     int mGeometryShaderMaxVertices;
@@ -368,12 +357,8 @@ class TCompiler : public TShHandleBase
     // advanced blend equation parameters
     AdvancedBlendEquations mAdvancedBlendEquations;
 
-    // ANGLE_shader_pixel_local_storage: A mapping from binding index to the PLS uniform format at
-    // that index.
-    std::vector<ShPixelLocalStorageLayout> mPixelLocalStorageLayouts;
-
-    // Fragment shader uses screen-space derivatives
-    bool mUsesDerivatives;
+    // ANGLE_shader_pixel_local_storage.
+    bool mHasPixelLocalStorageUniforms;
 
     // name hashing.
     NameMap mNameMap;

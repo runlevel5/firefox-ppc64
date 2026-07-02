@@ -19,7 +19,8 @@ namespace sh
 {
 
 // The translator needs to analyze the the graph of the function calls
-// to run checks and analyses.
+// to run checks and analyses; since in GLSL recursion is not allowed
+// that graph is a DAG.
 // This class is used to precompute that function call DAG so that it
 // can be reused by multiple analyses.
 //
@@ -44,7 +45,16 @@ class CallDAG : angle::NonCopyable
         std::vector<int> callees;
     };
 
-    void init(TIntermNode *root);
+    enum InitResult
+    {
+        INITDAG_SUCCESS,
+        INITDAG_RECURSION,
+        INITDAG_UNDEFINED,
+    };
+
+    // Returns INITDAG_SUCCESS if it was able to create the DAG, otherwise prints
+    // the initialization error in diagnostics, if present.
+    InitResult init(TIntermNode *root, TDiagnostics *diagnostics);
 
     // Returns InvalidIndex if the function wasn't found
     size_t findIndex(const TSymbolUniqueId &id) const;

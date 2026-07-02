@@ -11,11 +11,6 @@
 namespace rx
 {
 
-bool ExternalImageSiblingImpl::hasFrontBufferUsage() const
-{
-    return false;
-}
-
 bool ExternalImageSiblingImpl::isCubeMap() const
 {
     return false;
@@ -29,13 +24,7 @@ uint32_t ExternalImageSiblingImpl::getLevelCount() const
 egl::Error ImageImpl::exportVkImage(void *vkImage, void *vkImageCreateInfo)
 {
     UNIMPLEMENTED();
-    return egl::Error(EGL_BAD_ACCESS);
-}
-
-bool ImageImpl::isFixedRatedCompression(const gl::Context *context)
-{
-    UNIMPLEMENTED();
-    return false;
+    return egl::EglBadAccess();
 }
 
 }  // namespace rx

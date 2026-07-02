@@ -53,8 +53,6 @@ class TransformFeedbackState final : angle::NonCopyable
     GLsizeiptr mVertexCapacity;
 
     Program *mProgram;
-    ProgramPipeline *mProgramPipeline;
-    ShaderMap<ShaderProgramID> mPPOPrograms;
 
     std::vector<OffsetBindingPointer<Buffer>> mIndexedBuffers;
 };
@@ -69,10 +67,7 @@ class TransformFeedback final : public RefCountObject<TransformFeedbackID>, publ
     angle::Result setLabel(const Context *context, const std::string &label) override;
     const std::string &getLabel() const override;
 
-    angle::Result begin(const Context *context,
-                        PrimitiveMode primitiveMode,
-                        Program *program,
-                        ProgramPipeline *programPipeline);
+    angle::Result begin(const Context *context, PrimitiveMode primitiveMode, Program *program);
     angle::Result end(const Context *context);
     angle::Result pause(const Context *context);
     angle::Result resume(const Context *context);
@@ -91,10 +86,6 @@ class TransformFeedback final : public RefCountObject<TransformFeedbackID>, publ
     void onVerticesDrawn(const Context *context, GLsizei count, GLsizei primcount);
 
     bool hasBoundProgram(ShaderProgramID program) const;
-    bool hasBoundProgramPipeline(ProgramPipelineID programPipeline) const;
-    bool hasSamePPOPrograms(ProgramPipeline *programPipeline) const;
-    bool hasProgram() const { return mState.mProgram != nullptr; }
-    bool hasProgramPipeline() const { return mState.mProgramPipeline != nullptr; }
 
     angle::Result bindIndexedBuffer(const Context *context,
                                     size_t index,
@@ -111,21 +102,14 @@ class TransformFeedback final : public RefCountObject<TransformFeedbackID>, publ
     // Returns true if any buffer bound to this object is also bound to another target.
     bool buffersBoundForOtherUseInWebGL() const;
 
-    // Returns true if the buffer is bound to any of the indexed binding points in this transform
-    // feedback.
-    bool isBufferBound(BufferID bufferID) const;
-
     angle::Result detachBuffer(const Context *context, BufferID bufferID);
 
-    rx::TransformFeedbackImpl *getImplementation() const { return mImplementation; }
+    rx::TransformFeedbackImpl *getImplementation() const;
 
     void onBindingChanged(const Context *context, bool bound);
 
   private:
     void bindProgram(const Context *context, Program *program);
-    void bindProgramPipeline(const Context *context, ProgramPipeline *programPipeline);
-    void bindPPOPrograms(ProgramPipeline *programPipeline);
-    void recomputeVertexCapacity(const Context *context);
 
     TransformFeedbackState mState;
     rx::TransformFeedbackImpl *mImplementation;

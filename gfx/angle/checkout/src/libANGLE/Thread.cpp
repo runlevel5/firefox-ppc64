@@ -16,8 +16,22 @@
 namespace angle
 {
 #if defined(ANGLE_USE_ANDROID_TLS_SLOT)
-bool gUseAndroidOpenGLTlsSlot = false;
+bool gUseAndroidOpenGLTlsSlot;
 #endif
+
+void PthreadKeyDestructorCallback(void *ptr)
+{
+    egl::Thread *thread = static_cast<egl::Thread *>(ptr);
+    ASSERT(thread);
+
+    egl::Display::EglDisplaySet displays = egl::Display::GetEglDisplaySet();
+    for (egl::Display *display : displays)
+    {
+        ASSERT(display);
+        // Perform necessary cleanup.
+        display->threadCleanup(thread);
+    }
+}
 }  // namespace angle
 
 namespace egl
@@ -96,6 +110,7 @@ void Thread::setCurrent(gl::Context *context)
     if (mContext)
     {
         ASSERT(mContext->getDisplay());
+        mContext->getDisplay()->addActiveThread(this);
     }
 }
 

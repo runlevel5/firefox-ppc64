@@ -4,10 +4,6 @@
 // found in the LICENSE file.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_libc_calls
-#endif
-
 //
 // Implement the top-level of interface to the compiler,
 // as defined in ShaderLang.h
@@ -15,21 +11,15 @@
 
 #include "GLSLANG/ShaderLang.h"
 
-#include "common/PackedEnums.h"
-#include "common/span.h"
-#include "common/unsafe_buffers.h"
 #include "compiler/translator/Compiler.h"
-#include "compiler/translator/InitializeGlobals.h"
+#include "compiler/translator/InitializeDll.h"
+#include "compiler/translator/glslang_wrapper.h"
 #include "compiler/translator/length_limits.h"
 #ifdef ANGLE_ENABLE_HLSL
-#    include "compiler/translator/hlsl/TranslatorHLSL.h"
+#    include "compiler/translator/TranslatorHLSL.h"
 #endif  // ANGLE_ENABLE_HLSL
 #include "angle_gl.h"
 #include "compiler/translator/VariablePacker.h"
-
-#ifdef ANGLE_IR
-#    include "compiler/translator/ir/src/compile.h"
-#endif
 
 namespace sh
 {
@@ -38,6 +28,17 @@ namespace
 {
 
 bool isInitialized = false;
+
+// glslang can only be initialized/finalized once per process. Otherwise, the following EGL commands
+// will call GlslangFinalize() without ever being able to GlslangInitialize() again, leading to
+// crashes since GlslangFinalize() cleans up glslang for the entire process.
+//   dpy1 = eglGetPlatformDisplay()   |
+//   eglInitialize(dpy1)              | GlslangInitialize()
+//   dpy2 = eglGetPlatformDisplay()   |
+//   eglInitialize(dpy2)              | GlslangInitialize()
+//   eglTerminate(dpy2)               | GlslangFinalize()
+//   eglInitialize(dpy1)              | Display::isInitialized() == true, no GlslangInitialize()
+int initializeGlslangRefCount = 0;
 
 //
 // This is the platform independent interface between an OGL driver
@@ -153,10 +154,7 @@ bool Initialize()
 {
     if (!isInitialized)
     {
-        isInitialized = InitializePoolIndex();
-#ifdef ANGLE_IR
-        ir::ffi::initialize_global_pool_index_workaround();
-#endif
+        isInitialized = InitProcess();
     }
     return isInitialized;
 }
@@ -168,10 +166,7 @@ bool Finalize()
 {
     if (isInitialized)
     {
-        FreePoolIndex();
-#ifdef ANGLE_IR
-        ir::ffi::free_global_pool_index_workaround();
-#endif
+        DetachProcess();
         isInitialized = false;
     }
     return true;
@@ -186,18 +181,14 @@ void InitBuiltInResources(ShBuiltInResources *resources)
     memset(resources, 0, sizeof(*resources));
 
     // Constants.
-    resources->MaxVertexAttribs                    = 8;
-    resources->MaxVertexUniformVectors             = 128;
-    resources->MaxVaryingVectors                   = 8;
-    resources->MaxVertexTextureImageUnits          = 0;
-    resources->MaxCombinedTextureImageUnits        = 8;
-    resources->MaxTextureImageUnits                = 8;
-    resources->MaxFragmentUniformVectors           = 16;
-    resources->MaxDrawBuffers                      = 1;
-    resources->ShadingRateFlag2VerticalPixelsEXT   = 1;
-    resources->ShadingRateFlag4VerticalPixelsEXT   = 2;
-    resources->ShadingRateFlag2HorizontalPixelsEXT = 4;
-    resources->ShadingRateFlag4HorizontalPixelsEXT = 8;
+    resources->MaxVertexAttribs             = 8;
+    resources->MaxVertexUniformVectors      = 128;
+    resources->MaxVaryingVectors            = 8;
+    resources->MaxVertexTextureImageUnits   = 0;
+    resources->MaxCombinedTextureImageUnits = 8;
+    resources->MaxTextureImageUnits         = 8;
+    resources->MaxFragmentUniformVectors    = 16;
+    resources->MaxDrawBuffers               = 1;
 
     // Extensions.
     resources->OES_standard_derivatives                       = 0;
@@ -206,21 +197,19 @@ void InitBuiltInResources(ShBuiltInResources *resources)
     resources->NV_EGL_stream_consumer_external                = 0;
     resources->ARB_texture_rectangle                          = 0;
     resources->EXT_blend_func_extended                        = 0;
-    resources->EXT_conservative_depth                         = 0;
     resources->EXT_draw_buffers                               = 0;
     resources->EXT_frag_depth                                 = 0;
     resources->EXT_shader_texture_lod                         = 0;
     resources->EXT_shader_framebuffer_fetch                   = 0;
     resources->EXT_shader_framebuffer_fetch_non_coherent      = 0;
+    resources->NV_shader_framebuffer_fetch                    = 0;
     resources->ARM_shader_framebuffer_fetch                   = 0;
-    resources->ARM_shader_framebuffer_fetch_depth_stencil     = 0;
     resources->OVR_multiview                                  = 0;
     resources->OVR_multiview2                                 = 0;
     resources->EXT_YUV_target                                 = 0;
     resources->EXT_geometry_shader                            = 0;
     resources->OES_geometry_shader                            = 0;
     resources->EXT_gpu_shader5                                = 0;
-    resources->OES_gpu_shader5                                = 0;
     resources->OES_shader_io_blocks                           = 0;
     resources->EXT_shader_io_blocks                           = 0;
     resources->EXT_shader_non_constant_global_initializers    = 0;
@@ -236,26 +225,23 @@ void InitBuiltInResources(ShBuiltInResources *resources)
     resources->APPLE_clip_distance                            = 0;
     resources->OES_texture_cube_map_array                     = 0;
     resources->EXT_texture_cube_map_array                     = 0;
-    resources->EXT_texture_query_lod                          = 0;
-    resources->EXT_texture_shadow_lod                         = 0;
     resources->EXT_shadow_samplers                            = 0;
     resources->OES_shader_multisample_interpolation           = 0;
     resources->NV_draw_buffers                                = 0;
     resources->OES_shader_image_atomic                        = 0;
     resources->EXT_tessellation_shader                        = 0;
-    resources->OES_tessellation_shader                        = 0;
     resources->OES_texture_buffer                             = 0;
     resources->EXT_texture_buffer                             = 0;
-    resources->EXT_fragment_shading_rate                      = 0;
-    resources->EXT_fragment_shading_rate_primitive            = 0;
     resources->OES_sample_variables                           = 0;
     resources->EXT_clip_cull_distance                         = 0;
-    resources->ANGLE_clip_cull_distance                       = 0;
     resources->KHR_blend_equation_advanced                    = 0;
 
     resources->MaxClipDistances                = 8;
     resources->MaxCullDistances                = 8;
     resources->MaxCombinedClipAndCullDistances = 8;
+
+    // Disable highp precision in fragment shader by default.
+    resources->FragmentPrecisionHigh = 0;
 
     // GLSL ES 3.0 constants.
     resources->MaxVertexOutputVectors  = 16;
@@ -273,13 +259,9 @@ void InitBuiltInResources(ShBuiltInResources *resources)
     // Disable name hashing by default.
     resources->HashFunction = nullptr;
 
-    resources->UserVariableNamePrefix = kUserDefinedNamePrefix;
-
     resources->MaxExpressionComplexity = 256;
-    resources->MaxStatementDepth       = 256;
     resources->MaxCallStackDepth       = 256;
-    // Note: SPIR-V and MSL don't allow more than 255 parameters to a function.
-    resources->MaxFunctionParameters = 255;
+    resources->MaxFunctionParameters   = 1024;
 
     // ES 3.1 Revision 4, 7.2 Built-in Constants
 
@@ -308,6 +290,7 @@ void InitBuiltInResources(ShBuiltInResources *resources)
     resources->MaxComputeWorkGroupSize[2]  = 64;
     resources->MaxComputeUniformComponents = 512;
     resources->MaxComputeTextureImageUnits = 16;
+    resources->MaxComputeUniformBlocks     = 12;
 
     resources->MaxComputeAtomicCounters       = 8;
     resources->MaxComputeAtomicCounterBuffers = 1;
@@ -325,9 +308,8 @@ void InitBuiltInResources(ShBuiltInResources *resources)
     resources->MaxUniformBufferBindings       = 32;
     resources->MaxShaderStorageBufferBindings = 4;
 
-    resources->MaxComputeUniformBlocks = 12;
-
     resources->MaxGeometryUniformComponents     = 1024;
+    resources->MaxGeometryUniformBlocks         = 12;
     resources->MaxGeometryInputComponents       = 64;
     resources->MaxGeometryOutputComponents      = 64;
     resources->MaxGeometryOutputVertices        = 256;
@@ -335,9 +317,9 @@ void InitBuiltInResources(ShBuiltInResources *resources)
     resources->MaxGeometryTextureImageUnits     = 16;
     resources->MaxGeometryAtomicCounterBuffers  = 0;
     resources->MaxGeometryAtomicCounters        = 0;
+    resources->MaxGeometryShaderStorageBlocks   = 0;
     resources->MaxGeometryShaderInvocations     = 32;
     resources->MaxGeometryImageUniforms         = 0;
-    resources->MaxGeometryUniformBlocks         = 12;
 
     resources->MaxTessControlInputComponents       = 64;
     resources->MaxTessControlOutputComponents      = 64;
@@ -362,13 +344,17 @@ void InitBuiltInResources(ShBuiltInResources *resources)
     resources->MaxTessEvaluationAtomicCounterBuffers = 0;
     resources->MaxTessEvaluationUniformBlocks        = 12;
 
+    resources->SubPixelBits = 8;
+
     resources->MaxSamples = 4;
 
-    // Prevent unrealistically large WebGL variable sizes. These defaults match the current parser
-    // limits while allowing embedders to override them.
-    resources->MaxVariableSizeInBytes             = static_cast<size_t>(2) * 1024 * 1024 * 1024;
-    resources->MaxPrivateVariableSizeInBytes      = static_cast<size_t>(64) * 1024;
-    resources->MaxTotalPrivateVariableSizeInBytes = static_cast<size_t>(16) * 1024 * 1024;
+    // Arbitrarily enforce that all types declared with a size in bytes of over 2 GB will cause
+    // compilation failure.
+    //
+    // For local and global variables, the limit is much lower (1MB) as that much memory won't fit in
+    // the GPU registers anyway.
+    resources->MaxVariableSizeInBytes        = static_cast<size_t>(2) * 1024 * 1024 * 1024;
+    resources->MaxPrivateVariableSizeInBytes = static_cast<size_t>(1) * 1024 * 1024;
 }
 
 //
@@ -441,9 +427,7 @@ bool Compile(const ShHandle handle,
     TCompiler *compiler = GetCompilerFromHandle(handle);
     ASSERT(compiler);
 
-    // SAFETY: required from caller across this exposed API.
-    return compiler->compile(ANGLE_UNSAFE_BUFFERS(angle::Span(shaderStrings, numStrings)),
-                             compileOptions);
+    return compiler->compile(shaderStrings, numStrings, compileOptions);
 }
 
 void ClearResults(const ShHandle handle)
@@ -501,21 +485,6 @@ const BinaryBlob &GetObjectBinaryBlob(const ShHandle handle)
 
     TInfoSink &infoSink = compiler->getInfoSink();
     return infoSink.obj.getBinary();
-}
-
-bool GetShaderBinary(const ShHandle handle,
-                     const char *const shaderStrings[],
-                     size_t numStrings,
-                     const ShCompileOptions &compileOptions,
-                     ShaderBinaryBlob *const binaryOut)
-{
-    TCompiler *compiler = GetCompilerFromHandle(handle);
-    ASSERT(compiler);
-
-    // SAFETY: required from caller across this exposed API.
-    return compiler->getShaderBinary(handle,
-                                     ANGLE_UNSAFE_BUFFERS(angle::Span(shaderStrings, numStrings)),
-                                     compileOptions, binaryOut);
 }
 
 const std::map<std::string, std::string> *GetNameHashingMap(const ShHandle handle)
@@ -645,12 +614,14 @@ int GetVertexShaderNumViews(const ShHandle handle)
     return compiler->getNumViews();
 }
 
-const std::vector<ShPixelLocalStorageLayout> *GetPixelLocalStorageLayouts(const ShHandle handle)
+bool EnablesPerSampleShading(const ShHandle handle)
 {
     TCompiler *compiler = GetCompilerFromHandle(handle);
-    ASSERT(compiler);
-
-    return &compiler->getPixelLocalStorageLayouts();
+    if (compiler == nullptr)
+    {
+        return false;
+    }
+    return compiler->enablesPerSampleShading();
 }
 
 uint32_t GetShaderSpecConstUsageBits(const ShHandle handle)
@@ -666,6 +637,28 @@ uint32_t GetShaderSpecConstUsageBits(const ShHandle handle)
 bool CheckVariablesWithinPackingLimits(int maxVectors, const std::vector<ShaderVariable> &variables)
 {
     return CheckVariablesInPackingLimits(maxVectors, variables);
+}
+
+bool GetShaderStorageBlockRegister(const ShHandle handle,
+                                   const std::string &shaderStorageBlockName,
+                                   unsigned int *indexOut)
+{
+#ifdef ANGLE_ENABLE_HLSL
+    ASSERT(indexOut);
+
+    TranslatorHLSL *translator = GetTranslatorHLSLFromHandle(handle);
+    ASSERT(translator);
+
+    if (!translator->hasShaderStorageBlock(shaderStorageBlockName))
+    {
+        return false;
+    }
+
+    *indexOut = translator->getShaderStorageBlockRegister(shaderStorageBlockName);
+    return true;
+#else
+    return false;
+#endif  // ANGLE_ENABLE_HLSL
 }
 
 bool GetUniformBlockRegister(const ShHandle handle,
@@ -763,27 +756,29 @@ const std::set<std::string> *GetUsedImage2DFunctionNames(const ShHandle handle)
 #endif  // ANGLE_ENABLE_HLSL
 }
 
-uint8_t GetClipDistanceArraySize(const ShHandle handle)
+bool HasDiscardInFragmentShader(const ShHandle handle)
 {
     ASSERT(handle);
+
     TShHandleBase *base = static_cast<TShHandleBase *>(handle);
     TCompiler *compiler = base->getAsCompiler();
     ASSERT(compiler);
 
-    return compiler->getClipDistanceArraySize();
+    return compiler->getShaderType() == GL_FRAGMENT_SHADER && compiler->hasDiscard();
 }
 
-uint8_t GetCullDistanceArraySize(const ShHandle handle)
+bool HasValidGeometryShaderInputPrimitiveType(const ShHandle handle)
 {
     ASSERT(handle);
+
     TShHandleBase *base = static_cast<TShHandleBase *>(handle);
     TCompiler *compiler = base->getAsCompiler();
     ASSERT(compiler);
 
-    return compiler->getCullDistanceArraySize();
+    return compiler->getGeometryShaderInputPrimitiveType() != EptUndefined;
 }
 
-uint32_t GetMetadataFlags(const ShHandle handle)
+bool HasValidGeometryShaderOutputPrimitiveType(const ShHandle handle)
 {
     ASSERT(handle);
 
@@ -791,7 +786,62 @@ uint32_t GetMetadataFlags(const ShHandle handle)
     TCompiler *compiler = base->getAsCompiler();
     ASSERT(compiler);
 
-    return compiler->getMetadataFlags().bits();
+    return compiler->getGeometryShaderOutputPrimitiveType() != EptUndefined;
+}
+
+bool HasValidGeometryShaderMaxVertices(const ShHandle handle)
+{
+    ASSERT(handle);
+
+    TShHandleBase *base = static_cast<TShHandleBase *>(handle);
+    TCompiler *compiler = base->getAsCompiler();
+    ASSERT(compiler);
+
+    return compiler->getGeometryShaderMaxVertices() >= 0;
+}
+
+bool HasValidTessGenMode(const ShHandle handle)
+{
+    ASSERT(handle);
+
+    TShHandleBase *base = static_cast<TShHandleBase *>(handle);
+    TCompiler *compiler = base->getAsCompiler();
+    ASSERT(compiler);
+
+    return compiler->getTessEvaluationShaderInputPrimitiveType() != EtetUndefined;
+}
+
+bool HasValidTessGenSpacing(const ShHandle handle)
+{
+    ASSERT(handle);
+
+    TShHandleBase *base = static_cast<TShHandleBase *>(handle);
+    TCompiler *compiler = base->getAsCompiler();
+    ASSERT(compiler);
+
+    return compiler->getTessEvaluationShaderInputVertexSpacingType() != EtetUndefined;
+}
+
+bool HasValidTessGenVertexOrder(const ShHandle handle)
+{
+    ASSERT(handle);
+
+    TShHandleBase *base = static_cast<TShHandleBase *>(handle);
+    TCompiler *compiler = base->getAsCompiler();
+    ASSERT(compiler);
+
+    return compiler->getTessEvaluationShaderInputOrderingType() != EtetUndefined;
+}
+
+bool HasValidTessGenPointMode(const ShHandle handle)
+{
+    ASSERT(handle);
+
+    TShHandleBase *base = static_cast<TShHandleBase *>(handle);
+    TCompiler *compiler = base->getAsCompiler();
+    ASSERT(compiler);
+
+    return compiler->getTessEvaluationShaderInputPointType() != EtetUndefined;
 }
 
 GLenum GetGeometryShaderInputPrimitiveType(const ShHandle handle)
@@ -916,10 +966,62 @@ uint32_t GetAdvancedBlendEquations(const ShHandle handle)
     return compiler->getAdvancedBlendEquations().bits();
 }
 
+void InitializeGlslang()
+{
+    if (initializeGlslangRefCount == 0)
+    {
+        GlslangInitialize();
+    }
+    ++initializeGlslangRefCount;
+    ASSERT(initializeGlslangRefCount < std::numeric_limits<int>::max());
+}
+
+void FinalizeGlslang()
+{
+    --initializeGlslangRefCount;
+    ASSERT(initializeGlslangRefCount >= 0);
+    if (initializeGlslangRefCount == 0)
+    {
+        GlslangFinalize();
+    }
+}
+
 // Can't prefix with just _ because then we might introduce a double underscore, which is not safe
 // in GLSL (ESSL 3.00.6 section 3.8: All identifiers containing a double underscore are reserved for
 // use by the underlying implementation). u is short for user-defined.
-const char kUserDefinedNamePrefix = 'u';
+const char kUserDefinedNamePrefix[] = "_u";
+
+namespace vk
+{
+// Interface block name containing the aggregate default uniforms
+const char kDefaultUniformsNameVS[]  = "defaultUniformsVS";
+const char kDefaultUniformsNameTCS[] = "defaultUniformsTCS";
+const char kDefaultUniformsNameTES[] = "defaultUniformsTES";
+const char kDefaultUniformsNameGS[]  = "defaultUniformsGS";
+const char kDefaultUniformsNameFS[]  = "defaultUniformsFS";
+const char kDefaultUniformsNameCS[]  = "defaultUniformsCS";
+
+// Interface block and variable names containing driver uniforms
+const char kDriverUniformsBlockName[] = "ANGLEUniformBlock";
+const char kDriverUniformsVarName[]   = "ANGLEUniforms";
+
+// Interface block array name used for atomic counter emulation
+const char kAtomicCountersBlockName[] = "ANGLEAtomicCounters";
+
+const char kXfbEmulationGetOffsetsFunctionName[] = "ANGLEGetXfbOffsets";
+const char kXfbEmulationCaptureFunctionName[]    = "ANGLECaptureXfb";
+const char kXfbEmulationBufferBlockName[]        = "ANGLEXfbBuffer";
+const char kXfbEmulationBufferName[]             = "ANGLEXfb";
+const char kXfbEmulationBufferFieldName[]        = "xfbOut";
+
+const char kTransformPositionFunctionName[] = "ANGLETransformPosition";
+
+const char kXfbExtensionPositionOutName[] = "ANGLEXfbPosition";
+
+// EXT_shader_framebuffer_fetch / EXT_shader_framebuffer_fetch_non_coherent
+const char kInputAttachmentName[] = "ANGLEInputAttachment";
+
+}  // namespace vk
 
 const char *BlockLayoutTypeToString(BlockLayoutType type)
 {
@@ -942,9 +1044,9 @@ const char *BlockTypeToString(BlockType type)
 {
     switch (type)
     {
-        case BlockType::kBlockBuffer:
+        case BlockType::BLOCK_BUFFER:
             return "buffer";
-        case BlockType::kBlockUniform:
+        case BlockType::BLOCK_UNIFORM:
             return "uniform";
         default:
             return "invalid";
@@ -965,10 +1067,6 @@ const char *InterpolationTypeToString(InterpolationType type)
             return "flat";
         case InterpolationType::INTERPOLATION_NOPERSPECTIVE:
             return "noperspective";
-        case InterpolationType::INTERPOLATION_NOPERSPECTIVE_CENTROID:
-            return "noperspective centroid";
-        case InterpolationType::INTERPOLATION_NOPERSPECTIVE_SAMPLE:
-            return "noperspective sample";
         default:
             return "invalid";
     }

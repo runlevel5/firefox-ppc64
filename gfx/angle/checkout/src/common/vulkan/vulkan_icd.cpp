@@ -6,10 +6,6 @@
 
 // vulkan_icd.cpp : Helper for creating vulkan instances & selecting physical device.
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_libc_calls
-#endif
-
 #include "common/vulkan/vulkan_icd.h"
 
 #include <functional>
@@ -19,6 +15,8 @@
 #include "common/bitset_utils.h"
 #include "common/debug.h"
 #include "common/system_utils.h"
+
+#include "common/vulkan/vk_google_filtering_precision.h"
 
 namespace
 {
@@ -52,12 +50,7 @@ namespace
 [[maybe_unused]] const std::string WrapICDEnvironment(const char *icdEnvironment)
 {
     // The libraries are bundled into the module directory
-    std::string moduleDir = angle::GetModuleDirectory();
-    std::string ret       = ConcatenatePath(moduleDir, icdEnvironment);
-#if defined(ANGLE_PLATFORM_MACOS)
-    std::string moduleDirWithLibraries = ConcatenatePath(moduleDir, "Libraries");
-    ret += ":" + ConcatenatePath(moduleDirWithLibraries, icdEnvironment);
-#endif
+    std::string ret = ConcatenatePath(angle::GetModuleDirectory(), icdEnvironment);
     return ret;
 }
 
@@ -107,11 +100,11 @@ ICDFilterFunc GetFilterForICD(vk::ICD preferredICD)
 
 }  // namespace
 
-// If we're loading the vulkan layers, we could be running from any random directory.
+// If we're loading the validation layers, we could be running from any random directory.
 // Change to the executable directory so we can find the layers, then change back to the
 // previous directory to be safe we don't disrupt the application.
-ScopedVkLoaderEnvironment::ScopedVkLoaderEnvironment(bool enableDebugLayers, vk::ICD icd)
-    : mEnableDebugLayers(enableDebugLayers),
+ScopedVkLoaderEnvironment::ScopedVkLoaderEnvironment(bool enableValidationLayers, vk::ICD icd)
+    : mEnableValidationLayers(enableValidationLayers),
       mICD(icd),
       mChangedCWD(false),
       mChangedICDEnv(false),
@@ -120,7 +113,7 @@ ScopedVkLoaderEnvironment::ScopedVkLoaderEnvironment(bool enableDebugLayers, vk:
 // Changing CWD and setting environment variables makes no sense on Android,
 // since this code is a part of Java application there.
 // Android Vulkan loader doesn't need this either.
-#if !defined(ANGLE_PLATFORM_ANDROID)
+#if !defined(ANGLE_PLATFORM_ANDROID) && !defined(ANGLE_PLATFORM_GGP)
     if (icd == vk::ICD::Mock)
     {
         if (!setICDEnvironment(WrapICDEnvironment(ANGLE_VK_MOCK_ICD_JSON).c_str()))
@@ -139,14 +132,14 @@ ScopedVkLoaderEnvironment::ScopedVkLoaderEnvironment(bool enableDebugLayers, vk:
 #    endif  // defined(ANGLE_VK_SWIFTSHADER_ICD_JSON)
 
 #    if !defined(ANGLE_PLATFORM_MACOS)
-    if (mEnableDebugLayers || icd != vk::ICD::Default)
+    if (mEnableValidationLayers || icd != vk::ICD::Default)
     {
         const auto &cwd = angle::GetCWD();
         if (!cwd.valid())
         {
             ERR() << "Error getting CWD for Vulkan layers init.";
-            mEnableDebugLayers = false;
-            mICD               = vk::ICD::Default;
+            mEnableValidationLayers = false;
+            mICD                    = vk::ICD::Default;
         }
         else
         {
@@ -156,23 +149,36 @@ ScopedVkLoaderEnvironment::ScopedVkLoaderEnvironment(bool enableDebugLayers, vk:
             if (!mChangedCWD)
             {
                 ERR() << "Error setting CWD for Vulkan layers init.";
-                mEnableDebugLayers = false;
-                mICD               = vk::ICD::Default;
+                mEnableValidationLayers = false;
+                mICD                    = vk::ICD::Default;
             }
         }
     }
 #    endif  // defined(ANGLE_PLATFORM_MACOS)
 
     // Override environment variable to use the ANGLE layers.
-    if (mEnableDebugLayers)
+    if (mEnableValidationLayers)
     {
 #    if defined(ANGLE_VK_LAYERS_DIR)
         if (!angle::PrependPathToEnvironmentVar(kLoaderLayersPathEnv, ANGLE_VK_LAYERS_DIR))
         {
             ERR() << "Error setting environment for Vulkan layers init.";
-            mEnableDebugLayers = false;
+            mEnableValidationLayers = false;
         }
 #    endif  // defined(ANGLE_VK_LAYERS_DIR)
+
+        if (!angle::PrependPathToEnvironmentVar(
+                kLayerEnablesEnv, "VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION"))
+        {
+            ERR() << "Error setting synchronization validation environment for Vulkan validation "
+                     "layers init.";
+        }
+
+        if (!setCustomExtensionsEnvironment())
+        {
+            ERR() << "Error setting custom list for custom extensions for Vulkan layers init.";
+            mEnableValidationLayers = false;
+        }
     }
 #endif  // !defined(ANGLE_PLATFORM_ANDROID)
 
@@ -222,100 +228,76 @@ bool ScopedVkLoaderEnvironment::setICDEnvironment(const char *icd)
     return mChangedICDEnv;
 }
 
-void ChoosePhysicalDevice(PFN_vkGetPhysicalDeviceProperties2 pGetPhysicalDeviceProperties2,
+bool ScopedVkLoaderEnvironment::setCustomExtensionsEnvironment()
+{
+    struct CustomExtension
+    {
+        VkStructureType type;
+        size_t size;
+    };
+
+    CustomExtension customExtensions[] = {
+
+        {VK_STRUCTURE_TYPE_SAMPLER_FILTERING_PRECISION_GOOGLE,
+         sizeof(VkSamplerFilteringPrecisionGOOGLE)},
+
+    };
+
+    mPreviousCustomExtensionsEnv = angle::GetEnvironmentVar(kValidationLayersCustomSTypeListEnv);
+
+    std::stringstream strstr;
+    for (CustomExtension &extension : customExtensions)
+    {
+        if (strstr.tellp() != std::streampos(0))
+        {
+            strstr << angle::GetPathSeparatorForEnvironmentVar();
+        }
+
+        strstr << extension.type << angle::GetPathSeparatorForEnvironmentVar() << extension.size;
+    }
+
+    return angle::PrependPathToEnvironmentVar(kValidationLayersCustomSTypeListEnv,
+                                              strstr.str().c_str());
+}
+
+void ChoosePhysicalDevice(PFN_vkGetPhysicalDeviceProperties pGetPhysicalDeviceProperties,
                           const std::vector<VkPhysicalDevice> &physicalDevices,
                           vk::ICD preferredICD,
                           uint32_t preferredVendorID,
                           uint32_t preferredDeviceID,
-                          const uint8_t *preferredDeviceUUID,
-                          const uint8_t *preferredDriverUUID,
-                          VkDriverId preferredDriverID,
                           VkPhysicalDevice *physicalDeviceOut,
-                          VkPhysicalDeviceProperties2 *physicalDeviceProperties2Out,
-                          VkPhysicalDeviceIDProperties *physicalDeviceIDPropertiesOut,
-                          VkPhysicalDeviceDriverProperties *physicalDeviceDriverPropertiesOut)
+                          VkPhysicalDeviceProperties *physicalDevicePropertiesOut)
 {
     ASSERT(!physicalDevices.empty());
 
-    VkPhysicalDeviceProperties const *deviceProps = &physicalDeviceProperties2Out->properties;
-
     ICDFilterFunc filter = GetFilterForICD(preferredICD);
 
-    const bool shouldChooseByPciId = (preferredVendorID != 0 || preferredDeviceID != 0);
-    const bool shouldChooseByUUIDs = (preferredDeviceUUID != nullptr ||
-                                      preferredDriverUUID != nullptr || preferredDriverID != 0);
+    const bool shouldChooseByID = (preferredVendorID != 0 || preferredDeviceID != 0);
 
     for (const VkPhysicalDevice &physicalDevice : physicalDevices)
     {
-        *physicalDeviceProperties2Out       = {};
-        physicalDeviceProperties2Out->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-        physicalDeviceProperties2Out->pNext = physicalDeviceIDPropertiesOut;
-
-        *physicalDeviceIDPropertiesOut       = {};
-        physicalDeviceIDPropertiesOut->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
-        physicalDeviceIDPropertiesOut->pNext = physicalDeviceDriverPropertiesOut;
-
-        *physicalDeviceDriverPropertiesOut = {};
-        physicalDeviceDriverPropertiesOut->sType =
-            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
-
-        pGetPhysicalDeviceProperties2(physicalDevice, physicalDeviceProperties2Out);
-
-        if (deviceProps->apiVersion < kMinimumVulkanAPIVersion)
-        {
-            // Skip any devices that don't support our minimum API version. This
-            // takes precedence over all other considerations.
-            continue;
-        }
-
-        if (filter(*deviceProps))
+        pGetPhysicalDeviceProperties(physicalDevice, physicalDevicePropertiesOut);
+        if (filter(*physicalDevicePropertiesOut))
         {
             *physicalDeviceOut = physicalDevice;
             return;
         }
 
-        if (shouldChooseByUUIDs)
-        {
-            bool matched = true;
-
-            if (preferredDriverID != 0 &&
-                preferredDriverID != physicalDeviceDriverPropertiesOut->driverID)
-            {
-                matched = false;
-            }
-            else if (preferredDeviceUUID != nullptr &&
-                     memcmp(preferredDeviceUUID, physicalDeviceIDPropertiesOut->deviceUUID,
-                            VK_UUID_SIZE) != 0)
-            {
-                matched = false;
-            }
-            else if (preferredDriverUUID != nullptr &&
-                     memcmp(preferredDriverUUID, physicalDeviceIDPropertiesOut->driverUUID,
-                            VK_UUID_SIZE) != 0)
-            {
-                matched = false;
-            }
-
-            if (matched)
-            {
-                *physicalDeviceOut = physicalDevice;
-                return;
-            }
-        }
-
-        if (shouldChooseByPciId)
+        if (shouldChooseByID)
         {
             // NOTE: If the system has multiple GPUs with the same vendor and
             // device IDs, this will arbitrarily select one of them.
             bool matchVendorID = true;
             bool matchDeviceID = true;
 
-            if (preferredVendorID != 0 && preferredVendorID != deviceProps->vendorID)
+            if (preferredVendorID != 0 &&
+                preferredVendorID != physicalDevicePropertiesOut->vendorID)
             {
                 matchVendorID = false;
             }
 
-            if (preferredDeviceID != 0 && preferredDeviceID != deviceProps->deviceID)
+            if (preferredDeviceID != 0 &&
+                preferredDeviceID != physicalDevicePropertiesOut->deviceID)
             {
                 matchDeviceID = false;
             }
@@ -329,49 +311,21 @@ void ChoosePhysicalDevice(PFN_vkGetPhysicalDeviceProperties2 pGetPhysicalDeviceP
     }
 
     Optional<VkPhysicalDevice> integratedDevice;
-    VkPhysicalDeviceProperties2 integratedDeviceProperties2;
-    VkPhysicalDeviceIDProperties integratedDeviceIDProperties;
-    VkPhysicalDeviceDriverProperties integratedDeviceDriverProperties;
-
+    VkPhysicalDeviceProperties integratedDeviceProperties;
     for (const VkPhysicalDevice &physicalDevice : physicalDevices)
     {
-        *physicalDeviceProperties2Out       = {};
-        physicalDeviceProperties2Out->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-        physicalDeviceProperties2Out->pNext = physicalDeviceIDPropertiesOut;
-
-        *physicalDeviceIDPropertiesOut       = {};
-        physicalDeviceIDPropertiesOut->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
-        physicalDeviceIDPropertiesOut->pNext = physicalDeviceDriverPropertiesOut;
-
-        *physicalDeviceDriverPropertiesOut = {};
-        physicalDeviceDriverPropertiesOut->sType =
-            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
-
-        pGetPhysicalDeviceProperties2(physicalDevice, physicalDeviceProperties2Out);
-
-        if (deviceProps->apiVersion < kMinimumVulkanAPIVersion)
-        {
-            // Skip any devices that don't support our minimum API version. This
-            // takes precedence over all other considerations.
-            continue;
-        }
-
+        pGetPhysicalDeviceProperties(physicalDevice, physicalDevicePropertiesOut);
         // If discrete GPU exists, uses it by default.
-        if (deviceProps->deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+        if (physicalDevicePropertiesOut->deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
         {
             *physicalDeviceOut = physicalDevice;
             return;
         }
-        if (deviceProps->deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU &&
+        if (physicalDevicePropertiesOut->deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU &&
             !integratedDevice.valid())
         {
-            integratedDevice                       = physicalDevice;
-            integratedDeviceProperties2            = *physicalDeviceProperties2Out;
-            integratedDeviceIDProperties           = *physicalDeviceIDPropertiesOut;
-            integratedDeviceDriverProperties       = *physicalDeviceDriverPropertiesOut;
-            integratedDeviceProperties2.pNext      = nullptr;
-            integratedDeviceIDProperties.pNext     = nullptr;
-            integratedDeviceDriverProperties.pNext = nullptr;
+            integratedDevice           = physicalDevice;
+            integratedDeviceProperties = *physicalDevicePropertiesOut;
             continue;
         }
     }
@@ -379,16 +333,15 @@ void ChoosePhysicalDevice(PFN_vkGetPhysicalDeviceProperties2 pGetPhysicalDeviceP
     // If only integrated GPU exists, use it by default.
     if (integratedDevice.valid())
     {
-        *physicalDeviceOut             = integratedDevice.value();
-        *physicalDeviceProperties2Out  = integratedDeviceProperties2;
-        *physicalDeviceIDPropertiesOut = integratedDeviceIDProperties;
+        *physicalDeviceOut           = integratedDevice.value();
+        *physicalDevicePropertiesOut = integratedDeviceProperties;
         return;
     }
 
     WARN() << "Preferred device ICD not found. Using default physicalDevice instead.";
     // Fallback to the first device.
     *physicalDeviceOut = physicalDevices[0];
-    pGetPhysicalDeviceProperties2(*physicalDeviceOut, physicalDeviceProperties2Out);
+    pGetPhysicalDeviceProperties(*physicalDeviceOut, physicalDevicePropertiesOut);
 }
 
 }  // namespace vk

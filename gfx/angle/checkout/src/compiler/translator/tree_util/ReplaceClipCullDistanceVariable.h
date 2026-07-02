@@ -38,12 +38,6 @@ class TIntermTyped;
                                                   TIntermBlock *root,
                                                   TSymbolTable *symbolTable,
                                                   const GLenum shaderType);
-
-[[nodiscard]] bool ZeroDisabledClipDistanceAssignments(TCompiler *compiler,
-                                                       TIntermBlock *root,
-                                                       TSymbolTable *symbolTable,
-                                                       const GLenum shaderType,
-                                                       const TIntermTyped *clipDistanceEnableFlags);
 }  // namespace sh
 
 #endif

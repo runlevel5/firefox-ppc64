@@ -4,10 +4,6 @@
 // found in the LICENSE file.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#pragma allow_unsafe_libc_calls
-#endif
-
 // angletypes.inc : Inline definitions of some functions from angletypes.h
 
 namespace gl

@@ -218,11 +218,8 @@ using HistogramBooleanFunc = void (*)(PlatformMethods *platform, const char *nam
 inline void DefaultHistogramBoolean(PlatformMethods *platform, const char *name, bool sample) {}
 
 // Callback on a successful program link with the program binary. Can be used to store
-// shaders to disk. Depending on the platform the keys are either a 160-bit SHA-1 hash
-// (chromium) or a 128-bit XXH3 hash (all other platforms). For simplicity, ProgramKeyType
-// is large enough to hold either.
-constexpr size_t kProgramCacheControlKeySize = 20;
-using ProgramKeyType                         = std::array<uint8_t, kProgramCacheControlKeySize>;
+// shaders to disk. Keys are a 160-bit SHA-1 hash.
+using ProgramKeyType   = std::array<uint8_t, 20>;
 using CacheProgramFunc = void (*)(PlatformMethods *platform,
                                   const ProgramKeyType &key,
                                   size_t programSize,
@@ -246,11 +243,6 @@ constexpr PostWorkerTaskFunc DefaultPostWorkerTask = nullptr;
 using PlaceholderCallbackFunc = void (*)(...);
 inline void DefaultPlaceholderCallback(...) {}
 
-// The boolean indicates whether the shader was in the cache or not. A value of true indicates it
-// was, where as false means it was not and needed to be compiled.
-using RecordShaderCacheUseFunc = void (*)(bool);
-inline void DefaultRecordShaderCacheUse(bool) {}
-
 // Platform methods are enumerated here once.
 #define ANGLE_PLATFORM_OP(OP)                                    \
     OP(currentTime, CurrentTime)                                 \
@@ -269,8 +261,7 @@ inline void DefaultRecordShaderCacheUse(bool) {}
     OP(placeholder2, PlaceholderCallback)                        \
     OP(cacheProgram, CacheProgram)                               \
     OP(placeholder3, PlaceholderCallback)                        \
-    OP(postWorkerTask, PostWorkerTask)                           \
-    OP(recordShaderCacheUse, RecordShaderCacheUse)
+    OP(postWorkerTask, PostWorkerTask)
 
 #define ANGLE_PLATFORM_METHOD_DEF(Name, CapsName) CapsName##Func Name = Default##CapsName;
 
@@ -296,7 +287,7 @@ constexpr unsigned int g_NumPlatformMethods = (sizeof(PlatformMethods) / sizeof(
 // No further uses of platform methods is allowed.  EGL extensions should be used instead.  While
 // methods are being removed, use PlaceholderCallback to keep the layout of PlatformMethods
 // constant.
-static_assert(g_NumPlatformMethods == 18, "Avoid adding methods to PlatformMethods");
+static_assert(g_NumPlatformMethods == 17, "Avoid adding methods to PlatformMethods");
 
 #define ANGLE_PLATFORM_METHOD_STRING(Name) #Name
 #define ANGLE_PLATFORM_METHOD_STRING2(Name, CapsName) ANGLE_PLATFORM_METHOD_STRING(Name),

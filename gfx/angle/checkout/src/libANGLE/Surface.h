@@ -47,13 +47,12 @@ using SupportedTimestamps       = angle::PackedEnumBitSet<Timestamp>;
 
 struct SurfaceState final : private angle::NonCopyable
 {
-    SurfaceState(SurfaceID idIn, const egl::Config *configIn, const AttributeMap &attributesIn);
+    SurfaceState(const egl::Config *configIn, const AttributeMap &attributesIn);
     ~SurfaceState();
 
     bool isRobustResourceInitEnabled() const;
     bool hasProtectedContent() const;
-
-    SurfaceID id;
+    EGLint getPreferredSwapInterval() const;
 
     EGLLabelKHR label;
     const egl::Config *config;
@@ -65,7 +64,6 @@ struct SurfaceState final : private angle::NonCopyable
     SupportedTimestamps supportedTimestamps;
     bool directComposition;
     EGLenum swapBehavior;
-    EGLint swapInterval;
 };
 
 class Surface : public LabeledObject, public gl::FramebufferAttachmentObject
@@ -82,8 +80,9 @@ class Surface : public LabeledObject, public gl::FramebufferAttachmentObject
     Error makeCurrent(const gl::Context *context);
     Error unMakeCurrent(const gl::Context *context);
     Error prepareSwap(const gl::Context *context);
-    Error swap(gl::Context *context);
-    Error swapWithDamage(gl::Context *context, const EGLint *rects, EGLint n_rects);
+    Error swap(const gl::Context *context);
+    Error swapWithDamage(const gl::Context *context, const EGLint *rects, EGLint n_rects);
+    Error swapWithFrameToken(const gl::Context *context, EGLFrameTokenANGLE frameToken);
     Error postSubBuffer(const gl::Context *context,
                         EGLint x,
                         EGLint y,
@@ -99,13 +98,11 @@ class Surface : public LabeledObject, public gl::FramebufferAttachmentObject
 
     EGLint isPostSubBufferSupported() const;
 
-    void setRequestedSwapInterval(EGLint interval);
-    void setSwapInterval(const Display *display, EGLint interval);
+    void setSwapInterval(EGLint interval);
     Error onDestroy(const Display *display);
 
     void setMipmapLevel(EGLint level);
     void setMultisampleResolve(EGLenum resolve);
-    void setRequestedSwapBehavior(EGLenum behavior);
     void setSwapBehavior(EGLenum behavior);
 
     void setFixedWidth(EGLint width);
@@ -113,16 +110,21 @@ class Surface : public LabeledObject, public gl::FramebufferAttachmentObject
 
     const Config *getConfig() const;
 
-    // size can change with client window resizing
-    // Size must be resolved before the call either during state synchronization or explicitly.
-    gl::Extents getSize() const;
-    // Unresolved Surface size until render target is first accessed (e.g. after draw).
-    egl::Error getUserSize(const egl::Display *display, EGLint *width, EGLint *height) const;
+    // width and height can change with client window resizing
+    EGLint getWidth() const;
+    EGLint getHeight() const;
+    // Note: windows cannot be resized on Android.  The approach requires
+    // calling vkGetPhysicalDeviceSurfaceCapabilitiesKHR.  However, that is
+    // expensive; and there are troublesome timing issues for other parts of
+    // ANGLE (which cause test failures and crashes).  Therefore, a
+    // special-Android-only path is created just for the querying of EGL_WIDTH
+    // and EGL_HEIGHT.
+    // https://issuetracker.google.com/issues/153329980
+    egl::Error getUserWidth(const egl::Display *display, EGLint *value) const;
+    egl::Error getUserHeight(const egl::Display *display, EGLint *value) const;
     EGLint getPixelAspectRatio() const;
     EGLenum getRenderBuffer() const;
-    EGLenum getRequestedRenderBuffer() const;
     EGLenum getSwapBehavior() const;
-    EGLenum getRequestedSwapBehavior() const;
     TextureFormat getTextureFormat() const;
     EGLenum getTextureTarget() const;
     bool getLargestPbuffer() const;
@@ -135,8 +137,6 @@ class Surface : public LabeledObject, public gl::FramebufferAttachmentObject
     EGLint getVerticalResolution() const;
     EGLenum getMultisampleResolve() const;
     bool hasProtectedContent() const override;
-    bool hasFoveatedRendering() const override { return false; }
-    const gl::FoveationState *getFoveationState() const override { return nullptr; }
 
     // For lock surface buffer
     EGLint getBitmapPitch() const;
@@ -148,9 +148,6 @@ class Surface : public LabeledObject, public gl::FramebufferAttachmentObject
     EGLint getLuminanceOffset() const;
     EGLint getBitmapPixelSize() const;
     EGLAttribKHR getBitmapPointer() const;
-    egl::Error getCompressionRate(const egl::Display *display,
-                                  const gl::Context *context,
-                                  EGLint *rate);
     egl::Error lockSurfaceKHR(const egl::Display *display, const AttributeMap &attributes);
     egl::Error unlockSurfaceKHR(const egl::Display *display);
 
@@ -162,9 +159,6 @@ class Surface : public LabeledObject, public gl::FramebufferAttachmentObject
     EGLint isFixedSize() const;
 
     // FramebufferAttachmentObject implementation
-    // Explicitly resolves surface size to use before state synchronization (e.g. validation).
-    angle::Result ensureSizeResolved(const gl::Context *context) const override;
-    bool isAttachmentSpecified(const gl::ImageIndex &imageIndex) const override;
     gl::Extents getAttachmentSize(const gl::ImageIndex &imageIndex) const override;
     gl::Format getAttachmentFormat(GLenum binding, const gl::ImageIndex &imageIndex) const override;
     GLsizei getAttachmentSamples(const gl::ImageIndex &imageIndex) const override;
@@ -172,12 +166,10 @@ class Surface : public LabeledObject, public gl::FramebufferAttachmentObject
                       GLenum binding,
                       const gl::ImageIndex &imageIndex) const override;
     bool isYUV() const override;
-    bool isExternalImageWithoutIndividualSync() const override;
-    bool hasFrontBufferUsage() const override;
+    bool isCreatedWithAHB() const override;
 
-    void onAttach(const gl::Context *context, rx::UniqueSerial framebufferSerial) override {}
-    void onDetach(const gl::Context *context, rx::UniqueSerial framebufferSerial) override {}
-    SurfaceID id() const { return mState.id; }
+    void onAttach(const gl::Context *context, rx::Serial framebufferSerial) override {}
+    void onDetach(const gl::Context *context, rx::Serial framebufferSerial) override {}
     GLuint getId() const override;
 
     EGLint getOrientation() const { return mOrientation; }
@@ -220,7 +212,6 @@ class Surface : public LabeledObject, public gl::FramebufferAttachmentObject
     Error getBufferAge(const gl::Context *context, EGLint *age);
 
     Error setRenderBuffer(EGLint renderBuffer);
-    void setRequestedRenderBuffer(EGLint requestedRenderBuffer);
 
     bool bufferAgeQueriedSinceLastSwap() const { return mBufferAgeQueriedSinceLastSwap; }
     void setDamageRegion(const EGLint *rects, EGLint n_rects);
@@ -232,11 +223,10 @@ class Surface : public LabeledObject, public gl::FramebufferAttachmentObject
         ASSERT(mRefCount > 0);
         mRefCount--;
     }
-    bool isReferenced() const { return mRefCount > 0; }
 
   protected:
     Surface(EGLint surfaceType,
-            SurfaceID id,
+            GLuint serialId,
             const egl::Config *config,
             const AttributeMap &attributes,
             bool forceRobustResourceInit,
@@ -277,11 +267,8 @@ class Surface : public LabeledObject, public gl::FramebufferAttachmentObject
     TextureFormat mTextureFormat;
     EGLenum mTextureTarget;
 
-    EGLint mPixelAspectRatio;        // Display aspect ratio
-    EGLenum mRenderBuffer;           // Render buffer
-    EGLenum mRequestedRenderBuffer;  // Requested render buffer
-    EGLenum mRequestedSwapBehavior;
-    EGLint mRequestedSwapInterval;
+    EGLint mPixelAspectRatio;  // Display aspect ratio
+    EGLenum mRenderBuffer;     // Render buffer
 
     EGLint mOrientation;
 
@@ -306,24 +293,23 @@ class Surface : public LabeledObject, public gl::FramebufferAttachmentObject
 
     Error destroyImpl(const Display *display);
 
-    void postSwap(const gl::Context *context, const rx::SurfaceSwapFeedback &feedback);
+    void postSwap(const gl::Context *context);
     Error releaseRef(const Display *display);
 
     // ObserverInterface implementation.
     void onSubjectStateChange(angle::SubjectIndex index, angle::SubjectMessage message) override;
 
-    Error updatePropertiesOnSwap(const gl::Context *context);
-
     gl::InitState mColorInitState;
     gl::InitState mDepthStencilInitState;
     angle::ObserverBinding mImplObserverBinding;
+
+    GLuint mSerialId;
 };
 
 class WindowSurface final : public Surface
 {
   public:
     WindowSurface(rx::EGLImplFactory *implFactory,
-                  SurfaceID id,
                   const Config *config,
                   EGLNativeWindowType window,
                   const AttributeMap &attribs,
@@ -335,12 +321,10 @@ class PbufferSurface final : public Surface
 {
   public:
     PbufferSurface(rx::EGLImplFactory *implFactory,
-                   SurfaceID id,
                    const Config *config,
                    const AttributeMap &attribs,
                    bool robustResourceInit);
     PbufferSurface(rx::EGLImplFactory *implFactory,
-                   SurfaceID id,
                    const Config *config,
                    EGLenum buftype,
                    EGLClientBuffer clientBuffer,
@@ -355,7 +339,6 @@ class PixmapSurface final : public Surface
 {
   public:
     PixmapSurface(rx::EGLImplFactory *implFactory,
-                  SurfaceID id,
                   const Config *config,
                   NativePixmapType nativePixmap,
                   const AttributeMap &attribs,

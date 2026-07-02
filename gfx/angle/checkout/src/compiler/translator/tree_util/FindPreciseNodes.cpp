@@ -16,14 +16,11 @@
 
 #include "compiler/translator/tree_util/FindPreciseNodes.h"
 
-#include "common/hash_containers.h"
 #include "common/hash_utils.h"
-#include "common/span.h"
 #include "compiler/translator/Compiler.h"
 #include "compiler/translator/IntermNode.h"
 #include "compiler/translator/Symbol.h"
 #include "compiler/translator/tree_util/IntermTraverse.h"
-#include "compiler/translator/util.h"
 
 namespace sh
 {
@@ -34,7 +31,7 @@ namespace
 // An access chain applied to a variable.  The |precise|-ness of a node does not change when
 // indexing arrays, selecting matrix columns or swizzle vectors.  This access chain thus only
 // includes block field selections.  The access chain is used to identify the part of an object
-// that is or should be |precise|.  If both a.b.c and a.b are precise, only a.b is ever considered.
+// that is or should be |precise|.  If both a.b.c and a.b are precise, only a.b is every considered.
 class AccessChain
 {
   public:
@@ -64,6 +61,20 @@ class AccessChain
     TVector<size_t> mChain;
 };
 
+bool IsIndexOp(TOperator op)
+{
+    switch (op)
+    {
+        case EOpIndexDirect:
+        case EOpIndexDirectStruct:
+        case EOpIndexDirectInterfaceBlock:
+        case EOpIndexIndirect:
+            return true;
+        default:
+            return false;
+    }
+}
+
 const TVariable *AccessChain::build(TIntermTyped *lvalue)
 {
     if (lvalue->getAsSwizzleNode())
@@ -82,11 +93,6 @@ const TVariable *AccessChain::build(TIntermTyped *lvalue)
 
         return var;
     }
-    if (lvalue->getAsAggregate())
-    {
-        return nullptr;
-    }
-
     TIntermBinary *binary = lvalue->getAsBinaryNode();
     ASSERT(binary);
 
@@ -146,7 +152,7 @@ void TraverseIndexNodesOnly(TIntermNode *node, Traverser *traverser)
         node = node->getAsSwizzleNode()->getOperand();
     }
 
-    if (node->getAsSymbolNode() || node->getAsAggregate())
+    if (node->getAsSymbolNode())
     {
         return;
     }
@@ -174,18 +180,20 @@ struct ObjectAndAccessChain
 
 bool operator==(const ObjectAndAccessChain &a, const ObjectAndAccessChain &b)
 {
-    return a.variable->uniqueId() == b.variable->uniqueId() && a.accessChain == b.accessChain;
+    return a.variable == b.variable && a.accessChain == b.accessChain;
 }
 
 struct ObjectAndAccessChainHash
 {
     size_t operator()(const ObjectAndAccessChain &object) const
     {
-        size_t result = angle::ComputeGenericHash(angle::byte_span_from_ref(object.variable));
+        size_t result = angle::ComputeGenericHash(&object.variable, sizeof(object.variable));
         if (!object.accessChain.getChain().empty())
         {
-            result = result ^
-                     angle::ComputeGenericHash(angle::as_byte_span(object.accessChain.getChain()));
+            result =
+                result ^ angle::ComputeGenericHash(object.accessChain.getChain().data(),
+                                                   object.accessChain.getChain().size() *
+                                                       sizeof(object.accessChain.getChain()[0]));
         }
         return result;
     }
@@ -458,13 +466,10 @@ class InfoGatherTraverser : public TIntermTraverser
     {
         AccessChain lvalueChain;
         const TVariable *lvalueBase = lvalueChain.build(lvalueNode);
-        if (lvalueBase != nullptr)
-        {
-            mInfo->variableAssignmentNodeMap[lvalueBase].push_back(assignmentNode);
+        mInfo->variableAssignmentNodeMap[lvalueBase].push_back(assignmentNode);
 
-            ObjectAndAccessChain lvalue = {lvalueBase, lvalueChain};
-            AddObjectIfPrecise(mInfo, lvalue);
-        }
+        ObjectAndAccessChain lvalue = {lvalueBase, lvalueChain};
+        AddObjectIfPrecise(mInfo, lvalue);
 
         TraverseIndexNodesOnly(lvalueNode, this);
     }
@@ -520,13 +525,10 @@ class PropagatePreciseTraverser : public TIntermTraverser
             // variable V, then what ends up being |precise| is V with access chain [0, 2, 1, 3].
             AccessChain nodeAccessChain;
             const TVariable *baseVariable = nodeAccessChain.build(node);
-            if (baseVariable != nullptr)
-            {
-                nodeAccessChain.append(mCurrentAccessChain);
+            nodeAccessChain.append(mCurrentAccessChain);
 
-                ObjectAndAccessChain preciseObject = {baseVariable, nodeAccessChain};
-                AddPreciseObject(mInfo, preciseObject);
-            }
+            ObjectAndAccessChain preciseObject = {baseVariable, nodeAccessChain};
+            AddPreciseObject(mInfo, preciseObject);
 
             // Visit index nodes, each of which should be considered |precise| in its entirety.
             mCurrentAccessChain.clear();

@@ -34,10 +34,10 @@ class Device final : public LabeledObject, angle::NonCopyable
 
     Error getAttribute(EGLint attribute, EGLAttrib *value);
     Display *getOwningDisplay() const { return mOwningDisplay; }
+    EGLint getType() const;
 
     const DeviceExtensions &getExtensions() const;
     const std::string &getExtensionString() const;
-    const std::string &getDeviceString(EGLint name);
 
     rx::DeviceImpl *getImplementation() { return mImplementation.get(); }
 
@@ -54,7 +54,6 @@ class Device final : public LabeledObject, angle::NonCopyable
 
     DeviceExtensions mDeviceExtensions;
     std::string mDeviceExtensionString;
-    std::map<EGLint, std::string> mDeviceStrings;
 };
 }  // namespace egl
 

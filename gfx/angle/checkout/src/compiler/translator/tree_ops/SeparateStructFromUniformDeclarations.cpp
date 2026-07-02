@@ -50,9 +50,9 @@ class Traverser : public TIntermTraverser
     void visitSymbol(TIntermSymbol *symbol) override
     {
         const TVariable *variable = &symbol->variable();
-        if (mVariableMap.count(variable->uniqueId()) > 0)
+        if (mVariableMap.count(variable) > 0)
         {
-            queueAccessChainReplacement(mVariableMap[variable->uniqueId()]->deepCopy());
+            queueAccessChainReplacement(mVariableMap[variable]->deepCopy());
         }
     }
 
@@ -94,7 +94,7 @@ class Traverser : public TIntermTraverser
 
         newSequence.push_back(namedDecl);
 
-        mVariableMap[asSymbol->variable().uniqueId()] = newSymbol;
+        mVariableMap[&asSymbol->variable()] = newSymbol;
 
         mMultiReplacements.emplace_back(getParentNode()->getAsBlock(), decl,
                                         std::move(newSequence));

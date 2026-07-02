@@ -30,7 +30,7 @@ class FenceNV final : angle::NonCopyable
 {
   public:
     explicit FenceNV(rx::GLImplFactory *factory);
-    ~FenceNV();
+    virtual ~FenceNV();
 
     void onDestroy(const gl::Context *context);
     angle::Result set(const Context *context, GLenum condition);
@@ -50,10 +50,10 @@ class FenceNV final : angle::NonCopyable
     GLenum mCondition;
 };
 
-class Sync final : public RefCountObject<SyncID>, public LabeledObject
+class Sync final : public RefCountObject<GLuint>, public LabeledObject
 {
   public:
-    Sync(rx::GLImplFactory *factory, SyncID id, const Context *context);
+    Sync(rx::GLImplFactory *factory, GLuint id);
     ~Sync() override;
 
     void onDestroy(const Context *context) override;

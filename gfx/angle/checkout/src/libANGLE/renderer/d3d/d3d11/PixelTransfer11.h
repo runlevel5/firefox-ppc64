@@ -15,7 +15,6 @@
 
 #include <map>
 
-#include <libANGLE/angletypes.h>
 #include "common/platform.h"
 #include "libANGLE/Error.h"
 #include "libANGLE/renderer/d3d/d3d11/ResourceManager11.h"
@@ -24,6 +23,9 @@ namespace gl
 {
 class Buffer;
 class Context;
+struct Box;
+struct Extents;
+struct PixelUnpackState;
 }  // namespace gl
 
 namespace rx

@@ -9,15 +9,11 @@
 
 #include "libANGLE/renderer/d3d/d3d9/Context9.h"
 
-#include <utility>
-
 #include "common/entry_points_enum_autogen.h"
 #include "common/string_utils.h"
-#include "image_util/loadimage.h"
 #include "libANGLE/renderer/OverlayImpl.h"
 #include "libANGLE/renderer/d3d/CompilerD3D.h"
 #include "libANGLE/renderer/d3d/ProgramD3D.h"
-#include "libANGLE/renderer/d3d/ProgramExecutableD3D.h"
 #include "libANGLE/renderer/d3d/RenderbufferD3D.h"
 #include "libANGLE/renderer/d3d/SamplerD3D.h"
 #include "libANGLE/renderer/d3d/ShaderD3D.h"
@@ -39,17 +35,14 @@ Context9::Context9(const gl::State &state, gl::ErrorSet *errorSet, Renderer9 *re
 
 Context9::~Context9() {}
 
-angle::Result Context9::initialize(const angle::ImageLoadContext &imageLoadContext)
+angle::Result Context9::initialize()
 {
-    mImageLoadContext = imageLoadContext;
     return angle::Result::Continue;
 }
 
 void Context9::onDestroy(const gl::Context *context)
 {
     mIncompleteTextures.onDestroy(context);
-
-    mImageLoadContext = {};
 }
 
 CompilerImpl *Context9::createCompiler()
@@ -65,11 +58,6 @@ ShaderImpl *Context9::createShader(const gl::ShaderState &data)
 ProgramImpl *Context9::createProgram(const gl::ProgramState &data)
 {
     return new ProgramD3D(data, mRenderer);
-}
-
-ProgramExecutableImpl *Context9::createProgramExecutable(const gl::ProgramExecutable *executable)
-{
-    return new ProgramExecutableD3D(executable);
 }
 
 FramebufferImpl *Context9::createFramebuffer(const gl::FramebufferState &data)
@@ -105,10 +93,9 @@ BufferImpl *Context9::createBuffer(const gl::BufferState &state)
     return new Buffer9(state, mRenderer);
 }
 
-VertexArrayImpl *Context9::createVertexArray(const gl::VertexArrayState &data,
-                                             const gl::VertexArrayBuffers &vertexArrayBuffers)
+VertexArrayImpl *Context9::createVertexArray(const gl::VertexArrayState &data)
 {
-    return new VertexArray9(data, vertexArrayBuffers);
+    return new VertexArray9(data);
 }
 
 QueryImpl *Context9::createQuery(gl::QueryType type)
@@ -121,7 +108,7 @@ FenceNVImpl *Context9::createFenceNV()
     return new FenceNV9(mRenderer);
 }
 
-SyncImpl *Context9::createSync(const gl::Context *)
+SyncImpl *Context9::createSync()
 {
     // D3D9 doesn't support ES 3.0 and its sync objects.
     UNREACHABLE();
@@ -408,11 +395,12 @@ angle::Result Context9::pushGroupMarker(GLsizei length, const char *marker)
 
 angle::Result Context9::popGroupMarker()
 {
+    const char *marker = nullptr;
     if (!mMarkerStack.empty())
     {
-        std::string marker = std::move(mMarkerStack.top());
+        marker = mMarkerStack.top().c_str();
         mMarkerStack.pop();
-        mRenderer->getAnnotator()->endEvent(nullptr, marker.c_str(),
+        mRenderer->getAnnotator()->endEvent(nullptr, marker,
                                             angle::EntryPoint::GLPopGroupMarkerEXT);
     }
     return angle::Result::Continue;
@@ -434,20 +422,17 @@ angle::Result Context9::popDebugGroup(const gl::Context *context)
 }
 
 angle::Result Context9::syncState(const gl::Context *context,
-                                  const gl::state::DirtyBits dirtyBits,
-                                  const gl::state::DirtyBits bitMask,
-                                  const gl::state::ExtendedDirtyBits extendedDirtyBits,
-                                  const gl::state::ExtendedDirtyBits extendedBitMask,
+                                  const gl::State::DirtyBits &dirtyBits,
+                                  const gl::State::DirtyBits &bitMask,
                                   gl::Command command)
 {
-    mRenderer->getStateManager()->syncState(mState, dirtyBits, extendedDirtyBits);
+    mRenderer->getStateManager()->syncState(mState, dirtyBits);
     return angle::Result::Continue;
 }
 
 GLint Context9::getGPUDisjoint()
 {
-    // Disjoint timer queries are not supported.
-    return false;
+    return mRenderer->getGPUDisjoint();
 }
 
 GLint64 Context9::getTimestamp()
@@ -481,9 +466,9 @@ const gl::Limitations &Context9::getNativeLimitations() const
     return mRenderer->getNativeLimitations();
 }
 
-const ShPixelLocalStorageOptions &Context9::getNativePixelLocalStorageOptions() const
+ShPixelLocalStorageType Context9::getNativePixelLocalStorageType() const
 {
-    return mRenderer->getNativePixelLocalStorageOptions();
+    return mRenderer->getNativePixelLocalStorageType();
 }
 
 angle::Result Context9::dispatchCompute(const gl::Context *context,

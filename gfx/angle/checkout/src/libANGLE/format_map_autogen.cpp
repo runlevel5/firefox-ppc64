@@ -436,7 +436,7 @@ GLenum GetSizedFormatInternal(GLenum format, GLenum type)
                 case GL_UNSIGNED_INT_10F_11F_11F_REV:
                     return GL_R11F_G11F_B10F;
                 case GL_UNSIGNED_INT_2_10_10_10_REV:
-                    return GL_RGB10_EXT;
+                    return GL_RGB10_UNORM_ANGLEX;
                 case GL_UNSIGNED_INT_5_9_9_9_REV:
                     return GL_RGB9_E5;
                 case GL_UNSIGNED_SHORT:
@@ -558,7 +558,17 @@ GLenum GetSizedFormatInternal(GLenum format, GLenum type)
             }
             break;
 
-        case GL_STENCIL_INDEX:
+        case GL_STENCIL:
+            switch (type)
+            {
+                case GL_UNSIGNED_BYTE:
+                    return GL_STENCIL_INDEX8;
+                default:
+                    break;
+            }
+            break;
+
+        case GL_STENCIL_INDEX_OES:
             switch (type)
             {
                 case GL_UNSIGNED_BYTE:
@@ -1271,9 +1281,7 @@ bool ValidES3FormatCombination(GLenum format, GLenum type, GLenum internalFormat
                         case GL_RGB565:
                         case GL_SRGB8:
                         case GL_RGB:
-                        case GL_SRGB_EXT:
                         case GL_RGBX8_ANGLE:
-                        case GL_RGBX8_SRGB_ANGLEX:
                             return true;
                         default:
                             break;
@@ -1411,8 +1419,6 @@ bool ValidES3FormatCombination(GLenum format, GLenum type, GLenum internalFormat
                         case GL_RGBA4:
                         case GL_SRGB8_ALPHA8:
                         case GL_RGBA:
-                        case GL_SRGB_ALPHA_EXT:
-                        case GL_RGBX8_ANGLE:
                             return true;
                         default:
                             break;

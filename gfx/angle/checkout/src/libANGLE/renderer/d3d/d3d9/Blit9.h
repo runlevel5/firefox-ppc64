@@ -12,13 +12,14 @@
 #include "common/PackedEnums.h"
 #include "common/angleutils.h"
 #include "libANGLE/Error.h"
-#include "libANGLE/angletypes.h"
 
 namespace gl
 {
 class Context;
 class Framebuffer;
 class Texture;
+struct Extents;
+struct Offset;
 }  // namespace gl
 
 namespace rx

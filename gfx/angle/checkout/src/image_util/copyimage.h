@@ -39,15 +39,6 @@ void CopyBGRA8ToRGBA8(const uint8_t *source,
                       int destWidth,
                       int destHeight);
 
-void CopyRGBA8ToRGBA8(const uint8_t *source,
-                      int srcXAxisPitch,
-                      int srcYAxisPitch,
-                      uint8_t *dest,
-                      int destXAxisPitch,
-                      int destYAxisPitch,
-                      int destWidth,
-                      int destHeight);
-
 }  // namespace angle
 
 #include "copyimage.inc"

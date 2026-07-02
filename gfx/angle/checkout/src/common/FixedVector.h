@@ -45,8 +45,7 @@ class FixedVector final
     FixedVector<T, N, Storage> &operator=(FixedVector<T, N, Storage> &&other);
     FixedVector<T, N, Storage> &operator=(std::initializer_list<value_type> init);
 
-    // Makes class trivially destructible.
-    ~FixedVector() = default;
+    ~FixedVector();
 
     reference at(size_type pos);
     const_reference at(size_type pos) const;
@@ -73,7 +72,7 @@ class FixedVector final
     void push_back(value_type &&value);
 
     template <class... Args>
-    void emplace_back(Args &&...args);
+    void emplace_back(Args &&... args);
 
     void pop_back();
     reference back();
@@ -125,11 +124,7 @@ template <class T, size_t N, class Storage>
 FixedVector<T, N, Storage>::FixedVector(const FixedVector<T, N, Storage> &other) = default;
 
 template <class T, size_t N, class Storage>
-FixedVector<T, N, Storage>::FixedVector(FixedVector<T, N, Storage> &&other)
-    : mStorage(std::move(other.mStorage)), mSize(other.mSize)
-{
-    other.mSize = 0;
-}
+FixedVector<T, N, Storage>::FixedVector(FixedVector<T, N, Storage> &&other) = default;
 
 template <class T, size_t N, class Storage>
 FixedVector<T, N, Storage>::FixedVector(std::initializer_list<value_type> init)
@@ -144,13 +139,7 @@ FixedVector<T, N, Storage> &FixedVector<T, N, Storage>::operator=(
 
 template <class T, size_t N, class Storage>
 FixedVector<T, N, Storage> &FixedVector<T, N, Storage>::operator=(
-    FixedVector<T, N, Storage> &&other)
-{
-    mStorage    = std::move(other.mStorage);
-    mSize       = other.mSize;
-    other.mSize = 0;
-    return *this;
-}
+    FixedVector<T, N, Storage> &&other) = default;
 
 template <class T, size_t N, class Storage>
 FixedVector<T, N, Storage> &FixedVector<T, N, Storage>::operator=(
@@ -159,13 +148,19 @@ FixedVector<T, N, Storage> &FixedVector<T, N, Storage>::operator=(
     clear();
     ASSERT(init.size() <= N);
     assign_from_initializer_list(init);
-    return *this;
+    return this;
+}
+
+template <class T, size_t N, class Storage>
+FixedVector<T, N, Storage>::~FixedVector()
+{
+    clear();
 }
 
 template <class T, size_t N, class Storage>
 typename FixedVector<T, N, Storage>::reference FixedVector<T, N, Storage>::at(size_type pos)
 {
-    ASSERT(pos < mSize);
+    ASSERT(pos < N);
     return mStorage.at(pos);
 }
 
@@ -173,14 +168,14 @@ template <class T, size_t N, class Storage>
 typename FixedVector<T, N, Storage>::const_reference FixedVector<T, N, Storage>::at(
     size_type pos) const
 {
-    ASSERT(pos < mSize);
+    ASSERT(pos < N);
     return mStorage.at(pos);
 }
 
 template <class T, size_t N, class Storage>
 typename FixedVector<T, N, Storage>::reference FixedVector<T, N, Storage>::operator[](size_type pos)
 {
-    ASSERT(pos < mSize);
+    ASSERT(pos < N);
     return mStorage[pos];
 }
 
@@ -188,7 +183,7 @@ template <class T, size_t N, class Storage>
 typename FixedVector<T, N, Storage>::const_reference FixedVector<T, N, Storage>::operator[](
     size_type pos) const
 {
-    ASSERT(pos < mSize);
+    ASSERT(pos < N);
     return mStorage[pos];
 }
 
@@ -270,7 +265,7 @@ void FixedVector<T, N, Storage>::push_back(value_type &&value)
 
 template <class T, size_t N, class Storage>
 template <class... Args>
-void FixedVector<T, N, Storage>::emplace_back(Args &&...args)
+void FixedVector<T, N, Storage>::emplace_back(Args &&... args)
 {
     ASSERT(mSize < N);
     new (&mStorage[mSize]) T{std::forward<Args>(args)...};
@@ -341,9 +336,9 @@ template <class T, size_t N, class Storage>
 void FixedVector<T, N, Storage>::assign_from_initializer_list(
     std::initializer_list<value_type> init)
 {
-    for (const auto &element : init)
+    for (auto element : init)
     {
-        mStorage[mSize] = element;
+        mStorage[mSize] = std::move(element);
         mSize++;
     }
 }
@@ -354,20 +349,5 @@ bool FixedVector<T, N, Storage>::full() const
     return (mSize == N);
 }
 }  // namespace angle
-
-namespace std
-{
-template <class T, size_t N, class Storage, class Predicate>
-typename angle::FixedVector<T, N, Storage>::size_type erase_if(angle::FixedVector<T, N, Storage> &c,
-                                                               Predicate pred)
-{
-    const auto oldSize = c.size();
-    auto it            = std::remove_if(c.begin(), c.end(), pred);
-    const auto newSize = static_cast<typename angle::FixedVector<T, N, Storage>::size_type>(
-        std::distance(c.begin(), it));
-    c.resize(newSize);
-    return oldSize - c.size();
-}
-}  // namespace std
 
 #endif  // COMMON_FIXEDVECTOR_H_

@@ -6,10 +6,6 @@
 
 // copyvertex.inc.h: Implementation of vertex buffer copying and conversion functions
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 namespace rx
 {
 
@@ -300,7 +296,7 @@ inline void CopyToFloatVertexData(const uint8_t *input,
             }
             else
             {
-                offsetOutput[3] = static_cast<outputType>(1.0f);
+                offsetOutput[3] = static_cast<outputType>(gl::Float32One);
             }
         }
     }

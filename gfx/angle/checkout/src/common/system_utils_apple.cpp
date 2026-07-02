@@ -6,10 +6,6 @@
 
 // system_utils_apple.cpp: Implementation of OS-specific functions for Apple platforms
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_libc_calls
-#endif
-
 #include "system_utils.h"
 
 #include <unistd.h>
@@ -59,10 +55,5 @@ double GetCurrentSystemTime()
 
     double secondCoeff = timebaseInfo.numer * 1e-9 / timebaseInfo.denom;
     return secondCoeff * mach_absolute_time();
-}
-
-void SetCurrentThreadName(const char *name)
-{
-    pthread_setname_np(name);
 }
 }  // namespace angle

@@ -3,25 +3,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
-// MonomorphizeUnsupportedFunctions: Monomorphize functions that are called with parameters that are
-// incompatible with the target language, or cause complications for future transformations:
+// MonomorphizeUnsupportedFunctions: Monomorphize functions that are called with
+// parameters that are incompatible with both Vulkan GLSL and Metal:
 //
 // - Samplers in structs
 // - Structs that have samplers
 // - Partially subscripted array of array of samplers
 // - Partially subscripted array of array of images
 // - Atomic counters
-// - Pixel local storage planes
+// - samplerCube variables when emulating ES2's cube map sampling
 // - image* variables with r32f formats (to emulate imageAtomicExchange)
-//
-// Additionally, the ESSL spec has a bug with images as function arguments, as the layout qualifiers
-// needed for the image are impossible to specify.
 //
 // This transformation basically duplicates such functions, removes the
 // sampler/image/atomic_counter parameters and uses the opaque uniforms used by the caller.
 
-#ifndef COMPILER_TRANSLATOR_TREEOPS_MONOMORPHIZEUNSUPPORTEDFUNCTIONS_H_
-#define COMPILER_TRANSLATOR_TREEOPS_MONOMORPHIZEUNSUPPORTEDFUNCTIONS_H_
+#ifndef COMPILER_TRANSLATOR_TREEOPS_VULKAN_MONOMORPHIZEUNSUPPORTEDFUNCTIONS_H_
+#define COMPILER_TRANSLATOR_TREEOPS_VULKAN_MONOMORPHIZEUNSUPPORTEDFUNCTIONS_H_
 
 #include "common/angleutils.h"
 #include "compiler/translator/Compiler.h"
@@ -37,8 +34,9 @@ enum class UnsupportedFunctionArgs
     StructContainingSamplers     = 0,
     ArrayOfArrayOfSamplerOrImage = 1,
     AtomicCounter                = 2,
-    Image                        = 3,
-    PixelLocalStorage            = 4,
+    SamplerCubeEmulation         = 3,
+    Image                        = 4,
+    PixelLocalStorage            = 5,
 
     InvalidEnum = 6,
     EnumCount   = 6,
@@ -49,7 +47,8 @@ using UnsupportedFunctionArgsBitSet = angle::PackedEnumBitSet<UnsupportedFunctio
 [[nodiscard]] bool MonomorphizeUnsupportedFunctions(TCompiler *compiler,
                                                     TIntermBlock *root,
                                                     TSymbolTable *symbolTable,
+                                                    const ShCompileOptions &compileOptions,
                                                     UnsupportedFunctionArgsBitSet);
 }  // namespace sh
 
-#endif  // COMPILER_TRANSLATOR_TREEOPS_MONOMORPHIZEUNSUPPORTEDFUNCTIONS_H_
+#endif  // COMPILER_TRANSLATOR_TREEOPS_VULKAN_MONOMORPHIZEUNSUPPORTEDFUNCTIONS_H_

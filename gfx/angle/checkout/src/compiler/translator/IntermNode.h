@@ -16,10 +16,6 @@
 #ifndef COMPILER_TRANSLATOR_INTERMNODE_H_
 #define COMPILER_TRANSLATOR_INTERMNODE_H_
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "GLSLANG/ShaderLang.h"
 
 #include <algorithm>
@@ -118,8 +114,6 @@ class TIntermNode : angle::NonCopyable
     // Replace a child node. Return true if |original| is a child
     // node and it is replaced; otherwise, return false.
     virtual bool replaceChildNode(TIntermNode *original, TIntermNode *replacement) = 0;
-
-    TIntermNode *getAsNode() { return this; }
 
   protected:
     TSourceLoc mLine;
@@ -234,13 +228,12 @@ class TIntermLoop : public TIntermNode
     TIntermNode *getInit() { return mInit; }
     TIntermTyped *getCondition() { return mCond; }
     TIntermTyped *getExpression() { return mExpr; }
-    // Returns non-null body.
     TIntermBlock *getBody() { return mBody; }
 
     void setInit(TIntermNode *init) { mInit = init; }
     void setCondition(TIntermTyped *condition) { mCond = condition; }
     void setExpression(TIntermTyped *expression) { mExpr = expression; }
-    void setBody(TIntermBlock *body) { mBody = EnsureBody(body); }
+    void setBody(TIntermBlock *body) { mBody = body; }
 
     virtual TIntermLoop *deepCopy() const override { return new TIntermLoop(*this); }
 
@@ -249,11 +242,10 @@ class TIntermLoop : public TIntermNode
     TIntermNode *mInit;   // for-loop initialization
     TIntermTyped *mCond;  // loop exit condition
     TIntermTyped *mExpr;  // for-loop expression
-    TIntermBlock *mBody;  // loop body, non-null.
+    TIntermBlock *mBody;  // loop body
 
   private:
     TIntermLoop(const TIntermLoop &);
-    static TIntermBlock *EnsureBody(TIntermBlock *body);
 };
 
 //
@@ -292,7 +284,7 @@ class TIntermSymbol : public TIntermTyped
   public:
     TIntermSymbol(const TVariable *variable);
 
-    TIntermSymbol *deepCopy() const override { return new TIntermSymbol(*this); }
+    TIntermTyped *deepCopy() const override { return new TIntermSymbol(*this); }
 
     bool hasConstantValue() const override;
     const TConstantUnion *getConstantValue() const override;
@@ -407,6 +399,7 @@ class TIntermConstantUnion : public TIntermExpression
                                               int index);
     static TConstantUnion *FoldAggregateBuiltIn(TIntermAggregate *aggregate,
                                                 TDiagnostics *diagnostics);
+    static bool IsFloatDivision(TBasicType t1, TBasicType t2);
 
   protected:
     // Same data may be shared between multiple constant unions, so it can't be modified.
@@ -453,7 +446,7 @@ class TIntermSwizzle : public TIntermExpression
 {
   public:
     // This constructor determines the type of the node based on the operand.
-    TIntermSwizzle(TIntermTyped *operand, const TVector<uint32_t> &swizzleOffsets);
+    TIntermSwizzle(TIntermTyped *operand, const TVector<int> &swizzleOffsets);
 
     TIntermTyped *deepCopy() const override { return new TIntermSwizzle(*this); }
 
@@ -467,20 +460,19 @@ class TIntermSwizzle : public TIntermExpression
     bool hasSideEffects() const override { return mOperand->hasSideEffects(); }
 
     TIntermTyped *getOperand() { return mOperand; }
-    ImmutableString getOffsetsAsXYZW() const;
     void writeOffsetsAsXYZW(TInfoSinkBase *out) const;
 
-    const TVector<uint32_t> &getSwizzleOffsets() { return mSwizzleOffsets; }
+    const TVector<int> &getSwizzleOffsets() { return mSwizzleOffsets; }
 
     bool hasDuplicateOffsets() const;
     void setHasFoldedDuplicateOffsets(bool hasFoldedDuplicateOffsets);
-    bool offsetsMatch(uint32_t offset) const;
+    bool offsetsMatch(int offset) const;
 
     TIntermTyped *fold(TDiagnostics *diagnostics) override;
 
   protected:
     TIntermTyped *mOperand;
-    TVector<uint32_t> mSwizzleOffsets;
+    TVector<int> mSwizzleOffsets;
     bool mHasFoldedDuplicateOffsets;
 
   private:
@@ -695,7 +687,6 @@ class TIntermBlock : public TIntermNode, public TIntermAggregateBase
   public:
     TIntermBlock() : TIntermNode(), mIsTreeRoot(false) {}
     TIntermBlock(std::initializer_list<TIntermNode *> stmts);
-    TIntermBlock(TIntermSequence &&stmts);
     ~TIntermBlock() override {}
 
     TIntermBlock *getAsBlock() override { return this; }
@@ -705,7 +696,7 @@ class TIntermBlock : public TIntermNode, public TIntermAggregateBase
     size_t getChildCount() const final;
     TIntermNode *getChildNode(size_t index) const final;
     bool replaceChildNode(TIntermNode *original, TIntermNode *replacement) override;
-    void replaceAllChildren(TIntermSequence &&newStatements);
+    void replaceAllChildren(const TIntermSequence &newStatements);
 
     // Only intended for initially building the block.
     void appendStatement(TIntermNode *statement);
@@ -1049,16 +1040,6 @@ class TIntermPreprocessorDirective final : public TIntermNode
 
     TIntermPreprocessorDirective(const TIntermPreprocessorDirective &);
 };
-
-inline TIntermBlock *TIntermLoop::EnsureBody(TIntermBlock *body)
-{
-    if (ANGLE_LIKELY(body))
-    {
-        return body;
-    }
-    UNREACHABLE();
-    return new TIntermBlock();
-}
 
 }  // namespace sh
 

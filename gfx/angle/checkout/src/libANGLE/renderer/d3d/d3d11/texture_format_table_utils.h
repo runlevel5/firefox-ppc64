@@ -28,6 +28,11 @@ inline bool OnlyFL10Plus(const Renderer11DeviceCaps &deviceCaps)
     return (deviceCaps.featureLevel >= D3D_FEATURE_LEVEL_10_0);
 }
 
+inline bool OnlyFL9_3(const Renderer11DeviceCaps &deviceCaps)
+{
+    return (deviceCaps.featureLevel == D3D_FEATURE_LEVEL_9_3);
+}
+
 inline bool SupportsFormat(DXGI_FORMAT format, const Renderer11DeviceCaps &deviceCaps)
 {
     // Must support texture, SRV and RTV support
@@ -36,7 +41,7 @@ inline bool SupportsFormat(DXGI_FORMAT format, const Renderer11DeviceCaps &devic
                        D3D11_FORMAT_SUPPORT_RENDER_TARGET;
     UINT minimumRequiredSamples = 0;
 
-    if (d3d11_gl::GetMaximumClientVersion(deviceCaps) >= gl::ES_3_0)
+    if (d3d11_gl::GetMaximumClientVersion(deviceCaps).major > 2)
     {
         mustSupport |= D3D11_FORMAT_SUPPORT_TEXTURE3D;
 

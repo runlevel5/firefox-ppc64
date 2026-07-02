@@ -27,12 +27,12 @@ void CollectVariables(TIntermBlock *root,
                       std::vector<ShaderVariable> *sharedVariables,
                       std::vector<InterfaceBlock> *uniformBlocks,
                       std::vector<InterfaceBlock> *shaderStorageBlocks,
-                      char userVariablePrefix,
                       ShHashFunction64 hashFunction,
                       TSymbolTable *symbolTable,
                       GLenum shaderType,
                       const TExtensionBehavior &extensionBehavior,
-                      bool transformFloatUniformToFP16);
+                      const ShBuiltInResources &resources,
+                      int tessControlShaderOutputVertices);
 }  // namespace sh
 
 #endif  // COMPILER_TRANSLATOR_COLLECTVARIABLES_H_

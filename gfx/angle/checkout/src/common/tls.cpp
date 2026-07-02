@@ -34,9 +34,6 @@ static vector<DWORD> freeTlsIndices;
 
 #endif
 
-namespace angle
-{
-
 TLSIndex CreateTLSIndex(PthreadKeyDestructor destructor)
 {
     TLSIndex index;
@@ -157,5 +154,3 @@ void *GetTLSValue(TLSIndex index)
     return pthread_getspecific(index);
 #endif
 }
-
-}  // namespace angle

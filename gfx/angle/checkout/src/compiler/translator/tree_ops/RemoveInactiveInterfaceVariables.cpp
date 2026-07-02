@@ -71,20 +71,7 @@ bool IsVariableActive(const std::vector<Variable> &mVars, const ImmutableString 
             return var.active;
         }
     }
-    ASSERT(false);
-    return true;
-}
-
-bool IsIoBlockVariableActive(const std::vector<ShaderVariable> &mVars, const ImmutableString &name)
-{
-    for (const ShaderVariable &var : mVars)
-    {
-        if (name == var.structOrBlockName)
-        {
-            return var.active;
-        }
-    }
-    ASSERT(false);
+    UNREACHABLE();
     return true;
 }
 
@@ -117,9 +104,17 @@ bool RemoveInactiveInterfaceVariablesTraverser::visitDeclaration(Visit visit,
     bool removeDeclaration     = false;
     const TQualifier qualifier = type.getQualifier();
 
-    if (type.isInterfaceBlock() && !IsShaderIoBlock(type.getQualifier()))
+    if (type.isInterfaceBlock())
     {
-        removeDeclaration = !IsVariableActive(mInterfaceBlocks, type.getInterfaceBlock()->name());
+        // When a member has an explicit location, interface block should not be removed.
+        // If the member or interface would be removed, GetProgramResource could not return the
+        // location.
+        if (!IsShaderIoBlock(type.getQualifier()) && type.getQualifier() != EvqPatchIn &&
+            type.getQualifier() != EvqPatchOut)
+        {
+            removeDeclaration =
+                !IsVariableActive(mInterfaceBlocks, type.getInterfaceBlock()->name());
+        }
     }
     else if (qualifier == EvqUniform)
     {
@@ -129,22 +124,11 @@ bool RemoveInactiveInterfaceVariablesTraverser::visitDeclaration(Visit visit,
     {
         removeDeclaration = !IsVariableActive(mAttributes, asSymbol->getName());
     }
-    else if (IsShaderIn(qualifier) && qualifier != EvqPerVertexIn && qualifier != EvqPerVertexOut)
+    else if (IsShaderIn(qualifier))
     {
-        // Match I/O blocks by the block name; the instance name may be empty.  Also note that
-        // CollectVariables() does not collect gl_PerVertex at all if not active.  Those are not
-        // removed for simplicity.
-        if (type.getInterfaceBlock() != nullptr)
-        {
-            removeDeclaration =
-                !IsIoBlockVariableActive(mInputVaryings, type.getInterfaceBlock()->name());
-        }
-        else
-        {
-            removeDeclaration = !IsVariableActive(mInputVaryings, asSymbol->getName());
-        }
+        removeDeclaration = !IsVariableActive(mInputVaryings, asSymbol->getName());
     }
-    else if (qualifier == EvqFragmentOut || qualifier == EvqFragmentInOut)
+    else if (qualifier == EvqFragmentOut)
     {
         removeDeclaration =
             !IsVariableActive(mOutputVariables, asSymbol->getName()) && mRemoveFragmentOutputs;

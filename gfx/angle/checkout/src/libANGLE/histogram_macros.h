@@ -65,33 +65,46 @@
 
 // Scoped class which logs its time on this earth as a UMA statistic. This is
 // recommended for when you want a histogram which measures the time it takes
-// for a method to execute. This measures in microseconds.
-#define SCOPED_ANGLE_HISTOGRAM_TIMER_US(name) \
-    SCOPED_ANGLE_HISTOGRAM_TIMER_US_EXPANDER(name, __COUNTER__)
+// for a method to execute. This measures up to 10 seconds.
+#define SCOPED_ANGLE_HISTOGRAM_TIMER(name) \
+    SCOPED_ANGLE_HISTOGRAM_TIMER_EXPANDER(name, false, __COUNTER__)
+
+// Similar scoped histogram timer, but this uses ANGLE_HISTOGRAM_LONG_TIMES_100,
+// which measures up to an hour, and uses 100 buckets. This is more expensive
+// to store, so only use if this often takes >10 seconds.
+#define SCOPED_ANGLE_HISTOGRAM_LONG_TIMER(name) \
+    SCOPED_ANGLE_HISTOGRAM_TIMER_EXPANDER(name, true, __COUNTER__)
 
 // This nested macro is necessary to expand __COUNTER__ to an actual value.
-#define SCOPED_ANGLE_HISTOGRAM_TIMER_US_EXPANDER(name, key) \
-    SCOPED_ANGLE_HISTOGRAM_TIMER_US_UNIQUE(name, key)
+#define SCOPED_ANGLE_HISTOGRAM_TIMER_EXPANDER(name, is_long, key) \
+    SCOPED_ANGLE_HISTOGRAM_TIMER_UNIQUE(name, is_long, key)
 
-#define SCOPED_ANGLE_HISTOGRAM_TIMER_US_UNIQUE(name, key)                               \
-    class [[nodiscard]] ScopedHistogramTimerUs##key                                     \
+#define SCOPED_ANGLE_HISTOGRAM_TIMER_UNIQUE(name, is_long, key)                         \
+    class [[nodiscard]] ScopedHistogramTimer##key                                       \
     {                                                                                   \
       public:                                                                           \
-        ScopedHistogramTimerUs##key()                                                   \
+        ScopedHistogramTimer##key()                                                     \
             : constructed_(ANGLEPlatformCurrent()->currentTime(ANGLEPlatformCurrent())) \
         {}                                                                              \
-        ~ScopedHistogramTimerUs##key()                                                  \
+        ~ScopedHistogramTimer##key()                                                    \
         {                                                                               \
             if (constructed_ == 0)                                                      \
                 return;                                                                 \
             auto *platform = ANGLEPlatformCurrent();                                    \
             double elapsed = platform->currentTime(platform) - constructed_;            \
-            int elapsedUS  = static_cast<int>(elapsed * 1e6);                           \
-            ANGLE_HISTOGRAM_COUNTS(name, elapsedUS);                                    \
+            int elapsedMS  = static_cast<int>(elapsed * 1000.0);                        \
+            if (is_long)                                                                \
+            {                                                                           \
+                ANGLE_HISTOGRAM_LONG_TIMES_100(name, elapsedMS);                        \
+            }                                                                           \
+            else                                                                        \
+            {                                                                           \
+                ANGLE_HISTOGRAM_TIMES(name, elapsedMS);                                 \
+            }                                                                           \
         }                                                                               \
                                                                                         \
       private:                                                                          \
         double constructed_;                                                            \
-    } scoped_histogram_timer_us_##key
+    } scoped_histogram_timer_##key
 
 #endif  // LIBANGLE_HISTOGRAM_MACROS_H_

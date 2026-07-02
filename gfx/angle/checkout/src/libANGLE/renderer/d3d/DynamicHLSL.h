@@ -38,6 +38,7 @@ namespace rx
 {
 class ProgramD3DMetadata;
 class ShaderD3D;
+struct ShaderStorageBlock;
 
 // This class needs to match OutputHLSL::decorate
 class DecorateVariable final : angle::NonCopyable
@@ -88,12 +89,11 @@ struct BuiltinVarying final : private angle::NonCopyable
 
     std::string str() const;
     void enableSystem(const std::string &systemValueSemantic);
-    void enableSystem(const std::string &systemValueSemantic, unsigned int sizeVal);
     void enable(const std::string &semanticVal, unsigned int indexVal);
 
     bool enabled;
     std::string semantic;
-    unsigned int indexOrSize;
+    unsigned int index;
     bool systemValue;
 };
 
@@ -104,8 +104,6 @@ struct BuiltinInfo
 
     BuiltinVarying dxPosition;
     BuiltinVarying glPosition;
-    BuiltinVarying glClipDistance;
-    BuiltinVarying glCullDistance;
     BuiltinVarying glFragCoord;
     BuiltinVarying glPointCoord;
     BuiltinVarying glPointSize;
@@ -146,70 +144,66 @@ class BuiltinVaryingsD3D
 class DynamicHLSL : angle::NonCopyable
 {
   public:
-    static std::string GenerateVertexShaderForInputLayout(
-        RendererD3D *renderer,
+    explicit DynamicHLSL(RendererD3D *const renderer);
+
+    std::string generateVertexShaderForInputLayout(
         const std::string &sourceShader,
         const gl::InputLayout &inputLayout,
-        const std::vector<gl::ProgramInput> &shaderAttributes,
-        size_t baseUAVRegister);
-    static std::string GeneratePixelShaderForOutputSignature(
-        RendererD3D *renderer,
+        const std::vector<sh::ShaderVariable> &shaderAttributes,
+        const std::vector<rx::ShaderStorageBlock> &shaderStorageBlocks,
+        size_t baseUAVRegister) const;
+    std::string generatePixelShaderForOutputSignature(
         const std::string &sourceShader,
         const std::vector<PixelShaderOutputVariable> &outputVariables,
-        FragDepthUsage fragDepthUsage,
-        bool usesSampleMask,
+        bool usesFragDepth,
         const std::vector<GLenum> &outputLayout,
-        size_t baseUAVRegister);
-    static std::string GenerateShaderForImage2DBindSignature(
-        ProgramExecutableD3D &executableD3D,
+        const std::vector<rx::ShaderStorageBlock> &shaderStorageBlocks,
+        size_t baseUAVRegister) const;
+    std::string generateShaderForImage2DBindSignature(
+        ProgramD3D &programD3D,
+        const gl::ProgramState &programData,
         gl::ShaderType shaderType,
-        const SharedCompiledShaderStateD3D &shaderData,
         const std::string &shaderHLSL,
         std::vector<sh::ShaderVariable> &image2DUniforms,
         const gl::ImageUnitTextureTypeMap &image2DBindLayout,
-        unsigned int baseUAVRegister);
-    static void GenerateShaderLinkHLSL(
-        RendererD3D *renderer,
-        const gl::Caps &caps,
-        const gl::ShaderMap<gl::SharedCompiledShaderState> &shaderData,
-        const gl::ShaderMap<SharedCompiledShaderStateD3D> &shaderDataD3D,
-        const ProgramD3DMetadata &programMetadata,
-        const gl::VaryingPacking &varyingPacking,
-        const BuiltinVaryingsD3D &builtinsD3D,
-        gl::ShaderMap<std::string> *shaderHLSL);
+        unsigned int baseUAVRegister) const;
+    void generateShaderLinkHLSL(const gl::Context *context,
+                                const gl::Caps &caps,
+                                const gl::ProgramState &programData,
+                                const ProgramD3DMetadata &programMetadata,
+                                const gl::VaryingPacking &varyingPacking,
+                                const BuiltinVaryingsD3D &builtinsD3D,
+                                gl::ShaderMap<std::string> *shaderHLSL) const;
 
-    static std::string GenerateGeometryShaderPreamble(RendererD3D *renderer,
-                                                      const gl::VaryingPacking &varyingPacking,
-                                                      const BuiltinVaryingsD3D &builtinsD3D,
-                                                      const bool hasMultiviewEnabled,
-                                                      const bool selectViewInVS);
+    std::string generateGeometryShaderPreamble(const gl::VaryingPacking &varyingPacking,
+                                               const BuiltinVaryingsD3D &builtinsD3D,
+                                               const bool hasANGLEMultiviewEnabled,
+                                               const bool selectViewInVS) const;
 
-    static std::string GenerateGeometryShaderHLSL(RendererD3D *renderer,
-                                                  const gl::Caps &caps,
-                                                  gl::PrimitiveMode primitiveType,
-                                                  const bool useViewScale,
-                                                  const bool hasMultiviewEnabled,
-                                                  const bool selectViewInVS,
-                                                  const bool pointSpriteEmulation,
-                                                  const std::string &preambleString);
+    std::string generateGeometryShaderHLSL(const gl::Caps &caps,
+                                           gl::PrimitiveMode primitiveType,
+                                           const gl::ProgramState &programData,
+                                           const bool useViewScale,
+                                           const bool hasANGLEMultiviewEnabled,
+                                           const bool selectViewInVS,
+                                           const bool pointSpriteEmulation,
+                                           const std::string &preambleString) const;
 
-    static void GetPixelShaderOutputKey(RendererD3D *renderer,
-                                        const gl::Caps &caps,
-                                        const gl::Version &clientVersion,
-                                        const gl::ProgramExecutable &executable,
-                                        const ProgramD3DMetadata &metadata,
-                                        std::vector<PixelShaderOutputVariable> *outPixelShaderKey);
+    void getPixelShaderOutputKey(const gl::State &data,
+                                 const gl::ProgramState &programData,
+                                 const ProgramD3DMetadata &metadata,
+                                 std::vector<PixelShaderOutputVariable> *outPixelShaderKey);
 
   private:
-    static void GenerateVaryingLinkHLSL(RendererD3D *renderer,
-                                        const gl::VaryingPacking &varyingPacking,
-                                        const BuiltinInfo &builtins,
-                                        FragDepthUsage fragDepthUsage,
-                                        bool programUsesPointSize,
-                                        std::ostringstream &hlslStream);
+    RendererD3D *const mRenderer;
+
+    void generateVaryingLinkHLSL(const gl::VaryingPacking &varyingPacking,
+                                 const BuiltinInfo &builtins,
+                                 bool programUsesPointSize,
+                                 std::ostringstream &hlslStream) const;
 
     static void GenerateAttributeConversionHLSL(angle::FormatID vertexFormatID,
-                                                const gl::ProgramInput &shaderAttrib,
+                                                const sh::ShaderVariable &shaderAttrib,
                                                 std::ostringstream &outStream);
 };
 

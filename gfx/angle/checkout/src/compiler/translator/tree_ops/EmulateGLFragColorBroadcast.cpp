@@ -10,8 +10,6 @@
 // of main() function, assigning gl_FragData[1], ..., gl_FragData[maxDrawBuffers-1]
 // with gl_FragData[0].
 //
-// Similar replacement applies to gl_SecondaryFragColorEXT if it is used.
-//
 
 #include "compiler/translator/tree_ops/EmulateGLFragColorBroadcast.h"
 
@@ -33,55 +31,45 @@ constexpr const ImmutableString kGlSecondaryFragDataString("gl_SecondaryFragData
 class GLFragColorBroadcastTraverser : public TIntermTraverser
 {
   public:
-    GLFragColorBroadcastTraverser(int maxDrawBuffers,
-                                  int maxDualSourceDrawBuffers,
-                                  TSymbolTable *symbolTable,
-                                  int shaderVersion)
+    GLFragColorBroadcastTraverser(int maxDrawBuffers, TSymbolTable *symbolTable, int shaderVersion)
         : TIntermTraverser(true, false, false, symbolTable),
           mGLFragColorUsed(false),
-          mGLSecondaryFragColorUsed(false),
           mMaxDrawBuffers(maxDrawBuffers),
-          mMaxDualSourceDrawBuffers(maxDualSourceDrawBuffers),
           mShaderVersion(shaderVersion)
     {}
 
     [[nodiscard]] bool broadcastGLFragColor(TCompiler *compiler, TIntermBlock *root);
 
     bool isGLFragColorUsed() const { return mGLFragColorUsed; }
-    bool isGLSecondaryFragColorUsed() const { return mGLSecondaryFragColorUsed; }
 
   protected:
     bool visitGlobalQualifierDeclaration(Visit visit,
                                          TIntermGlobalQualifierDeclaration *node) override;
     void visitSymbol(TIntermSymbol *node) override;
 
-    TIntermBinary *constructGLFragDataNode(int index, bool secondary) const;
-    TIntermBinary *constructGLFragDataAssignNode(int index, bool secondary) const;
+    TIntermBinary *constructGLFragDataNode(int index) const;
+    TIntermBinary *constructGLFragDataAssignNode(int index) const;
 
   private:
     bool mGLFragColorUsed;
-    bool mGLSecondaryFragColorUsed;
     int mMaxDrawBuffers;
-    int mMaxDualSourceDrawBuffers;
     const int mShaderVersion;
 };
 
-TIntermBinary *GLFragColorBroadcastTraverser::constructGLFragDataNode(int index,
-                                                                      bool secondary) const
+TIntermBinary *GLFragColorBroadcastTraverser::constructGLFragDataNode(int index) const
 {
-    TIntermSymbol *symbol = ReferenceBuiltInVariable(
-        secondary ? kGlSecondaryFragDataString : kGlFragDataString, *mSymbolTable, mShaderVersion);
+    TIntermSymbol *symbol =
+        ReferenceBuiltInVariable(kGlFragDataString, *mSymbolTable, mShaderVersion);
     TIntermTyped *indexNode = CreateIndexNode(index);
 
     TIntermBinary *binary = new TIntermBinary(EOpIndexDirect, symbol, indexNode);
     return binary;
 }
 
-TIntermBinary *GLFragColorBroadcastTraverser::constructGLFragDataAssignNode(int index,
-                                                                            bool secondary) const
+TIntermBinary *GLFragColorBroadcastTraverser::constructGLFragDataAssignNode(int index) const
 {
-    TIntermTyped *fragDataIndex = constructGLFragDataNode(index, secondary);
-    TIntermTyped *fragDataZero  = constructGLFragDataNode(0, secondary);
+    TIntermTyped *fragDataIndex = constructGLFragDataNode(index);
+    TIntermTyped *fragDataZero  = constructGLFragDataNode(0);
 
     return new TIntermBinary(EOpAssign, fragDataIndex, fragDataZero);
 }
@@ -113,55 +101,29 @@ bool GLFragColorBroadcastTraverser::visitGlobalQualifierDeclaration(
 
 void GLFragColorBroadcastTraverser::visitSymbol(TIntermSymbol *node)
 {
-    if (node->variable().symbolType() == SymbolType::BuiltIn)
+    if (node->variable().symbolType() == SymbolType::BuiltIn && node->getName() == "gl_FragColor")
     {
-        if (node->getName() == "gl_FragColor")
-        {
-            queueReplacement(constructGLFragDataNode(0, false), OriginalNode::IS_DROPPED);
-            mGLFragColorUsed = true;
-        }
-        else if (node->getName() == "gl_SecondaryFragColorEXT")
-        {
-            queueReplacement(constructGLFragDataNode(0, true), OriginalNode::IS_DROPPED);
-            mGLSecondaryFragColorUsed = true;
-        }
+        queueReplacement(constructGLFragDataNode(0), OriginalNode::IS_DROPPED);
+        mGLFragColorUsed = true;
     }
 }
 
 bool GLFragColorBroadcastTraverser::broadcastGLFragColor(TCompiler *compiler, TIntermBlock *root)
 {
     ASSERT(mMaxDrawBuffers > 1);
-    ASSERT(mMaxDualSourceDrawBuffers > 0 || !mGLSecondaryFragColorUsed);
-    if (!mGLFragColorUsed && !mGLSecondaryFragColorUsed)
+    if (!mGLFragColorUsed)
     {
         return true;
     }
 
     TIntermBlock *broadcastBlock = new TIntermBlock();
     // Now insert statements
-    // maxDrawBuffers is replaced with maxDualSourceDrawBuffers
-    // if gl_SecondaryFragColorEXT was statically used.
     //   gl_FragData[1] = gl_FragData[0];
     //   ...
     //   gl_FragData[maxDrawBuffers - 1] = gl_FragData[0];
-    if (mGLFragColorUsed)
+    for (int colorIndex = 1; colorIndex < mMaxDrawBuffers; ++colorIndex)
     {
-        const int buffers = mGLSecondaryFragColorUsed ? mMaxDualSourceDrawBuffers : mMaxDrawBuffers;
-        for (int colorIndex = 1; colorIndex < buffers; ++colorIndex)
-        {
-            broadcastBlock->appendStatement(constructGLFragDataAssignNode(colorIndex, false));
-        }
-    }
-    if (mGLSecondaryFragColorUsed)
-    {
-        for (int colorIndex = 1; colorIndex < mMaxDualSourceDrawBuffers; ++colorIndex)
-        {
-            broadcastBlock->appendStatement(constructGLFragDataAssignNode(colorIndex, true));
-        }
-    }
-    if (broadcastBlock->getChildCount() == 0)
-    {
-        return true;
+        broadcastBlock->appendStatement(constructGLFragDataAssignNode(colorIndex));
     }
     return RunAtTheEndOfShader(compiler, root, broadcastBlock, mSymbolTable);
 }
@@ -171,15 +133,14 @@ bool GLFragColorBroadcastTraverser::broadcastGLFragColor(TCompiler *compiler, TI
 bool EmulateGLFragColorBroadcast(TCompiler *compiler,
                                  TIntermBlock *root,
                                  int maxDrawBuffers,
-                                 int maxDualSourceDrawBuffers,
+                                 std::vector<sh::ShaderVariable> *outputVariables,
                                  TSymbolTable *symbolTable,
                                  int shaderVersion)
 {
     ASSERT(maxDrawBuffers > 1);
-    GLFragColorBroadcastTraverser traverser(maxDrawBuffers, maxDualSourceDrawBuffers, symbolTable,
-                                            shaderVersion);
+    GLFragColorBroadcastTraverser traverser(maxDrawBuffers, symbolTable, shaderVersion);
     root->traverse(&traverser);
-    if (traverser.isGLFragColorUsed() || traverser.isGLSecondaryFragColorUsed())
+    if (traverser.isGLFragColorUsed())
     {
         if (!traverser.updateTree(compiler, root))
         {
@@ -188,6 +149,18 @@ bool EmulateGLFragColorBroadcast(TCompiler *compiler,
         if (!traverser.broadcastGLFragColor(compiler, root))
         {
             return false;
+        }
+
+        for (auto &var : *outputVariables)
+        {
+            if (var.name == "gl_FragColor")
+            {
+                // TODO(zmo): Find a way to keep the original variable information.
+                var.name       = "gl_FragData";
+                var.mappedName = "gl_FragData";
+                var.arraySizes.push_back(maxDrawBuffers);
+                ASSERT(var.arraySizes.size() == 1u);
+            }
         }
     }
 

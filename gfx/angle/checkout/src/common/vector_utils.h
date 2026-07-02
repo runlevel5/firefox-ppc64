@@ -8,15 +8,10 @@
 #ifndef COMMON_VECTOR_UTILS_H_
 #define COMMON_VECTOR_UTILS_H_
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include <cmath>
 #include <cstddef>
 #include <ostream>
 #include <type_traits>
-#include "common/debug.h"
 
 namespace angle
 {
@@ -495,7 +490,6 @@ Vector<Dimension, Type> VectorBase<Dimension, Type>::normalized() const
 {
     static_assert(std::is_floating_point<Type>::value,
                   "VectorN::normalized is only defined for floating point vectors");
-    ASSERT(length() != Type());
     return *this / length();
 }
 

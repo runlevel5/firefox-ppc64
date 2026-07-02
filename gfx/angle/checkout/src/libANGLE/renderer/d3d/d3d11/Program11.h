@@ -19,6 +19,9 @@ class Program11 : public ProgramD3D
   public:
     Program11(const gl::ProgramState &programState, Renderer11 *renderer11);
     ~Program11() override;
+
+    angle::Result syncState(const gl::Context *context,
+                            const gl::Program::DirtyBits &dirtyBits) override;
 };
 }  // namespace rx
 

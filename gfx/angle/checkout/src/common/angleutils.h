@@ -11,26 +11,28 @@
 
 #include "common/platform.h"
 
+#if defined(ANGLE_USE_ABSEIL)
+#    include "absl/container/flat_hash_map.h"
+#    include "absl/container/flat_hash_set.h"
+#endif  // defined(ANGLE_USE_ABSEIL)
+
 #if defined(ANGLE_WITH_LSAN)
 #    include <sanitizer/lsan_interface.h>
 #endif  // defined(ANGLE_WITH_LSAN)
 
-#if defined(ANGLE_WITH_MSAN)
-#    include <sanitizer/msan_interface.h>
-#endif  // defined(ANGLE_WITH_MSAN)
-
 #include <climits>
 #include <cstdarg>
 #include <cstddef>
+#include <fstream>
 #include <mutex>
 #include <set>
 #include <sstream>
 #include <string>
-#include <thread>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
-#include "common/unsafe_buffers.h"
-
+// A helper class to disallow copy and assignment operators
 namespace angle
 {
 
@@ -38,10 +40,18 @@ namespace angle
 using Microsoft::WRL::ComPtr;
 #endif  // defined(ANGLE_ENABLE_D3D9) || defined(ANGLE_ENABLE_D3D11)
 
-// Forward declaration. Implementation in system_utils.h
-using ThreadId = std::thread::id;
+#if defined(ANGLE_USE_ABSEIL)
+template <typename Key, typename T, class Hash = absl::container_internal::hash_default_hash<Key>>
+using HashMap = absl::flat_hash_map<Key, T, Hash>;
+template <typename Key, class Hash = absl::container_internal::hash_default_hash<Key>>
+using HashSet = absl::flat_hash_set<Key, Hash>;
+#else
+template <typename Key, typename T, class Hash = std::hash<Key>>
+using HashMap = std::unordered_map<Key, T, Hash>;
+template <typename Key, class Hash = std::hash<Key>>
+using HashSet = std::unordered_set<Key, Hash>;
+#endif  // defined(ANGLE_USE_ABSEIL)
 
-// A helper class to disallow copy and assignment operators
 class NonCopyable
 {
   protected:
@@ -55,37 +65,63 @@ class NonCopyable
 
 extern const uintptr_t DirtyPointer;
 
+struct SaveFileHelper
+{
+  public:
+    // We always use ios::binary to avoid inconsistent line endings when captured on Linux vs Win.
+    SaveFileHelper(const std::string &filePathIn);
+    ~SaveFileHelper();
+
+    template <typename T>
+    SaveFileHelper &operator<<(const T &value)
+    {
+        mOfs << value;
+        checkError();
+        return *this;
+    }
+
+    void write(const uint8_t *data, size_t size);
+
+  private:
+    void checkError();
+
+    std::ofstream mOfs;
+    std::string mFilePath;
+};
+
 // AMD_performance_monitor helpers.
 constexpr char kPerfMonitorExtensionName[] = "GL_AMD_performance_monitor";
 
-struct PerfMonitorCounterInfo
-{
-    PerfMonitorCounterInfo() = default;
-    PerfMonitorCounterInfo(const char *name) : name(name) {}
-
-    std::string name;
-};
 struct PerfMonitorCounter
 {
-    PerfMonitorCounter() = default;
-    PerfMonitorCounter(uint64_t value) : value(value) {}
+    PerfMonitorCounter();
+    ~PerfMonitorCounter();
 
+    std::string name;
     uint64_t value;
 };
-using PerfMonitorCountersInfo = std::vector<PerfMonitorCounterInfo>;
-using PerfMonitorCounters     = std::vector<PerfMonitorCounter>;
+using PerfMonitorCounters = std::vector<PerfMonitorCounter>;
 
-struct PerfMonitorCounterGroupInfo
-{
-    std::string name;
-    PerfMonitorCountersInfo counters;
-};
 struct PerfMonitorCounterGroup
 {
+    PerfMonitorCounterGroup();
+    ~PerfMonitorCounterGroup();
+
+    std::string name;
     PerfMonitorCounters counters;
 };
-using PerfMonitorCounterGroupsInfo = std::vector<PerfMonitorCounterGroupInfo>;
-using PerfMonitorCounterGroups     = std::vector<PerfMonitorCounterGroup>;
+using PerfMonitorCounterGroups = std::vector<PerfMonitorCounterGroup>;
+
+uint32_t GetPerfMonitorCounterIndex(const PerfMonitorCounters &counters, const std::string &name);
+const PerfMonitorCounter &GetPerfMonitorCounter(const PerfMonitorCounters &counters,
+                                                const std::string &name);
+PerfMonitorCounter &GetPerfMonitorCounter(PerfMonitorCounters &counters, const std::string &name);
+uint32_t GetPerfMonitorCounterGroupIndex(const PerfMonitorCounterGroups &groups,
+                                         const std::string &name);
+const PerfMonitorCounterGroup &GetPerfMonitorCounterGroup(const PerfMonitorCounterGroups &groups,
+                                                          const std::string &name);
+PerfMonitorCounterGroup &GetPerfMonitorCounterGroup(PerfMonitorCounterGroups &groups,
+                                                    const std::string &name);
 
 struct PerfMonitorTriplet
 {
@@ -99,11 +135,9 @@ struct PerfMonitorTriplet
     FN(commandQueueSubmitCallsPerFrame)            \
     FN(vkQueueSubmitCallsTotal)                    \
     FN(vkQueueSubmitCallsPerFrame)                 \
-    FN(commandQueueWaitSemaphoresTotal)            \
     FN(renderPasses)                               \
     FN(writeDescriptorSets)                        \
     FN(flushedOutsideRenderPassCommandBuffers)     \
-    FN(swapchainCreate)                            \
     FN(swapchainResolveInSubpass)                  \
     FN(swapchainResolveOutsideSubpass)             \
     FN(resolveImageCommands)                       \
@@ -136,7 +170,6 @@ struct PerfMonitorTriplet
     FN(pipelineCreationCacheMisses)                \
     FN(pipelineCreationTotalCacheHitsDurationNs)   \
     FN(pipelineCreationTotalCacheMissesDurationNs) \
-    FN(monolithicPipelineCreation)                 \
     FN(descriptorSetAllocations)                   \
     FN(descriptorSetCacheTotalSize)                \
     FN(descriptorSetCacheKeySizeBytes)             \
@@ -146,25 +179,15 @@ struct PerfMonitorTriplet
     FN(textureDescriptorSetCacheHits)              \
     FN(textureDescriptorSetCacheMisses)            \
     FN(textureDescriptorSetCacheTotalSize)         \
-    FN(uniformBuffersDescriptorSetCacheHits)       \
-    FN(uniformBuffersDescriptorSetCacheMisses)     \
-    FN(uniformBuffersDescriptorSetCacheTotalSize)  \
     FN(shaderResourcesDescriptorSetCacheHits)      \
+    FN(mutableTexturesUploaded)                    \
     FN(shaderResourcesDescriptorSetCacheMisses)    \
     FN(shaderResourcesDescriptorSetCacheTotalSize) \
-    FN(deviceMemoryImageAllocationFallbacks)       \
-    FN(tileMemoryImages)                           \
-    FN(fallbackFromTileMemory)                     \
-    FN(mutableTexturesUploaded)                    \
-    FN(fullImageClears)                            \
     FN(buffersGhosted)                             \
     FN(vertexArraySyncStateCalls)                  \
     FN(allocateNewBufferBlockCalls)                \
-    FN(bufferSuballocationCalls)                   \
     FN(dynamicBufferAllocations)                   \
-    FN(framebufferCacheSize)                       \
-    FN(pendingSubmissionGarbageObjects)            \
-    FN(graphicsDriverUniformsUpdated)
+    FN(framebufferCacheSize)
 
 #define ANGLE_DECLARE_PERF_COUNTER(COUNTER) uint64_t COUNTER;
 
@@ -187,7 +210,11 @@ template <typename T>
 class WrappedArray final : angle::NonCopyable
 {
   public:
-    constexpr WrappedArray() = default;
+    template <size_t N>
+    constexpr WrappedArray(const T (&data)[N]) : mArray(&data[0]), mSize(N)
+    {}
+
+    constexpr WrappedArray() : mArray(nullptr), mSize(0) {}
     constexpr WrappedArray(const T *data, size_t size) : mArray(data), mSize(size) {}
 
     WrappedArray(WrappedArray &&other) : WrappedArray()
@@ -196,18 +223,14 @@ class WrappedArray final : angle::NonCopyable
         std::swap(mSize, other.mSize);
     }
 
-    template <size_t N>
-    constexpr WrappedArray(const T (&data)[N]) : mArray(&data[0]), mSize(N)
-    {}
-
     ~WrappedArray() {}
 
     constexpr const T *get() const { return mArray; }
     constexpr size_t size() const { return mSize; }
 
   private:
-    const T *mArray = nullptr;
-    size_t mSize    = 0;
+    const T *mArray;
+    size_t mSize;
 };
 
 template <typename T, unsigned int N>
@@ -215,8 +238,7 @@ void SafeRelease(T (&resourceBlock)[N])
 {
     for (unsigned int i = 0; i < N; i++)
     {
-        // SAFETY: size deduced by compiler from template.
-        SafeRelease(ANGLE_UNSAFE_BUFFERS(resourceBlock[i]));
+        SafeRelease(resourceBlock[i]);
     }
 }
 
@@ -259,8 +281,7 @@ void SafeDeleteArray(T *&resource)
 template <typename T>
 inline bool StructLessThan(const T &a, const T &b)
 {
-    // SAFETY: both `a` and `b` are the same compiler-deduced size.
-    return ANGLE_UNSAFE_BUFFERS(memcmp(&a, &b, sizeof(T)) < 0);
+    return (memcmp(&a, &b, sizeof(T)) < 0);
 }
 
 // Provide a less-than function for comparing structs
@@ -268,22 +289,13 @@ inline bool StructLessThan(const T &a, const T &b)
 template <typename T>
 inline bool StructEquals(const T &a, const T &b)
 {
-    // SAFETY: both `a` and `b` are the same compiler-deduced size.
-    return ANGLE_UNSAFE_BUFFERS(memcmp(&a, &b, sizeof(T)) == 0);
+    return (memcmp(&a, &b, sizeof(T)) == 0);
 }
 
 template <typename T>
 inline void StructZero(T *obj)
 {
-    // SAFETY: compiler-deduced size.
-    ANGLE_UNSAFE_BUFFERS(memset(obj, 0, sizeof(T)));
-}
-
-template <typename T>
-inline void StructCopy(T *dst, const T &src)
-{
-    // SAFETY: compiler-deduced size.
-    ANGLE_UNSAFE_BUFFERS(memcpy(dst, &src, sizeof(T)));
+    memset(obj, 0, sizeof(T));
 }
 
 template <typename T>
@@ -293,7 +305,18 @@ inline bool IsMaskFlagSet(T mask, T flag)
     return (mask & flag) == flag;
 }
 
-const char *MakeStaticString(const std::string &str);
+inline const char *MakeStaticString(const std::string &str)
+{
+    // On the heap so that no destructor runs on application exit.
+    static std::set<std::string> *strings = new std::set<std::string>;
+    std::set<std::string>::iterator it    = strings->find(str);
+    if (it != strings->end())
+    {
+        return it->c_str();
+    }
+
+    return strings->insert(str).first->c_str();
+}
 
 std::string ArrayString(unsigned int i);
 
@@ -323,22 +346,37 @@ inline bool IsLittleEndian()
     return isLittleEndian;
 }
 
-// Helper macro that casts to a bitfield type then verifies no bits were dropped.
-#define SetBitField(lhs, rhs)                                                         \
-    do                                                                                \
-    {                                                                                 \
-        auto ANGLE_LOCAL_VAR = rhs;                                                   \
-        lhs = static_cast<typename std::decay<decltype(lhs)>::type>(ANGLE_LOCAL_VAR); \
-        ASSERT(static_cast<decltype(ANGLE_LOCAL_VAR)>(lhs) == ANGLE_LOCAL_VAR);       \
-    } while (0)
+// Helper class to use a mutex with the control of boolean.
+class ConditionalMutex final : angle::NonCopyable
+{
+  public:
+    ConditionalMutex() : mUseMutex(true) {}
+    void init(bool useMutex) { mUseMutex = useMutex; }
+    void lock()
+    {
+        if (mUseMutex)
+        {
+            mMutex.lock();
+        }
+    }
+    void unlock()
+    {
+        if (mUseMutex)
+        {
+            mMutex.unlock();
+        }
+    }
+
+  private:
+    std::mutex mMutex;
+    bool mUseMutex;
+};
 
 // snprintf is not defined with MSVC prior to to msvc14
 #if defined(_MSC_VER) && _MSC_VER < 1900
 #    define snprintf _snprintf
 #endif
 
-// Note: when adding internal formats, update IsAngleInternalFormat() so they aren't accidentally
-// accessible by the application.
 #define GL_A1RGB5_ANGLEX 0x6AC5
 #define GL_BGRX8_ANGLEX 0x6ABA
 #define GL_BGR565_ANGLEX 0x6ABB
@@ -348,11 +386,6 @@ inline bool IsLittleEndian()
 #define GL_UINT_64_ANGLEX 0x6ABF
 #define GL_BGRA8_SRGB_ANGLEX 0x6AC0
 #define GL_BGR10_A2_ANGLEX 0x6AF9
-#define GL_BGRX8_SRGB_ANGLEX 0x6AFC
-// fake format for GL_ANGLE_rgbx_internal_format
-#define GL_RGBX8_SRGB_ANGLEX 0x6AFA
-
-#define GL_R10X6G10X6B10X6A10X6_UNORM_ANGLEX 0x6AFD
 
 // These are fake formats used to fit typeless D3D textures that can be bound to EGL pbuffers into
 // the format system (for extension EGL_ANGLE_d3d_texture_client_buffer):
@@ -407,6 +440,9 @@ inline bool IsLittleEndian()
 #define GL_RGB10_A2_SSCALED_ANGLEX 0x6AEC
 #define GL_RGB10_A2_USCALED_ANGLEX 0x6AED
 
+// EXT_texture_type_2_10_10_10_REV
+#define GL_RGB10_UNORM_ANGLEX 0x6AEE
+
 // These are fake formats for OES_vertex_type_10_10_10_2
 #define GL_A2_RGB10_UNORM_ANGLEX 0x6AEF
 #define GL_A2_RGB10_SNORM_ANGLEX 0x6AF0
@@ -420,14 +456,14 @@ inline bool IsLittleEndian()
 #define GL_X2_RGB10_SNORM_ANGLEX 0x6AF8
 
 #define ANGLE_CHECK_GL_ALLOC(context, result) \
-    ANGLE_CHECK(context, result, "Failed to allocate host memory.", GL_OUT_OF_MEMORY)
+    ANGLE_CHECK(context, result, "Failed to allocate host memory", GL_OUT_OF_MEMORY)
 
 #define ANGLE_CHECK_GL_MATH(context, result) \
     ANGLE_CHECK(context, result, "Integer overflow.", GL_INVALID_OPERATION)
 
 #define ANGLE_GL_UNREACHABLE(context) \
     UNREACHABLE();                    \
-    ANGLE_CHECK(context, false, "Unreachable code.", GL_INVALID_OPERATION)
+    ANGLE_CHECK(context, false, "Unreachable Code.", GL_INVALID_OPERATION)
 
 #if defined(ANGLE_WITH_LSAN)
 #    define ANGLE_SCOPED_DISABLE_LSAN() __lsan::ScopedDisabler lsanDisabler
@@ -462,13 +498,6 @@ class MsanScopedDisableInterceptorChecks final : angle::NonCopyable
 #    define ANGLE_NO_SANITIZE_THREAD __attribute__((no_sanitize_thread))
 #else
 #    define ANGLE_NO_SANITIZE_THREAD
-#endif
-
-// Similar to the above, but for cfi-icall.
-#ifdef __clang__
-#    define ANGLE_NO_SANITIZE_CFI_ICALL __attribute__((no_sanitize("cfi-icall")))
-#else
-#    define ANGLE_NO_SANITIZE_CFI_ICALL
 #endif
 
 // The below inlining code lifted from V8.
@@ -513,22 +542,6 @@ class MsanScopedDisableInterceptorChecks final : angle::NonCopyable
 #    define ANGLE_FORMAT_PRINTF(fmt, args)
 #endif
 
-#if defined(__clang__) || (defined(__GNUC__) && defined(__has_attribute))
-#    define ANGLE_HAS_ATTRIBUTE_CONSTRUCTOR (__has_attribute(constructor))
-#    define ANGLE_HAS_ATTRIBUTE_DESTRUCTOR (__has_attribute(destructor))
-#else
-#    define ANGLE_HAS_ATTRIBUTE_CONSTRUCTOR 0
-#    define ANGLE_HAS_ATTRIBUTE_DESTRUCTOR 0
-#endif
-
-#if ANGLE_HAS_ATTRIBUTE_CONSTRUCTOR
-#    define ANGLE_CONSTRUCTOR __attribute__((constructor))
-#endif
-
-#if ANGLE_HAS_ATTRIBUTE_DESTRUCTOR
-#    define ANGLE_DESTRUCTOR __attribute__((destructor))
-#endif
-
 ANGLE_FORMAT_PRINTF(1, 0)
 size_t FormatStringIntoVector(const char *fmt, va_list vararg, std::vector<char> &buffer);
 
@@ -541,15 +554,6 @@ size_t FormatStringIntoVector(const char *fmt, va_list vararg, std::vector<char>
 
 #ifndef ANGLE_MACRO_STRINGIFY
 #    define ANGLE_MACRO_STRINGIFY(x) ANGLE_STRINGIFY(x)
-#endif
-
-// The ANGLE_MAYBE_UNUSED_PRIVATE_FIELD can be used to hint 'unused private field'
-// instead of 'maybe_unused' attribute for the compatibility with GCC because
-// GCC doesn't have '-Wno-unused-private-field' whereas Clang has.
-#if defined(__clang__) || defined(_MSC_VER)
-#    define ANGLE_MAYBE_UNUSED_PRIVATE_FIELD [[maybe_unused]]
-#else
-#    define ANGLE_MAYBE_UNUSED_PRIVATE_FIELD
 #endif
 
 #if __has_cpp_attribute(clang::require_constant_initialization)

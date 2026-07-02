@@ -4,7 +4,6 @@
 
 #include "WebGLShaderValidator.h"
 
-#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -30,6 +29,7 @@ uint64_t IdentifierHashFunc(const char* name, size_t len) {
 static ShCompileOptions ChooseValidatorCompileOptions(
     const ShBuiltInResources& resources, const mozilla::gl::GLContext* gl) {
   ShCompileOptions options = {};
+  options.variables = true;
   options.enforcePackingRestrictions = true;
   options.objectCode = true;
   options.initGLPosition = true;
@@ -191,8 +191,6 @@ std::unique_ptr<webgl::ShaderValidator> WebGLContext::CreateShaderValidator(
     return resources.MaxVariableSizeInBytes;
   }();
 
-  // NOTE: This is not checked unless
-  // `compileOptions.rejectWebglShadersWithLargeVariables` is `true`!
   resources.MaxPrivateVariableSizeInBytes = [&]() -> size_t {
     const auto bytes = StaticPrefs::webgl_glsl_max_private_var_size_in_bytes();
     if (bytes >= 0) {
@@ -200,44 +198,15 @@ std::unique_ptr<webgl::ShaderValidator> WebGLContext::CreateShaderValidator(
     }
 
     if (kIsMacOS) {
-      // NOTE: We once used 128 KiB for this to avoid bug 1888340. ATOW,
-      // upstream ANGLE has lowered it to 64 KiB. We'll trust them with this
-      // value, but we don't want this to ever get higher if upstream raises it
-      // again.
-      return std::min(
-          // 8k vec4s
-          static_cast<size_t>(128 * 1024),
-          resources.MaxPrivateVariableSizeInBytes);
+      return 128 * 1024;  // 8k vec4s
     }
 
     return resources.MaxPrivateVariableSizeInBytes;
   }();
 
-  // NOTE: This is not checked unless
-  // `compileOptions.rejectWebglShadersWithLargeVariables` is `true`!
-  resources.MaxTotalPrivateVariableSizeInBytes = [&]() -> size_t {
-    const auto bytes = StaticPrefs::webgl_glsl_max_private_var_size_in_bytes();
-    if (bytes >= 0) {
-      return static_cast<size_t>(bytes);
-    }
-
-    if (kIsMacOS) {
-      // NOTE: We set this maximum (ATOW, lower than ANGLE) here to avoid bug
-      // 1888340.
-      return std::min(static_cast<size_t>(128 * 1024),
-                      resources.MaxTotalPrivateVariableSizeInBytes);
-    }
-
-    return resources.MaxTotalPrivateVariableSizeInBytes;
-  }();
-
   // -
 
   auto compileOptions = webgl::ChooseValidatorCompileOptions(resources, gl);
-
-  // NOTE: This is needed for `Max{,Total}PrivateVariableSizeInBytes`
-  // enforcement we specify above!
-  compileOptions.rejectWebglShadersWithLargeVariables = true;
 
   if (IsWebGL2()) {
     compileOptions.validatePerStageMaxUniformBlocks = true;

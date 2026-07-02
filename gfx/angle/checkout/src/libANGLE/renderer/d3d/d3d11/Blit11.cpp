@@ -6,10 +6,6 @@
 
 // Blit11.cpp: Texture copy utility class.
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "libANGLE/renderer/d3d/d3d11/Blit11.h"
 
 #include <float.h>
@@ -70,7 +66,7 @@ void StretchedBlitNearest_RowByRow(const gl::Box &sourceArea,
 
     for (int y = clippedDestArea.y; y < clippedDestArea.y + clippedDestArea.height; y++)
     {
-        // TODO: Fix divide by zero when height == 1. http://anglebug.com/42264628
+        // TODO: Fix divide by zero when height == 1. http://anglebug.com/6099
         float yPerc = static_cast<float>(y - destArea.y) / (destArea.height - 1);
 
         // Interpolate using the original source rectangle to determine which row to sample from
@@ -941,6 +937,7 @@ angle::Result Blit11::copyTexture(const gl::Context *context,
     GLenum componentType = d3d11::GetComponentType(sourceSRVDesc.Format);
 
     ASSERT(componentType != GL_NONE);
+    ASSERT(componentType != GL_SIGNED_NORMALIZED);
     bool isSrcSigned = (componentType == GL_INT);
 
     D3D11_RENDER_TARGET_VIEW_DESC destRTVDesc;

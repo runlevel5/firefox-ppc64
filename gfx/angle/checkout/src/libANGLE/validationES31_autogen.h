@@ -17,9 +17,6 @@
 namespace gl
 {
 class Context;
-class PrivateState;
-class PrivateStateCache;
-class ErrorSet;
 
 bool ValidateActiveShaderProgram(const Context *context,
                                  angle::EntryPoint entryPoint,
@@ -142,13 +139,13 @@ bool ValidateGetTexLevelParameterfv(const Context *context,
                                     angle::EntryPoint entryPoint,
                                     TextureTarget targetPacked,
                                     GLint level,
-                                    TextureImageParameter pnamePacked,
+                                    GLenum pname,
                                     const GLfloat *params);
 bool ValidateGetTexLevelParameteriv(const Context *context,
                                     angle::EntryPoint entryPoint,
                                     TextureTarget targetPacked,
                                     GLint level,
-                                    TextureImageParameter pnamePacked,
+                                    GLenum pname,
                                     const GLint *params);
 bool ValidateIsProgramPipeline(const Context *context,
                                angle::EntryPoint entryPoint,
@@ -372,8 +369,7 @@ bool ValidateProgramUniformMatrix4x3fv(const Context *context,
                                        GLsizei count,
                                        GLboolean transpose,
                                        const GLfloat *value);
-bool ValidateSampleMaski(const PrivateState &state,
-                         ErrorSet *errors,
+bool ValidateSampleMaski(const Context *context,
                          angle::EntryPoint entryPoint,
                          GLuint maskNumber,
                          GLbitfield mask);
@@ -393,30 +389,24 @@ bool ValidateUseProgramStages(const Context *context,
 bool ValidateValidateProgramPipeline(const Context *context,
                                      angle::EntryPoint entryPoint,
                                      ProgramPipelineID pipelinePacked);
-bool ValidateVertexAttribBinding(const PrivateState &state,
-                                 ErrorSet *errors,
+bool ValidateVertexAttribBinding(const Context *context,
                                  angle::EntryPoint entryPoint,
                                  GLuint attribindex,
                                  GLuint bindingindex);
-bool ValidateVertexAttribFormat(const PrivateState &state,
-                                const PrivateStateCache &privateStateCache,
-                                ErrorSet *errors,
+bool ValidateVertexAttribFormat(const Context *context,
                                 angle::EntryPoint entryPoint,
                                 GLuint attribindex,
                                 GLint size,
                                 VertexAttribType typePacked,
                                 GLboolean normalized,
                                 GLuint relativeoffset);
-bool ValidateVertexAttribIFormat(const PrivateState &state,
-                                 const PrivateStateCache &privateStateCache,
-                                 ErrorSet *errors,
+bool ValidateVertexAttribIFormat(const Context *context,
                                  angle::EntryPoint entryPoint,
                                  GLuint attribindex,
                                  GLint size,
                                  VertexAttribType typePacked,
                                  GLuint relativeoffset);
-bool ValidateVertexBindingDivisor(const PrivateState &state,
-                                  ErrorSet *errors,
+bool ValidateVertexBindingDivisor(const Context *context,
                                   angle::EntryPoint entryPoint,
                                   GLuint bindingindex,
                                   GLuint divisor);

@@ -9,6 +9,9 @@
 // EmulateGLBaseVertex is an AST traverser to convert the gl_BaseVertex builtin
 // to a uniform int
 //
+// EmulateGLBaseInstance is an AST traverser to convert the gl_BaseInstance builtin
+// to a uniform int
+//
 
 #include "compiler/translator/tree_ops/EmulateMultiDrawShaderBuiltins.h"
 
@@ -39,7 +42,7 @@ class FindGLDrawIDTraverser : public TIntermTraverser
   protected:
     void visitSymbol(TIntermSymbol *node) override
     {
-        if (node->getQualifier() == EvqDrawID)
+        if (&node->variable() == BuiltInVariable::gl_DrawID())
         {
             mVariable = &node->variable();
         }
@@ -69,59 +72,56 @@ class AddBaseVertexToGLVertexIDTraverser : public TIntermTraverser
 };
 
 constexpr const ImmutableString kEmulatedGLBaseVertexName("angle_BaseVertex");
-constexpr const ImmutableString kEmulatedGLBaseInstanceName("angle_BaseInstance");
 
-class FindGLBaseVertexBaseInstanceTraverser : public TIntermTraverser
+class FindGLBaseVertexTraverser : public TIntermTraverser
 {
   public:
-    FindGLBaseVertexBaseInstanceTraverser()
-        : TIntermTraverser(true, false, false),
-          mBaseVertexVariable(nullptr),
-          mBaseInstanceVariable(nullptr)
-    {}
+    FindGLBaseVertexTraverser() : TIntermTraverser(true, false, false), mVariable(nullptr) {}
 
-    const TVariable *getGLBaseVertexBuiltinVariable() { return mBaseVertexVariable; }
-    const TVariable *getGLBaseInstanceBuiltinVariable() { return mBaseInstanceVariable; }
+    const TVariable *getGLBaseVertexBuiltinVariable() { return mVariable; }
 
   protected:
     void visitSymbol(TIntermSymbol *node) override
     {
-        switch (node->getQualifier())
+        if (&node->variable() == BuiltInVariable::gl_BaseVertex())
         {
-            case EvqBaseVertex:
-                mBaseVertexVariable = &node->variable();
-                break;
-            case EvqBaseInstance:
-                mBaseInstanceVariable = &node->variable();
-                break;
-            default:
-                break;
+            mVariable = &node->variable();
         }
     }
 
   private:
-    const TVariable *mBaseVertexVariable;
-    const TVariable *mBaseInstanceVariable;
+    const TVariable *mVariable;
 };
 
-bool EmulateBuiltIn(TCompiler *compiler,
-                    TIntermBlock *root,
-                    TSymbolTable *symbolTable,
-                    const TVariable *builtInVariable,
-                    const TType *type,
-                    const ImmutableString &name)
-{
-    const TVariable *emulatedVar =
-        new TVariable(symbolTable, name, type, SymbolType::AngleInternal);
-    const TIntermSymbol *emulatedSymbol = new TIntermSymbol(emulatedVar);
+constexpr const ImmutableString kEmulatedGLBaseInstanceName("angle_BaseInstance");
 
-    DeclareGlobalVariable(root, emulatedVar);
-    return ReplaceVariableWithTyped(compiler, root, builtInVariable, emulatedSymbol);
-}
+class FindGLBaseInstanceTraverser : public TIntermTraverser
+{
+  public:
+    FindGLBaseInstanceTraverser() : TIntermTraverser(true, false, false), mVariable(nullptr) {}
+
+    const TVariable *getGLBaseInstanceBuiltinVariable() { return mVariable; }
+
+  protected:
+    void visitSymbol(TIntermSymbol *node) override
+    {
+        if (&node->variable() == BuiltInVariable::gl_BaseInstance())
+        {
+            mVariable = &node->variable();
+        }
+    }
+
+  private:
+    const TVariable *mVariable;
+};
 
 }  // namespace
 
-bool EmulateGLDrawID(TCompiler *compiler, TIntermBlock *root, TSymbolTable *symbolTable)
+bool EmulateGLDrawID(TCompiler *compiler,
+                     TIntermBlock *root,
+                     TSymbolTable *symbolTable,
+                     std::vector<sh::ShaderVariable> *uniforms,
+                     bool shouldCollect)
 {
     FindGLDrawIDTraverser traverser;
     root->traverse(&traverser);
@@ -129,8 +129,31 @@ bool EmulateGLDrawID(TCompiler *compiler, TIntermBlock *root, TSymbolTable *symb
     if (builtInVariable)
     {
         const TType *type = StaticType::Get<EbtInt, EbpHigh, EvqUniform, 1, 1>();
-        if (!EmulateBuiltIn(compiler, root, symbolTable, builtInVariable, type,
-                            kEmulatedGLDrawIDName))
+        const TVariable *drawID =
+            new TVariable(symbolTable, kEmulatedGLDrawIDName, type, SymbolType::AngleInternal);
+        const TIntermSymbol *drawIDSymbol = new TIntermSymbol(drawID);
+
+        // AngleInternal variables don't get collected
+        if (shouldCollect)
+        {
+            ShaderVariable uniform;
+            uniform.name          = kEmulatedGLDrawIDName.data();
+            uniform.mappedName    = kEmulatedGLDrawIDName.data();
+            uniform.type          = GLVariableType(*type);
+            uniform.precision     = GLVariablePrecision(*type);
+            uniform.staticUse     = symbolTable->isStaticallyUsed(*builtInVariable);
+            uniform.active        = true;
+            uniform.binding       = type->getLayoutQualifier().binding;
+            uniform.location      = type->getLayoutQualifier().location;
+            uniform.offset        = type->getLayoutQualifier().offset;
+            uniform.rasterOrdered = type->getLayoutQualifier().rasterOrdered;
+            uniform.readonly      = type->getMemoryQualifier().readonly;
+            uniform.writeonly     = type->getMemoryQualifier().writeonly;
+            uniforms->push_back(uniform);
+        }
+
+        DeclareGlobalVariable(root, drawID);
+        if (!ReplaceVariableWithTyped(compiler, root, builtInVariable, drawIDSymbol))
         {
             return false;
         }
@@ -142,8 +165,13 @@ bool EmulateGLDrawID(TCompiler *compiler, TIntermBlock *root, TSymbolTable *symb
 bool EmulateGLBaseVertexBaseInstance(TCompiler *compiler,
                                      TIntermBlock *root,
                                      TSymbolTable *symbolTable,
+                                     std::vector<sh::ShaderVariable> *uniforms,
+                                     bool shouldCollect,
                                      bool addBaseVertexToVertexID)
 {
+    bool addBaseVertex = false, addBaseInstance = false;
+    ShaderVariable uniformBaseVertex, uniformBaseInstance;
+
     if (addBaseVertexToVertexID)
     {
         // This is a workaround for Mac AMD GPU
@@ -156,29 +184,88 @@ bool EmulateGLBaseVertexBaseInstance(TCompiler *compiler,
         }
     }
 
-    FindGLBaseVertexBaseInstanceTraverser traverser;
-    root->traverse(&traverser);
-    const TVariable *builtInVariableBaseVertex   = traverser.getGLBaseVertexBuiltinVariable();
-    const TVariable *builtInVariableBaseInstance = traverser.getGLBaseInstanceBuiltinVariable();
+    FindGLBaseVertexTraverser traverserBaseVertex;
+    root->traverse(&traverserBaseVertex);
+    const TVariable *builtInVariableBaseVertex =
+        traverserBaseVertex.getGLBaseVertexBuiltinVariable();
 
     if (builtInVariableBaseVertex)
     {
-        const TType *type = StaticType::Get<EbtInt, EbpHigh, EvqUniform, 1, 1>();
-        if (!EmulateBuiltIn(compiler, root, symbolTable, builtInVariableBaseVertex, type,
-                            kEmulatedGLBaseVertexName))
+        const TVariable *baseVertex           = BuiltInVariable::angle_BaseVertex();
+        const TType &type                     = baseVertex->getType();
+        const TIntermSymbol *baseVertexSymbol = new TIntermSymbol(baseVertex);
+
+        // AngleInternal variables don't get collected
+        if (shouldCollect)
+        {
+            uniformBaseVertex.name       = kEmulatedGLBaseVertexName.data();
+            uniformBaseVertex.mappedName = kEmulatedGLBaseVertexName.data();
+            uniformBaseVertex.type       = GLVariableType(type);
+            uniformBaseVertex.precision  = GLVariablePrecision(type);
+            uniformBaseVertex.staticUse = symbolTable->isStaticallyUsed(*builtInVariableBaseVertex);
+            uniformBaseVertex.active    = true;
+            uniformBaseVertex.binding   = type.getLayoutQualifier().binding;
+            uniformBaseVertex.location  = type.getLayoutQualifier().location;
+            uniformBaseVertex.offset    = type.getLayoutQualifier().offset;
+            uniformBaseVertex.rasterOrdered = type.getLayoutQualifier().rasterOrdered;
+            uniformBaseVertex.readonly      = type.getMemoryQualifier().readonly;
+            uniformBaseVertex.writeonly     = type.getMemoryQualifier().writeonly;
+            addBaseVertex                   = true;
+        }
+
+        DeclareGlobalVariable(root, baseVertex);
+        if (!ReplaceVariableWithTyped(compiler, root, builtInVariableBaseVertex, baseVertexSymbol))
         {
             return false;
         }
     }
 
+    FindGLBaseInstanceTraverser traverserInstance;
+    root->traverse(&traverserInstance);
+    const TVariable *builtInVariableBaseInstance =
+        traverserInstance.getGLBaseInstanceBuiltinVariable();
+
     if (builtInVariableBaseInstance)
     {
-        const TType *type = StaticType::Get<EbtInt, EbpHigh, EvqUniform, 1, 1>();
-        if (!EmulateBuiltIn(compiler, root, symbolTable, builtInVariableBaseInstance, type,
-                            kEmulatedGLBaseInstanceName))
+        const TVariable *baseInstance           = BuiltInVariable::angle_BaseInstance();
+        const TType &type                       = baseInstance->getType();
+        const TIntermSymbol *baseInstanceSymbol = new TIntermSymbol(baseInstance);
+
+        // AngleInternal variables don't get collected
+        if (shouldCollect)
+        {
+            uniformBaseInstance.name       = kEmulatedGLBaseInstanceName.data();
+            uniformBaseInstance.mappedName = kEmulatedGLBaseInstanceName.data();
+            uniformBaseInstance.type       = GLVariableType(type);
+            uniformBaseInstance.precision  = GLVariablePrecision(type);
+            uniformBaseInstance.staticUse =
+                symbolTable->isStaticallyUsed(*builtInVariableBaseInstance);
+            uniformBaseInstance.active        = true;
+            uniformBaseInstance.binding       = type.getLayoutQualifier().binding;
+            uniformBaseInstance.location      = type.getLayoutQualifier().location;
+            uniformBaseInstance.offset        = type.getLayoutQualifier().offset;
+            uniformBaseInstance.rasterOrdered = type.getLayoutQualifier().rasterOrdered;
+            uniformBaseInstance.readonly      = type.getMemoryQualifier().readonly;
+            uniformBaseInstance.writeonly     = type.getMemoryQualifier().writeonly;
+            addBaseInstance                   = true;
+        }
+
+        DeclareGlobalVariable(root, baseInstance);
+        if (!ReplaceVariableWithTyped(compiler, root, builtInVariableBaseInstance,
+                                      baseInstanceSymbol))
         {
             return false;
         }
+    }
+
+    // Make sure the order in uniforms is the same as the traverse order
+    if (addBaseInstance)
+    {
+        uniforms->push_back(uniformBaseInstance);
+    }
+    if (addBaseVertex)
+    {
+        uniforms->push_back(uniformBaseVertex);
     }
 
     return true;

@@ -12,10 +12,6 @@
 #ifndef LIBANGLE_VARYINGPACKING_H_
 #define LIBANGLE_VARYINGPACKING_H_
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include <GLSLANG/ShaderVars.h>
 
 #include "angle_gl.h"
@@ -53,6 +49,7 @@ struct VaryingInShaderRef : angle::NonCopyable
 
     // Struct name
     std::string parentStructName;
+    std::string parentStructMappedName;
 };
 
 struct PackedVarying : angle::NonCopyable
@@ -208,27 +205,6 @@ enum class PackMode
     ANGLE_NON_CONFORMANT_D3D9,
 };
 
-enum class PerVertexMember
-{
-    // The gl_Pervertex struct is defined as:
-    //
-    //     out gl_PerVertex
-    //     {
-    //         vec4 gl_Position;
-    //         float gl_PointSize;
-    //         float gl_ClipDistance[];
-    //         float gl_CullDistance[];
-    //     };
-    Position,
-    PointSize,
-    ClipDistance,
-    CullDistance,
-
-    EnumCount,
-    InvalidEnum = EnumCount,
-};
-using PerVertexMemberBitSet = angle::PackedEnumBitSet<PerVertexMember, uint8_t>;
-
 class VaryingPacking final : angle::NonCopyable
 {
   public:
@@ -263,14 +239,14 @@ class VaryingPacking final : angle::NonCopyable
         return static_cast<unsigned int>(mRegisterList.size());
     }
 
-    const ShaderMap<std::vector<uint32_t>> &getInactiveVaryingIds() const
+    const ShaderMap<std::vector<std::string>> &getInactiveVaryingMappedNames() const
     {
-        return mInactiveVaryingIds;
+        return mInactiveVaryingMappedNames;
     }
 
-    const ShaderMap<PerVertexMemberBitSet> &getOutputPerVertexActiveMembers() const
+    const ShaderMap<std::vector<std::string>> &getActiveOutputBuiltInNames() const
     {
-        return mOutputPerVertexActiveMembers;
+        return mActiveOutputBuiltIns;
     }
 
     void reset();
@@ -317,8 +293,8 @@ class VaryingPacking final : angle::NonCopyable
     std::vector<Register> mRegisterMap;
     std::vector<PackedVaryingRegister> mRegisterList;
     std::vector<PackedVarying> mPackedVaryings;
-    ShaderMap<std::vector<uint32_t>> mInactiveVaryingIds;
-    ShaderMap<PerVertexMemberBitSet> mOutputPerVertexActiveMembers;
+    ShaderMap<std::vector<std::string>> mInactiveVaryingMappedNames;
+    ShaderMap<std::vector<std::string>> mActiveOutputBuiltIns;
 };
 
 class ProgramVaryingPacking final : angle::NonCopyable

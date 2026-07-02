@@ -30,6 +30,8 @@ class BuiltInFunctionEmulator
 
     void markBuiltInFunctionsForEmulation(TIntermNode *root);
 
+    void cleanup();
+
     // "name" gets written as "name_emu".
     static void WriteEmulatedFunctionName(TInfoSinkBase &out, const char *name);
 

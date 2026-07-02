@@ -40,7 +40,6 @@ class ExternalImageSiblingImpl : public FramebufferAttachmentObjectImpl
     virtual bool isRenderable(const gl::Context *context) const = 0;
     virtual bool isTexturable(const gl::Context *context) const = 0;
     virtual bool isYUV() const                                  = 0;
-    virtual bool hasFrontBufferUsage() const;
     virtual bool isCubeMap() const;
     virtual bool hasProtectedContent() const = 0;
     virtual gl::Extents getSize() const      = 0;
@@ -60,8 +59,6 @@ class ImageImpl : angle::NonCopyable
     virtual angle::Result orphan(const gl::Context *context, egl::ImageSibling *sibling) = 0;
 
     virtual egl::Error exportVkImage(void *vkImage, void *vkImageCreateInfo);
-
-    virtual bool isFixedRatedCompression(const gl::Context *context);
 
   protected:
     const egl::ImageState &mState;

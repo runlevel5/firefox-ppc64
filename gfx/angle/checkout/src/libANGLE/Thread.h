@@ -20,6 +20,8 @@ namespace angle
 #if defined(ANGLE_USE_ANDROID_TLS_SLOT)
 extern bool gUseAndroidOpenGLTlsSlot;
 #endif
+
+void PthreadKeyDestructorCallback(void *ptr);
 }  // namespace angle
 
 namespace gl
@@ -49,7 +51,7 @@ class Thread : public LabeledObject
                   const LabeledObject *object,
                   const char *message);
 
-    // TODO: Remove egl::Error. http://anglebug.com/42261727
+    // TODO: Remove egl::Error. http://anglebug.com/3041
     void setError(const Error &error, const char *command, const LabeledObject *object);
     EGLint getError() const;
 

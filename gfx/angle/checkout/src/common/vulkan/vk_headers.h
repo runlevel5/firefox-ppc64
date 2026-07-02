@@ -11,20 +11,40 @@
 #define LIBANGLE_RENDERER_VULKAN_VK_HEADERS_H_
 
 #if ANGLE_SHARED_LIBVULKAN
-#    include <volk.h>
+#    include "third_party/volk/volk.h"
 #else
 #    include <vulkan/vulkan.h>
 #endif
 
-/* vulkan.h includes <X11/Xlib.h> when VK_USE_PLATFORM_XLIB_KHR is defined
- * after https://github.com/KhronosGroup/Vulkan-Headers/pull/534.
- * This defines some macros which break build, so undefine them here.
- */
-#undef Always
-#undef Bool
-#undef None
-#undef Status
-#undef Success
+// For the unreleased VK_GOOGLEX_multisampled_render_to_single_sampled
+#if !defined(VK_GOOGLEX_multisampled_render_to_single_sampled)
+#    define VK_GOOGLEX_multisampled_render_to_single_sampled 1
+#    define VK_GOOGLEX_MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED_SPEC_VERSION 1
+#    define VK_GOOGLEX_MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED_EXTENSION_NAME \
+        "VK_GOOGLEX_multisampled_render_to_single_sampled"
+
+#    define VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED_FEATURES_GOOGLEX \
+        ((VkStructureType)(1000376000))
+#    define VK_STRUCTURE_TYPE_MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED_INFO_GOOGLEX \
+        ((VkStructureType)(1000376001))
+
+typedef struct VkPhysicalDeviceMultisampledRenderToSingleSampledFeaturesGOOGLEX
+{
+    VkStructureType sType;
+    const void *pNext;
+    VkBool32 multisampledRenderToSingleSampled;
+} VkPhysicalDeviceMultisampledRenderToSingleSampledFeaturesGOOGLEX;
+
+typedef struct VkMultisampledRenderToSingleSampledInfoGOOGLEX
+{
+    VkStructureType sType;
+    const void *pNext;
+    VkBool32 multisampledRenderToSingleSampledEnable;
+    VkSampleCountFlagBits rasterizationSamples;
+    VkResolveModeFlagBits depthResolveMode;
+    VkResolveModeFlagBits stencilResolveMode;
+} VkMultisampledRenderToSingleSampledInfoGOOGLEX;
+#endif /* VK_GOOGLEX_multisampled_render_to_single_sampled */
 
 #if !defined(ANGLE_SHARED_LIBVULKAN)
 
@@ -53,9 +73,6 @@ extern PFN_vkImportSemaphoreFdKHR vkImportSemaphoreFdKHR;
 // VK_EXT_external_memory_host
 extern PFN_vkGetMemoryHostPointerPropertiesEXT vkGetMemoryHostPointerPropertiesEXT;
 
-// VK_EXT_device_fault
-extern PFN_vkGetDeviceFaultInfoEXT vkGetDeviceFaultInfoEXT;
-
 // VK_EXT_host_query_reset
 extern PFN_vkResetQueryPoolEXT vkResetQueryPoolEXT;
 
@@ -74,9 +91,6 @@ extern PFN_vkGetImageMemoryRequirements2KHR vkGetImageMemoryRequirements2KHR;
 // VK_KHR_bind_memory2
 extern PFN_vkBindBufferMemory2KHR vkBindBufferMemory2KHR;
 extern PFN_vkBindImageMemory2KHR vkBindImageMemory2KHR;
-
-// VK_KHR_maintenance5
-extern PFN_vkCmdBindIndexBuffer2KHR vkCmdBindIndexBuffer2KHR;
 
 // VK_KHR_external_fence_capabilities
 extern PFN_vkGetPhysicalDeviceExternalFencePropertiesKHR
@@ -107,6 +121,10 @@ extern PFN_vkGetAndroidHardwareBufferPropertiesANDROID vkGetAndroidHardwareBuffe
 extern PFN_vkGetMemoryAndroidHardwareBufferANDROID vkGetMemoryAndroidHardwareBufferANDROID;
 #    endif
 
+#    if defined(ANGLE_PLATFORM_GGP)
+extern PFN_vkCreateStreamDescriptorSurfaceGGP vkCreateStreamDescriptorSurfaceGGP;
+#    endif  // defined(ANGLE_PLATFORM_GGP)
+
 // VK_KHR_shared_presentable_image
 extern PFN_vkGetSwapchainStatusKHR vkGetSwapchainStatusKHR;
 
@@ -131,47 +149,12 @@ extern PFN_vkCmdSetPatchControlPointsEXT vkCmdSetPatchControlPointsEXT;
 extern PFN_vkCmdSetPrimitiveRestartEnableEXT vkCmdSetPrimitiveRestartEnableEXT;
 extern PFN_vkCmdSetRasterizerDiscardEnableEXT vkCmdSetRasterizerDiscardEnableEXT;
 
-// VK_EXT_vertex_input_dynamic_state
-extern PFN_vkCmdSetVertexInputEXT vkCmdSetVertexInputEXT;
-
 // VK_KHR_fragment_shading_rate
 extern PFN_vkGetPhysicalDeviceFragmentShadingRatesKHR vkGetPhysicalDeviceFragmentShadingRatesKHR;
 extern PFN_vkCmdSetFragmentShadingRateKHR vkCmdSetFragmentShadingRateKHR;
 
 // VK_GOOGLE_display_timing
 extern PFN_vkGetPastPresentationTimingGOOGLE vkGetPastPresentationTimingGOOGLE;
-
-// VK_EXT_host_image_copy
-extern PFN_vkCopyImageToImageEXT vkCopyImageToImageEXT;
-extern PFN_vkCopyImageToMemoryEXT vkCopyImageToMemoryEXT;
-extern PFN_vkCopyMemoryToImageEXT vkCopyMemoryToImageEXT;
-extern PFN_vkTransitionImageLayoutEXT vkTransitionImageLayoutEXT;
-extern PFN_vkGetImageSubresourceLayout2EXT vkGetImageSubresourceLayout2EXT;
-
-// VK_KHR_dynamic_rendering
-extern PFN_vkCmdBeginRenderingKHR vkCmdBeginRenderingKHR;
-extern PFN_vkCmdEndRenderingKHR vkCmdEndRenderingKHR;
-
-// VK_KHR_dynamic_rendering_local_read
-extern PFN_vkCmdSetRenderingAttachmentLocationsKHR vkCmdSetRenderingAttachmentLocationsKHR;
-extern PFN_vkCmdSetRenderingInputAttachmentIndicesKHR vkCmdSetRenderingInputAttachmentIndicesKHR;
-
-// VK_KHR_synchronization2
-extern PFN_vkCmdPipelineBarrier2KHR vkCmdPipelineBarrier2KHR;
-extern PFN_vkCmdWriteTimestamp2KHR vkCmdWriteTimestamp2KHR;
-
-// VK_KHR_external_memory_fd
-extern PFN_vkGetMemoryFdKHR vkGetMemoryFdKHR;
-extern PFN_vkGetMemoryFdPropertiesKHR vkGetMemoryFdPropertiesKHR;
-
-// VK_EXT_external_memory_host
-extern PFN_vkGetMemoryHostPointerPropertiesEXT vkGetMemoryHostPointerPropertiesEXT;
-
-// VK_KHR_buffer_device_address
-extern PFN_vkGetBufferDeviceAddressKHR vkGetBufferDeviceAddressKHR;
-
-// VK_QCOM_tile_memory_heap
-extern PFN_vkCmdBindTileMemoryQCOM vkCmdBindTileMemoryQCOM;
 
 }  // namespace rx
 

@@ -4,11 +4,6 @@
 // found in the LICENSE file.
 //
 // system_utils_win32.cpp: Implementation of OS-specific functions for Windows.
-//
-
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
 
 #include "common/FastVector.h"
 #include "system_utils.h"
@@ -64,7 +59,7 @@ void *OpenSystemLibraryWithExtensionAndGetError(const char *libraryName,
     int ret = snprintf(buffer, MAX_PATH, "%s.%s", libraryName, GetSharedLibraryExtension());
     if (ret <= 0 || ret >= MAX_PATH)
     {
-        fprintf(stderr, "Error generating library path: 0x%x", ret);
+        fprintf(stderr, "Error loading shared library: 0x%x", ret);
         return nullptr;
     }
 
@@ -75,35 +70,32 @@ void *OpenSystemLibraryWithExtensionAndGetError(const char *libraryName,
         case SearchType::ModuleDir:
         {
             std::string moduleRelativePath = ConcatenatePath(GetModuleDirectory(), libraryName);
-            libraryModule                  = LoadLibraryW(Widen(moduleRelativePath).c_str());
-            if (libraryModule == nullptr && errorOut)
+            if (errorOut)
             {
-                *errorOut = std::string("failed to load library (SearchType::ModuleDir) ") +
-                            moduleRelativePath;
+                *errorOut = moduleRelativePath;
             }
+            libraryModule = LoadLibraryW(Widen(moduleRelativePath).c_str());
             break;
         }
 
         case SearchType::SystemDir:
         {
+            if (errorOut)
+            {
+                *errorOut = libraryName;
+            }
             libraryModule =
                 LoadLibraryExW(Widen(libraryName).c_str(), nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-            if (libraryModule == nullptr && errorOut)
-            {
-                *errorOut =
-                    std::string("failed to load library (SearchType::SystemDir) ") + libraryName;
-            }
             break;
         }
 
         case SearchType::AlreadyLoaded:
         {
-            libraryModule = GetModuleHandleW(Widen(libraryName).c_str());
-            if (libraryModule == nullptr && errorOut)
+            if (errorOut)
             {
-                *errorOut = std::string("failed to load library (SearchType::AlreadyLoaded) ") +
-                            libraryName;
+                *errorOut = libraryName;
             }
+            libraryModule = GetModuleHandleW(Widen(libraryName).c_str());
             break;
         }
     }

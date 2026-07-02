@@ -7,17 +7,12 @@
 //   String helper functions.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "common/string_utils.h"
 
 #include <stdlib.h>
 #include <string.h>
 #include <algorithm>
 #include <cctype>
-#include <charconv>
 #include <fstream>
 #include <sstream>
 
@@ -141,13 +136,8 @@ std::string GetPrefix(const std::string &input, size_t offset, char delimiter)
     return input.substr(offset, match - offset);
 }
 
-bool HexStringToUInt(const std::string_view &input, unsigned int *uintOut)
+bool HexStringToUInt(const std::string &input, unsigned int *uintOut)
 {
-    if (input.empty() || uintOut == nullptr)
-    {
-        return false;
-    }
-
     unsigned int offset = 0;
 
     if (input.size() >= 2 && input[0] == '0' && input[1] == 'x')
@@ -161,38 +151,24 @@ bool HexStringToUInt(const std::string_view &input, unsigned int *uintOut)
         return false;
     }
 
-    std::string_view inputWithOffset = input.substr(offset);
-    const auto result                = std::from_chars(
-        inputWithOffset.data(), inputWithOffset.data() + inputWithOffset.size(), *uintOut, 16);
-    if (result.ec != std::errc{})
-    {
-        return false;
-    }
-
-    // A successful conversion should consume the entire input string view.
-    // If result.ptr is not at the end, it means there were extra characters.
-    if (result.ptr != inputWithOffset.data() + inputWithOffset.size())
-    {
-        return false;
-    }
-
-    return true;
+    std::stringstream inStream(input);
+    inStream >> std::hex >> *uintOut;
+    return !inStream.fail();
 }
 
 bool ReadFileToString(const std::string &path, std::string *stringOut)
 {
-    std::ifstream inFile(path.c_str(), std::ios::binary);
+    std::ifstream inFile(path.c_str());
     if (inFile.fail())
     {
         return false;
     }
 
     inFile.seekg(0, std::ios::end);
-    auto size = static_cast<std::string::size_type>(inFile.tellg());
-    stringOut->resize(size);
+    stringOut->reserve(static_cast<std::string::size_type>(inFile.tellg()));
     inFile.seekg(0, std::ios::beg);
 
-    inFile.read(stringOut->data(), size);
+    stringOut->assign(std::istreambuf_iterator<char>(inFile), std::istreambuf_iterator<char>());
     return !inFile.fail();
 }
 
@@ -376,21 +352,6 @@ bool NamesMatchWithWildcard(const char *glob, const char *name)
     }
 
     return false;
-}
-
-std::vector<uint8_t> HexStringToUintVector(const std::string_view &hexStr)
-{
-    std::vector<uint8_t> bin;
-    bin.reserve(hexStr.length() / 2);
-
-    for (size_t index = 0; index < hexStr.length(); index += 2)
-    {
-        unsigned int hexValue;
-        HexStringToUInt(hexStr.substr(index, 2), &hexValue);
-        bin.push_back(static_cast<uint8_t>(hexValue));
-    }
-
-    return bin;
 }
 
 }  // namespace angle

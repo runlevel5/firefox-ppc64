@@ -54,7 +54,6 @@ class DirectiveParser : public Lexer
     void parseConditionalIf(Token *token);
     int parseExpressionIf(Token *token);
     int parseExpressionIfdef(Token *token);
-    void handleVersion(const SourceLocation &location);
 
     struct ConditionalBlock
     {
@@ -69,7 +68,6 @@ class DirectiveParser : public Lexer
             : skipBlock(false), skipGroup(false), foundValidGroup(false), foundElseGroup(false)
         {}
     };
-    bool mHandledVersion;
     bool mPastFirstStatement;
     bool mSeenNonPreprocessorToken;  // Tracks if a non-preprocessor token has been seen yet.  Some
                                      // macros, such as

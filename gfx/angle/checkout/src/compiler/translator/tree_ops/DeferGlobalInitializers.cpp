@@ -37,7 +37,8 @@ constexpr const ImmutableString kInitGlobalsString("initGlobals");
 void GetDeferredInitializers(TIntermDeclaration *declaration,
                              bool initializeUninitializedGlobals,
                              bool canUseLoopsToInitialize,
-                             bool forceDeferNonConstGlobalInitializers,
+                             bool highPrecisionSupported,
+                             bool forceDeferGlobalInitializers,
                              TIntermSequence *deferredInitializersOut,
                              std::vector<const TVariable *> *variablesToReplaceOut,
                              TSymbolTable *symbolTable)
@@ -54,7 +55,7 @@ void GetDeferredInitializers(TIntermDeclaration *declaration,
         TIntermTyped *expression = init->getRight();
 
         if (expression->getQualifier() != EvqConst || !expression->hasConstantValue() ||
-            (forceDeferNonConstGlobalInitializers && symbolNode->getQualifier() != EvqConst))
+            forceDeferGlobalInitializers)
         {
             // For variables which are not constant, defer their real initialization until
             // after we initialize uniforms.
@@ -93,7 +94,8 @@ void GetDeferredInitializers(TIntermDeclaration *declaration,
         if (symbolNode->getQualifier() == EvqGlobal)
         {
             TIntermSequence initCode;
-            CreateInitCode(symbolNode, canUseLoopsToInitialize, &initCode, symbolTable);
+            CreateInitCode(symbolNode, canUseLoopsToInitialize, highPrecisionSupported, &initCode,
+                           symbolTable);
             deferredInitializersOut->insert(deferredInitializersOut->end(), initCode.begin(),
                                             initCode.end());
         }
@@ -132,7 +134,8 @@ bool DeferGlobalInitializers(TCompiler *compiler,
                              TIntermBlock *root,
                              bool initializeUninitializedGlobals,
                              bool canUseLoopsToInitialize,
-                             bool forceDeferNonConstGlobalInitializers,
+                             bool highPrecisionSupported,
+                             bool forceDeferGlobalInitializers,
                              TSymbolTable *symbolTable)
 {
     TIntermSequence deferredInitializers;
@@ -146,8 +149,9 @@ bool DeferGlobalInitializers(TCompiler *compiler,
         if (declaration)
         {
             GetDeferredInitializers(declaration, initializeUninitializedGlobals,
-                                    canUseLoopsToInitialize, forceDeferNonConstGlobalInitializers,
-                                    &deferredInitializers, &variablesToReplace, symbolTable);
+                                    canUseLoopsToInitialize, highPrecisionSupported,
+                                    forceDeferGlobalInitializers, &deferredInitializers,
+                                    &variablesToReplace, symbolTable);
         }
     }
 

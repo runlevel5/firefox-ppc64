@@ -10,6 +10,7 @@
 
 #include "compiler/translator/CallDAG.h"
 
+#include "compiler/translator/Diagnostics.h"
 #include "compiler/translator/SymbolTable.h"
 #include "compiler/translator/tree_util/IntermTraverse.h"
 
@@ -21,11 +22,14 @@ namespace sh
 class CallDAG::CallDAGCreator : public TIntermTraverser
 {
   public:
-    CallDAGCreator()
-        : TIntermTraverser(true, false, false), mCurrentFunction(nullptr), mCurrentIndex(0)
+    CallDAGCreator(TDiagnostics *diagnostics)
+        : TIntermTraverser(true, false, false),
+          mDiagnostics(diagnostics),
+          mCurrentFunction(nullptr),
+          mCurrentIndex(0)
     {}
 
-    void assignIndices()
+    InitResult assignIndices()
     {
         int skipped = 0;
         for (auto &it : mFunctions)
@@ -33,7 +37,11 @@ class CallDAG::CallDAGCreator : public TIntermTraverser
             // Skip unimplemented functions
             if (it.second.definitionNode)
             {
-                assignIndicesInternal(&it.second);
+                InitResult result = assignIndicesInternal(&it.second);
+                if (result != INITDAG_SUCCESS)
+                {
+                    return result;
+                }
             }
             else
             {
@@ -42,6 +50,7 @@ class CallDAG::CallDAGCreator : public TIntermTraverser
         }
 
         ASSERT(mFunctions.size() == mCurrentIndex + skipped);
+        return INITDAG_SUCCESS;
     }
 
     void fillDataStructures(std::vector<Record> *records, std::map<int, int> *idToIndex)
@@ -135,7 +144,7 @@ class CallDAG::CallDAGCreator : public TIntermTraverser
     }
 
     // Recursively assigns indices to a sub DAG
-    void assignIndicesInternal(CreatorFunctionData *root)
+    InitResult assignIndicesInternal(CreatorFunctionData *root)
     {
         // Iterative implementation of the index assignment algorithm. A recursive version
         // would be prettier but since the CallDAG creation runs before the limiting of the
@@ -146,12 +155,9 @@ class CallDAG::CallDAGCreator : public TIntermTraverser
 
         if (root->indexAssigned)
         {
-            return;
+            return INITDAG_SUCCESS;
         }
 
-        // TODO(http://anglebug.com/349994211): The following description is no longer valid, since
-        // detection of recursion is no longer needed here.  Future changes will remove this class.
-        //
         // If we didn't have to detect recursion, functionsToProcess could be a simple queue
         // in which we add the function being processed's callees. However in order to detect
         // recursion we need to know which functions we are currently visiting. For that reason
@@ -162,6 +168,10 @@ class CallDAG::CallDAGCreator : public TIntermTraverser
         // to false.
         TVector<CreatorFunctionData *> functionsToProcess;
         functionsToProcess.push_back(root);
+
+        InitResult result = INITDAG_SUCCESS;
+
+        std::stringstream errorStream = sh::InitializeStream<std::stringstream>();
 
         while (!functionsToProcess.empty())
         {
@@ -179,9 +189,9 @@ class CallDAG::CallDAGCreator : public TIntermTraverser
 
             if (!function->definitionNode)
             {
-                // This function is undefined, but that's already checked and rejected by the
-                // parser.
-                ASSERT(false);
+                errorStream << "Undefined function '" << function->name
+                            << "()' used in the following call chain:";
+                result = INITDAG_UNDEFINED;
                 break;
             }
 
@@ -201,13 +211,45 @@ class CallDAG::CallDAGCreator : public TIntermTraverser
                 // in the chain printed in the info log.
                 if (callee->visiting)
                 {
-                    // This is a recursion, but that's already checked and rejected by the parser.
-                    ASSERT(false);
+                    errorStream << "Recursive function call in the following call chain:";
+                    result = INITDAG_RECURSION;
                     break;
                 }
             }
+
+            if (result != INITDAG_SUCCESS)
+            {
+                break;
+            }
         }
+
+        // The call chain is made of the function we were visiting when the error was detected.
+        if (result != INITDAG_SUCCESS)
+        {
+            bool first = true;
+            for (auto function : functionsToProcess)
+            {
+                if (function->visiting)
+                {
+                    if (!first)
+                    {
+                        errorStream << " -> ";
+                    }
+                    errorStream << function->name << ")";
+                    first = false;
+                }
+            }
+            if (mDiagnostics)
+            {
+                std::string errorStr = errorStream.str();
+                mDiagnostics->globalError(errorStr.c_str());
+            }
+        }
+
+        return result;
     }
+
+    TDiagnostics *mDiagnostics;
 
     std::map<int, CreatorFunctionData> mFunctions;
     CreatorFunctionData *mCurrentFunction;
@@ -253,17 +295,22 @@ void CallDAG::clear()
     mFunctionIdToIndex.clear();
 }
 
-void CallDAG::init(TIntermNode *root)
+CallDAG::InitResult CallDAG::init(TIntermNode *root, TDiagnostics *diagnostics)
 {
-    CallDAGCreator creator;
+    CallDAGCreator creator(diagnostics);
 
-    // Create the mapping of functions to callees
+    // Creates the mapping of functions to callees
     root->traverse(&creator);
 
-    // Do the topological sort
-    creator.assignIndices();
+    // Does the topological sort and detects recursions
+    InitResult result = creator.assignIndices();
+    if (result != INITDAG_SUCCESS)
+    {
+        return result;
+    }
 
     creator.fillDataStructures(&mRecords, &mFunctionIdToIndex);
+    return INITDAG_SUCCESS;
 }
 
 }  // namespace sh

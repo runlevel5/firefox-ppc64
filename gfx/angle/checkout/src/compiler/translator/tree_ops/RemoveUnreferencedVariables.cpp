@@ -10,7 +10,6 @@
 
 #include "compiler/translator/tree_ops/RemoveUnreferencedVariables.h"
 
-#include "common/hash_containers.h"
 #include "compiler/translator/SymbolTable.h"
 #include "compiler/translator/tree_util/IntermTraverse.h"
 
@@ -176,8 +175,7 @@ void RemoveUnreferencedVariablesTraverser::decrementStructTypeRefCount(const TTy
 void RemoveUnreferencedVariablesTraverser::removeVariableDeclaration(TIntermDeclaration *node,
                                                                      TIntermTyped *declarator)
 {
-    if (declarator->getType().isStructSpecifier() &&
-        declarator->getType().getStruct()->symbolType() != SymbolType::Empty)
+    if (declarator->getType().isStructSpecifier() && !declarator->getType().isNamelessStruct())
     {
         unsigned int structId = declarator->getType().getStruct()->uniqueId().get();
         unsigned int structRefCountInThisDeclarator = 1u;
@@ -347,7 +345,8 @@ void RemoveUnreferencedVariablesTraverser::traverseLoop(TIntermLoop *node)
         ASSERT(node->getCondition() == nullptr ||
                node->getCondition()->getAsDeclarationNode() == nullptr);
 
-        node->getBody()->traverse(this);
+        if (node->getBody())
+            node->getBody()->traverse(this);
 
         if (node->getInit())
             node->getInit()->traverse(this);

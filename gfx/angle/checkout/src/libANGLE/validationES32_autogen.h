@@ -17,38 +17,30 @@
 namespace gl
 {
 class Context;
-class PrivateState;
-class PrivateStateCache;
-class ErrorSet;
 
 bool ValidateBlendBarrier(const Context *context, angle::EntryPoint entryPoint);
-bool ValidateBlendEquationSeparatei(const PrivateState &state,
-                                    ErrorSet *errors,
+bool ValidateBlendEquationSeparatei(const Context *context,
                                     angle::EntryPoint entryPoint,
                                     GLuint buf,
                                     GLenum modeRGB,
                                     GLenum modeAlpha);
-bool ValidateBlendEquationi(const PrivateState &state,
-                            ErrorSet *errors,
+bool ValidateBlendEquationi(const Context *context,
                             angle::EntryPoint entryPoint,
                             GLuint buf,
                             GLenum mode);
-bool ValidateBlendFuncSeparatei(const PrivateState &state,
-                                ErrorSet *errors,
+bool ValidateBlendFuncSeparatei(const Context *context,
                                 angle::EntryPoint entryPoint,
                                 GLuint buf,
                                 GLenum srcRGB,
                                 GLenum dstRGB,
                                 GLenum srcAlpha,
                                 GLenum dstAlpha);
-bool ValidateBlendFunci(const PrivateState &state,
-                        ErrorSet *errors,
+bool ValidateBlendFunci(const Context *context,
                         angle::EntryPoint entryPoint,
                         GLuint buf,
                         GLenum src,
                         GLenum dst);
-bool ValidateColorMaski(const PrivateState &state,
-                        ErrorSet *errors,
+bool ValidateColorMaski(const Context *context,
                         angle::EntryPoint entryPoint,
                         GLuint index,
                         GLboolean r,
@@ -92,8 +84,7 @@ bool ValidateDebugMessageInsert(const Context *context,
                                 GLenum severity,
                                 GLsizei length,
                                 const GLchar *buf);
-bool ValidateDisablei(const PrivateState &state,
-                      ErrorSet *errors,
+bool ValidateDisablei(const Context *context,
                       angle::EntryPoint entryPoint,
                       GLenum target,
                       GLuint index);
@@ -121,8 +112,7 @@ bool ValidateDrawRangeElementsBaseVertex(const Context *context,
                                          DrawElementsType typePacked,
                                          const void *indices,
                                          GLint basevertex);
-bool ValidateEnablei(const PrivateState &state,
-                     ErrorSet *errors,
+bool ValidateEnablei(const Context *context,
                      angle::EntryPoint entryPoint,
                      GLenum target,
                      GLuint index);
@@ -163,12 +153,12 @@ bool ValidateGetPointerv(const Context *context,
 bool ValidateGetSamplerParameterIiv(const Context *context,
                                     angle::EntryPoint entryPoint,
                                     SamplerID samplerPacked,
-                                    SamplerParameter pnamePacked,
+                                    GLenum pname,
                                     const GLint *params);
 bool ValidateGetSamplerParameterIuiv(const Context *context,
                                      angle::EntryPoint entryPoint,
                                      SamplerID samplerPacked,
-                                     SamplerParameter pnamePacked,
+                                     GLenum pname,
                                      const GLuint *params);
 bool ValidateGetTexParameterIiv(const Context *context,
                                 angle::EntryPoint entryPoint,
@@ -198,15 +188,11 @@ bool ValidateGetnUniformuiv(const Context *context,
                             UniformLocation locationPacked,
                             GLsizei bufSize,
                             const GLuint *params);
-bool ValidateIsEnabledi(const PrivateState &state,
-                        ErrorSet *errors,
+bool ValidateIsEnabledi(const Context *context,
                         angle::EntryPoint entryPoint,
                         GLenum target,
                         GLuint index);
-bool ValidateMinSampleShading(const PrivateState &state,
-                              ErrorSet *errors,
-                              angle::EntryPoint entryPoint,
-                              GLfloat value);
+bool ValidateMinSampleShading(const Context *context, angle::EntryPoint entryPoint, GLfloat value);
 bool ValidateObjectLabel(const Context *context,
                          angle::EntryPoint entryPoint,
                          GLenum identifier,
@@ -218,14 +204,12 @@ bool ValidateObjectPtrLabel(const Context *context,
                             const void *ptr,
                             GLsizei length,
                             const GLchar *label);
-bool ValidatePatchParameteri(const PrivateState &state,
-                             ErrorSet *errors,
+bool ValidatePatchParameteri(const Context *context,
                              angle::EntryPoint entryPoint,
                              GLenum pname,
                              GLint value);
 bool ValidatePopDebugGroup(const Context *context, angle::EntryPoint entryPoint);
-bool ValidatePrimitiveBoundingBox(const PrivateState &state,
-                                  ErrorSet *errors,
+bool ValidatePrimitiveBoundingBox(const Context *context,
                                   angle::EntryPoint entryPoint,
                                   GLfloat minX,
                                   GLfloat minY,
@@ -254,12 +238,12 @@ bool ValidateReadnPixels(const Context *context,
 bool ValidateSamplerParameterIiv(const Context *context,
                                  angle::EntryPoint entryPoint,
                                  SamplerID samplerPacked,
-                                 SamplerParameter pnamePacked,
+                                 GLenum pname,
                                  const GLint *param);
 bool ValidateSamplerParameterIuiv(const Context *context,
                                   angle::EntryPoint entryPoint,
                                   SamplerID samplerPacked,
-                                  SamplerParameter pnamePacked,
+                                  GLenum pname,
                                   const GLuint *param);
 bool ValidateTexBuffer(const Context *context,
                        angle::EntryPoint entryPoint,

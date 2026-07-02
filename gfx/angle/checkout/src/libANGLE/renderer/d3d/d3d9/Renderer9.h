@@ -36,7 +36,6 @@ class Blit9;
 class Context9;
 class IndexDataManager;
 class ProgramD3D;
-class ProgramExecutableD3D;
 class RenderTarget9;
 class StreamingIndexBufferInterface;
 class StaticIndexBufferInterface;
@@ -130,7 +129,7 @@ class Renderer9 : public RendererD3D
     angle::Result applyRenderTarget(const gl::Context *context,
                                     const RenderTarget9 *colorRenderTarget,
                                     const RenderTarget9 *depthStencilRenderTarget);
-    void applyUniforms(ProgramExecutableD3D *executableD3D);
+    void applyUniforms(ProgramD3D *programD3D);
     bool applyPrimitiveType(gl::PrimitiveMode primitiveType,
                             GLsizei elementCount,
                             bool usesPointSize);
@@ -447,8 +446,7 @@ class Renderer9 : public RendererD3D
     void generateCaps(gl::Caps *outCaps,
                       gl::TextureCapsMap *outTextureCaps,
                       gl::Extensions *outExtensions,
-                      gl::Limitations *outLimitations,
-                      ShPixelLocalStorageOptions *outPLSOptions) const override;
+                      gl::Limitations *outLimitations) const override;
 
     void initializeFeatures(angle::FeaturesD3D *features) const override;
 

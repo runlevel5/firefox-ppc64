@@ -8,10 +8,6 @@
 // classes TextureStorage9_2D and TextureStorage9_Cube, which act as the interface to the
 // D3D9 texture.
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "libANGLE/renderer/d3d/d3d9/TextureStorage9.h"
 
 #include "common/utilities.h"
@@ -94,12 +90,6 @@ int TextureStorage9::getTopLevel() const
 int TextureStorage9::getLevelCount() const
 {
     return static_cast<int>(mMipLevels) - mTopLevel;
-}
-
-bool TextureStorage9::isMultiplanar(const gl::Context *context)
-{
-    // D3D9 does not support multiplanar formats yet.
-    return false;
 }
 
 angle::Result TextureStorage9::setData(const gl::Context *context,
@@ -196,6 +186,7 @@ angle::Result TextureStorage9_2D::getSurfaceLevel(const gl::Context *context,
 
 angle::Result TextureStorage9_2D::findRenderTarget(const gl::Context *context,
                                                    const gl::ImageIndex &index,
+                                                   GLsizei samples,
                                                    RenderTargetD3D **outRT) const
 {
     ASSERT(index.getLevelIndex() < getLevelCount());
@@ -207,6 +198,7 @@ angle::Result TextureStorage9_2D::findRenderTarget(const gl::Context *context,
 
 angle::Result TextureStorage9_2D::getRenderTarget(const gl::Context *context,
                                                   const gl::ImageIndex &index,
+                                                  GLsizei samples,
                                                   RenderTargetD3D **outRT)
 {
     ASSERT(index.getLevelIndex() < getLevelCount());
@@ -262,9 +254,9 @@ angle::Result TextureStorage9_2D::getBaseTexture(const gl::Context *context,
 
         IDirect3DDevice9 *device = mRenderer->getDevice();
         HRESULT result           = device->CreateTexture(static_cast<unsigned int>(mTextureWidth),
-                                                         static_cast<unsigned int>(mTextureHeight),
-                                                         static_cast<unsigned int>(mMipLevels), getUsage(),
-                                                         mTextureFormat, getPool(), &mTexture, nullptr);
+                                               static_cast<unsigned int>(mTextureHeight),
+                                               static_cast<unsigned int>(mMipLevels), getUsage(),
+                                               mTextureFormat, getPool(), &mTexture, nullptr);
         ANGLE_TRY_HR(GetImplAs<Context9>(context), result, "Failed to create 2D storage texture");
     }
 
@@ -332,6 +324,7 @@ angle::Result TextureStorage9_EGLImage::getSurfaceLevel(const gl::Context *conte
 
 angle::Result TextureStorage9_EGLImage::findRenderTarget(const gl::Context *context,
                                                          const gl::ImageIndex &index,
+                                                         GLsizei samples,
                                                          RenderTargetD3D **outRT) const
 {
     // Since the render target of a EGL image will be updated when orphaning, trying to find a cache
@@ -342,10 +335,12 @@ angle::Result TextureStorage9_EGLImage::findRenderTarget(const gl::Context *cont
 
 angle::Result TextureStorage9_EGLImage::getRenderTarget(const gl::Context *context,
                                                         const gl::ImageIndex &index,
+                                                        GLsizei samples,
                                                         RenderTargetD3D **outRT)
 {
     ASSERT(!index.hasLayer());
     ASSERT(index.getLevelIndex() == 0);
+    ASSERT(samples == 0);
 
     return mImage->getRenderTarget(context, outRT);
 }
@@ -468,10 +463,12 @@ angle::Result TextureStorage9_Cube::getSurfaceLevel(const gl::Context *context,
 
 angle::Result TextureStorage9_Cube::findRenderTarget(const gl::Context *context,
                                                      const gl::ImageIndex &index,
+                                                     GLsizei samples,
                                                      RenderTargetD3D **outRT) const
 {
     ASSERT(outRT);
     ASSERT(index.getLevelIndex() == 0);
+    ASSERT(samples == 0);
 
     ASSERT(index.getType() == gl::TextureType::CubeMap &&
            gl::IsCubeMapFaceTarget(index.getTarget()));
@@ -483,10 +480,12 @@ angle::Result TextureStorage9_Cube::findRenderTarget(const gl::Context *context,
 
 angle::Result TextureStorage9_Cube::getRenderTarget(const gl::Context *context,
                                                     const gl::ImageIndex &index,
+                                                    GLsizei samples,
                                                     RenderTargetD3D **outRT)
 {
     ASSERT(outRT);
     ASSERT(index.getLevelIndex() == 0);
+    ASSERT(samples == 0);
 
     ASSERT(index.getType() == gl::TextureType::CubeMap &&
            gl::IsCubeMapFaceTarget(index.getTarget()));

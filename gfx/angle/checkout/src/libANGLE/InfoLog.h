@@ -9,8 +9,6 @@
 #ifndef LIBANGLE_INFOLOG_H_
 #define LIBANGLE_INFOLOG_H_
 
-#include <string>
-
 namespace gl
 {
 
@@ -23,7 +21,7 @@ class InfoLog : angle::NonCopyable
     size_t getLength() const;
     void getLog(GLsizei bufSize, GLsizei *length, char *infoLog) const;
 
-    void appendSanitized(std::string message);
+    void appendSanitized(const char *message);
     void reset();
 
     // This helper class ensures we append a newline after writing a line.

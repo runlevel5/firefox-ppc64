@@ -20,7 +20,7 @@
 #include "libANGLE/renderer/DeviceImpl.h"
 
 #if defined(ANGLE_ENABLE_D3D11)
-#    include "libANGLE/renderer/d3d/d3d11/Device11.h"
+#    include "libANGLE/renderer/d3d/DeviceD3D.h"
 #endif
 
 namespace egl
@@ -54,7 +54,7 @@ egl::Error Device::CreateDevice(EGLint deviceType, void *nativeDevice, Device **
 #if defined(ANGLE_ENABLE_D3D11)
     if (deviceType == EGL_D3D11_DEVICE_ANGLE)
     {
-        newDeviceImpl.reset(new rx::Device11(nativeDevice));
+        newDeviceImpl.reset(new rx::DeviceD3D(deviceType, nativeDevice));
     }
 #endif
 
@@ -62,7 +62,7 @@ egl::Error Device::CreateDevice(EGLint deviceType, void *nativeDevice, Device **
 
     if (newDeviceImpl == nullptr)
     {
-        return egl::Error(EGL_BAD_ATTRIBUTE);
+        return EglBadAttribute();
     }
 
     ANGLE_TRY(newDeviceImpl->initialize());
@@ -110,6 +110,11 @@ Error Device::getAttribute(EGLint attribute, EGLAttrib *value)
     return error;
 }
 
+EGLint Device::getType() const
+{
+    return mImplementation.get()->getType();
+}
+
 void Device::initDeviceExtensions()
 {
     mImplementation->generateExtensions(&mDeviceExtensions);
@@ -124,15 +129,5 @@ const DeviceExtensions &Device::getExtensions() const
 const std::string &Device::getExtensionString() const
 {
     return mDeviceExtensionString;
-}
-
-const std::string &Device::getDeviceString(EGLint name)
-{
-    if (mDeviceStrings.find(name) == mDeviceStrings.end())
-    {
-        mDeviceStrings.emplace(name, mImplementation.get()->getDeviceString(name));
-    }
-
-    return mDeviceStrings.find(name)->second;
 }
 }  // namespace egl

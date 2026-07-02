@@ -7,10 +7,6 @@
 // IndexDataManager.cpp: Defines the IndexDataManager, a class that
 // runs the Buffer translation process for index buffers.
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "libANGLE/renderer/d3d/IndexDataManager.h"
 
 #include "common/utilities.h"
@@ -196,9 +192,7 @@ angle::Result IndexDataManager::prepareIndexData(const gl::Context *context,
 
     if (staticBufferInitialized && !staticBufferUsable)
     {
-        BufferFeedback feedback;
-        buffer->invalidateStaticData(context, &feedback);
-        glBuffer->applyImplFeedback(context, feedback);
+        buffer->invalidateStaticData(context);
         staticBuffer = nullptr;
     }
 
@@ -210,9 +204,7 @@ angle::Result IndexDataManager::prepareIndexData(const gl::Context *context,
 
         ANGLE_TRY(streamIndexData(context, bufferData + offset, count, srcType, dstType,
                                   primitiveRestartFixedIndexEnabled, translated));
-        BufferFeedback feedback;
-        buffer->promoteStaticUsage(context, count << srcTypeShift, &feedback);
-        glBuffer->applyImplFeedback(context, feedback);
+        buffer->promoteStaticUsage(context, count << srcTypeShift);
     }
     else
     {
@@ -309,9 +301,8 @@ angle::Result GetIndexTranslationDestType(const gl::Context *context,
 
         gl::IndexRange indexRange;
         ANGLE_TRY(context->getState().getVertexArray()->getIndexRange(
-            context, indexType, indexCount, indices,
-            context->getState().isPrimitiveRestartEnabled(), &indexRange));
-        if (indexRange.end() == gl::GetPrimitiveRestartIndex(indexType))
+            context, indexType, indexCount, indices, &indexRange));
+        if (indexRange.end == gl::GetPrimitiveRestartIndex(indexType))
         {
             *destTypeOut = gl::DrawElementsType::UnsignedInt;
             return angle::Result::Continue;

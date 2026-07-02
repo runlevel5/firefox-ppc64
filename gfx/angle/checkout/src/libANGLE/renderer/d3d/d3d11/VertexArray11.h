@@ -21,8 +21,7 @@ class Renderer11;
 class VertexArray11 : public VertexArrayImpl
 {
   public:
-    VertexArray11(const gl::VertexArrayState &data,
-                  const gl::VertexArrayBuffers &vertexArrayBuffers);
+    VertexArray11(const gl::VertexArrayState &data);
     ~VertexArray11() override;
     void destroy(const gl::Context *context) override;
 
@@ -49,7 +48,7 @@ class VertexArray11 : public VertexArrayImpl
 
     const std::vector<TranslatedAttribute> &getTranslatedAttribs() const;
 
-    UniqueSerial getCurrentStateSerial() const { return mCurrentStateSerial; }
+    Serial getCurrentStateSerial() const { return mCurrentStateSerial; }
 
     // In case of a multi-view program change, we have to update all attributes so that the divisor
     // is adjusted.
@@ -94,7 +93,7 @@ class VertexArray11 : public VertexArrayImpl
     // A set of attributes we know are dirty, and need to be re-translated.
     gl::AttributesMask mAttribsToTranslate;
 
-    UniqueSerial mCurrentStateSerial;
+    Serial mCurrentStateSerial;
 
     // The numViews value used to adjust the divisor.
     int mAppliedNumViewsToDivisor;

@@ -77,7 +77,6 @@ angle::Result TransformFeedback11::bindIndexedBuffer(
 {
     mIsDirty              = true;
     mBufferOffsets[index] = static_cast<UINT>(binding.getOffset());
-    mBuffers[index]       = nullptr;
     mRenderer->getStateManager()->invalidateTransformFeedback();
     return angle::Result::Continue;
 }
@@ -110,14 +109,8 @@ angle::Result TransformFeedback11::getSOBuffers(const gl::Context *context,
         if (binding.get() != nullptr)
         {
             Buffer11 *storage = GetImplAs<Buffer11>(binding.get());
-            BufferFeedback feedback;
             ANGLE_TRY(storage->getBuffer(context, BUFFER_USAGE_VERTEX_OR_TRANSFORM_FEEDBACK,
-                                         &mBuffers[bindingIdx], &feedback));
-            binding.get()->applyImplFeedback(context, feedback);
-        }
-        else
-        {
-            mBuffers[bindingIdx] = nullptr;
+                                         &mBuffers[bindingIdx]));
         }
     }
 
@@ -130,7 +123,7 @@ const std::vector<UINT> &TransformFeedback11::getSOBufferOffsets() const
     return mBufferOffsets;
 }
 
-UniqueSerial TransformFeedback11::getSerial() const
+Serial TransformFeedback11::getSerial() const
 {
     return mSerial;
 }

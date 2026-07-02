@@ -25,7 +25,7 @@
     void clearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat *value);                     \
     void clearBufferiv(GLenum buffer, GLint drawbuffer, const GLint *value);                       \
     void clearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint *value);                     \
-    GLenum clientWaitSync(SyncID syncPacked, GLbitfield flags, GLuint64 timeout);                  \
+    GLenum clientWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout);                        \
     void compressedTexImage3D(TextureTarget targetPacked, GLint level, GLenum internalformat,      \
                               GLsizei width, GLsizei height, GLsizei depth, GLint border,          \
                               GLsizei imageSize, const void *data);                                \
@@ -39,7 +39,7 @@
                            GLint zoffset, GLint x, GLint y, GLsizei width, GLsizei height);        \
     void deleteQueries(GLsizei n, const QueryID *idsPacked);                                       \
     void deleteSamplers(GLsizei count, const SamplerID *samplersPacked);                           \
-    void deleteSync(SyncID syncPacked);                                                            \
+    void deleteSync(GLsync sync);                                                                  \
     void deleteTransformFeedbacks(GLsizei n, const TransformFeedbackID *idsPacked);                \
     void deleteVertexArrays(GLsizei n, const VertexArrayID *arraysPacked);                         \
     void drawArraysInstanced(PrimitiveMode modePacked, GLint first, GLsizei count,                 \
@@ -64,12 +64,11 @@
                                    UniformBlockIndex uniformBlockIndexPacked, GLsizei bufSize,     \
                                    GLsizei *length, GLchar *uniformBlockName);                     \
     void getActiveUniformBlockiv(ShaderProgramID programPacked,                                    \
-                                 UniformBlockIndex uniformBlockIndexPacked,                        \
-                                 UniformBlockParameter pnamePacked, GLint *params);                \
+                                 UniformBlockIndex uniformBlockIndexPacked, GLenum pname,          \
+                                 GLint *params);                                                   \
     void getActiveUniformsiv(ShaderProgramID programPacked, GLsizei uniformCount,                  \
                              const GLuint *uniformIndices, GLenum pname, GLint *params);           \
-    void getBufferParameteri64v(BufferBinding targetPacked, BufferParam pnamePacked,               \
-                                GLint64 *params);                                                  \
+    void getBufferParameteri64v(BufferBinding targetPacked, GLenum pname, GLint64 *params);        \
     void getBufferPointerv(BufferBinding targetPacked, GLenum pname, void **params);               \
     GLint getFragDataLocation(ShaderProgramID programPacked, const GLchar *name);                  \
     void getInteger64i_v(GLenum target, GLuint index, GLint64 *data);                              \
@@ -79,15 +78,12 @@
                              GLint *params);                                                       \
     void getProgramBinary(ShaderProgramID programPacked, GLsizei bufSize, GLsizei *length,         \
                           GLenum *binaryFormat, void *binary);                                     \
-    void getQueryObjectuiv(QueryID idPacked, QueryObjectParameter pnamePacked, GLuint *params);    \
-    void getQueryiv(QueryType targetPacked, QueryParameter pnamePacked, GLint *params);            \
-    void getSamplerParameterfv(SamplerID samplerPacked, SamplerParameter pnamePacked,              \
-                               GLfloat *params);                                                   \
-    void getSamplerParameteriv(SamplerID samplerPacked, SamplerParameter pnamePacked,              \
-                               GLint *params);                                                     \
+    void getQueryObjectuiv(QueryID idPacked, GLenum pname, GLuint *params);                        \
+    void getQueryiv(QueryType targetPacked, GLenum pname, GLint *params);                          \
+    void getSamplerParameterfv(SamplerID samplerPacked, GLenum pname, GLfloat *params);            \
+    void getSamplerParameteriv(SamplerID samplerPacked, GLenum pname, GLint *params);              \
     const GLubyte *getStringi(GLenum name, GLuint index);                                          \
-    void getSynciv(SyncID syncPacked, GLenum pname, GLsizei count, GLsizei *length,                \
-                   GLint *values);                                                                 \
+    void getSynciv(GLsync sync, GLenum pname, GLsizei count, GLsizei *length, GLint *values);      \
     void getTransformFeedbackVarying(ShaderProgramID programPacked, GLuint index, GLsizei bufSize, \
                                      GLsizei *length, GLsizei *size, GLenum *type, GLchar *name);  \
     GLuint getUniformBlockIndex(ShaderProgramID programPacked, const GLchar *uniformBlockName);    \
@@ -103,8 +99,9 @@
                                   GLsizei height);                                                 \
     GLboolean isQuery(QueryID idPacked) const;                                                     \
     GLboolean isSampler(SamplerID samplerPacked) const;                                            \
-    GLboolean isSync(SyncID syncPacked) const;                                                     \
+    GLboolean isSync(GLsync sync) const;                                                           \
     GLboolean isTransformFeedback(TransformFeedbackID idPacked) const;                             \
+    GLboolean isVertexArray(VertexArrayID arrayPacked) const;                                      \
     void *mapBufferRange(BufferBinding targetPacked, GLintptr offset, GLsizeiptr length,           \
                          GLbitfield access);                                                       \
     void pauseTransformFeedback();                                                                 \
@@ -115,12 +112,10 @@
     void renderbufferStorageMultisample(GLenum target, GLsizei samples, GLenum internalformat,     \
                                         GLsizei width, GLsizei height);                            \
     void resumeTransformFeedback();                                                                \
-    void samplerParameterf(SamplerID samplerPacked, SamplerParameter pnamePacked, GLfloat param);  \
-    void samplerParameterfv(SamplerID samplerPacked, SamplerParameter pnamePacked,                 \
-                            const GLfloat *param);                                                 \
-    void samplerParameteri(SamplerID samplerPacked, SamplerParameter pnamePacked, GLint param);    \
-    void samplerParameteriv(SamplerID samplerPacked, SamplerParameter pnamePacked,                 \
-                            const GLint *param);                                                   \
+    void samplerParameterf(SamplerID samplerPacked, GLenum pname, GLfloat param);                  \
+    void samplerParameterfv(SamplerID samplerPacked, GLenum pname, const GLfloat *param);          \
+    void samplerParameteri(SamplerID samplerPacked, GLenum pname, GLint param);                    \
+    void samplerParameteriv(SamplerID samplerPacked, GLenum pname, const GLint *param);            \
     void texImage3D(TextureTarget targetPacked, GLint level, GLint internalformat, GLsizei width,  \
                     GLsizei height, GLsizei depth, GLint border, GLenum format, GLenum type,       \
                     const void *pixels);                                                           \
@@ -157,8 +152,13 @@
     void uniformMatrix4x3fv(UniformLocation locationPacked, GLsizei count, GLboolean transpose,    \
                             const GLfloat *value);                                                 \
     GLboolean unmapBuffer(BufferBinding targetPacked);                                             \
+    void vertexAttribDivisor(GLuint index, GLuint divisor);                                        \
+    void vertexAttribI4i(GLuint index, GLint x, GLint y, GLint z, GLint w);                        \
+    void vertexAttribI4iv(GLuint index, const GLint *v);                                           \
+    void vertexAttribI4ui(GLuint index, GLuint x, GLuint y, GLuint z, GLuint w);                   \
+    void vertexAttribI4uiv(GLuint index, const GLuint *v);                                         \
     void vertexAttribIPointer(GLuint index, GLint size, VertexAttribType typePacked,               \
                               GLsizei stride, const void *pointer);                                \
-    void waitSync(SyncID syncPacked, GLbitfield flags, GLuint64 timeout);
+    void waitSync(GLsync sync, GLbitfield flags, GLuint64 timeout);
 
 #endif  // ANGLE_CONTEXT_API_3_0_AUTOGEN_H_

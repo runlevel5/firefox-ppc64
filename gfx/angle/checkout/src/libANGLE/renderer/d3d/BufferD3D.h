@@ -43,8 +43,7 @@ class BufferD3D : public BufferImpl
 
     virtual size_t getSize() const                                                     = 0;
     virtual bool supportsDirectBinding() const                                         = 0;
-    virtual angle::Result markTransformFeedbackUsage(const gl::Context *context,
-                                                     BufferFeedback *feedback)         = 0;
+    virtual angle::Result markTransformFeedbackUsage(const gl::Context *context)       = 0;
     virtual angle::Result getData(const gl::Context *context, const uint8_t **outData) = 0;
 
     // Warning: you should ensure binding really matches attrib.bindingIndex before using this
@@ -53,10 +52,10 @@ class BufferD3D : public BufferImpl
                                                        const gl::VertexBinding &binding);
     StaticIndexBufferInterface *getStaticIndexBuffer();
 
-    virtual void initializeStaticData(const gl::Context *context, BufferFeedback *feedback);
-    virtual void invalidateStaticData(const gl::Context *context, BufferFeedback *feedback);
+    virtual void initializeStaticData(const gl::Context *context);
+    virtual void invalidateStaticData(const gl::Context *context);
 
-    void promoteStaticUsage(const gl::Context *context, size_t dataSize, BufferFeedback *feedback);
+    void promoteStaticUsage(const gl::Context *context, size_t dataSize);
 
     angle::Result getIndexRange(const gl::Context *context,
                                 gl::DrawElementsType type,
@@ -70,9 +69,7 @@ class BufferD3D : public BufferImpl
 
   protected:
     void updateSerial();
-    void updateD3DBufferUsage(const gl::Context *context,
-                              gl::BufferUsage usage,
-                              BufferFeedback *feedback);
+    void updateD3DBufferUsage(const gl::Context *context, gl::BufferUsage usage);
     void emptyStaticBufferCache();
 
     BufferFactoryD3D *mFactory;

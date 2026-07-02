@@ -7,10 +7,6 @@
 // RenderStateCache.cpp: Defines rx::RenderStateCache, a cache of Direct3D render
 // state objects.
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "libANGLE/renderer/d3d/d3d11/RenderStateCache.h"
 
 #include <float.h>
@@ -97,35 +93,7 @@ d3d11::BlendStateKey RenderStateCache::GetBlendStateKey(const gl::Context *conte
         {
             key.blendStateExt.setEnabledIndexed(keyBlendIndex, true);
             key.blendStateExt.setEquationsIndexed(keyBlendIndex, sourceIndex, blendStateExt);
-
-            // MIN and MAX operations do not need factors, so use default values to further
-            // reduce the number of unique keys. Additionally, ID3D11Device::CreateBlendState
-            // fails if SRC1 factors are specified together with MIN or MAX operations.
-            const gl::BlendEquationType equationColor =
-                blendStateExt.getEquationColorIndexed(sourceIndex);
-            const gl::BlendEquationType equationAlpha =
-                blendStateExt.getEquationAlphaIndexed(sourceIndex);
-            const bool setColorFactors = equationColor != gl::BlendEquationType::Min &&
-                                         equationColor != gl::BlendEquationType::Max;
-            const bool setAlphaFactors = equationAlpha != gl::BlendEquationType::Min &&
-                                         equationAlpha != gl::BlendEquationType::Max;
-            if (setColorFactors || setAlphaFactors)
-            {
-                const gl::BlendFactorType srcColor =
-                    setColorFactors ? blendStateExt.getSrcColorIndexed(sourceIndex)
-                                    : gl::BlendFactorType::One;
-                const gl::BlendFactorType dstColor =
-                    setColorFactors ? blendStateExt.getDstColorIndexed(sourceIndex)
-                                    : gl::BlendFactorType::Zero;
-                const gl::BlendFactorType srcAlpha =
-                    setAlphaFactors ? blendStateExt.getSrcAlphaIndexed(sourceIndex)
-                                    : gl::BlendFactorType::One;
-                const gl::BlendFactorType dstAlpha =
-                    setAlphaFactors ? blendStateExt.getDstAlphaIndexed(sourceIndex)
-                                    : gl::BlendFactorType::Zero;
-                key.blendStateExt.setFactorsIndexed(keyBlendIndex, srcColor, dstColor, srcAlpha,
-                                                    dstAlpha);
-            }
+            key.blendStateExt.setFactorsIndexed(keyBlendIndex, sourceIndex, blendStateExt);
         }
         keyBlendIndex++;
     }
@@ -222,26 +190,25 @@ angle::Result RenderStateCache::getRasterizerState(const gl::Context *context,
     }
 
     D3D11_RASTERIZER_DESC rasterDesc;
-    rasterDesc.FillMode =
-        rasterState.polygonMode == gl::PolygonMode::Fill ? D3D11_FILL_SOLID : D3D11_FILL_WIREFRAME;
+    rasterDesc.FillMode              = D3D11_FILL_SOLID;
     rasterDesc.CullMode              = cullMode;
     rasterDesc.FrontCounterClockwise = (rasterState.frontFace == GL_CCW) ? FALSE : TRUE;
-    rasterDesc.DepthClipEnable       = !rasterState.depthClamp;
+    rasterDesc.DepthBiasClamp = 0.0f;  // MSDN documentation of DepthBiasClamp implies a value of
+                                       // zero will preform no clamping, must be tested though.
+    rasterDesc.DepthClipEnable       = TRUE;
     rasterDesc.ScissorEnable         = scissorEnabled ? TRUE : FALSE;
     rasterDesc.MultisampleEnable     = rasterState.multiSample;
     rasterDesc.AntialiasedLineEnable = FALSE;
 
-    if (rasterState.isPolygonOffsetEnabled())
+    if (rasterState.polygonOffsetFill)
     {
-        rasterDesc.DepthBias            = (INT)rasterState.polygonOffsetUnits;
-        rasterDesc.DepthBiasClamp       = rasterState.polygonOffsetClamp;
         rasterDesc.SlopeScaledDepthBias = rasterState.polygonOffsetFactor;
+        rasterDesc.DepthBias            = (INT)rasterState.polygonOffsetUnits;
     }
     else
     {
-        rasterDesc.DepthBias            = 0;
-        rasterDesc.DepthBiasClamp       = 0.0f;
         rasterDesc.SlopeScaledDepthBias = 0.0f;
+        rasterDesc.DepthBias            = 0;
     }
 
     d3d11::RasterizerState dx11RasterizerState;
@@ -320,10 +287,15 @@ angle::Result RenderStateCache::getSamplerState(const gl::Context *context,
     samplerDesc.MaxAnisotropy =
         gl_d3d11::ConvertMaxAnisotropy(samplerState.getMaxAnisotropy(), featureLevel);
     samplerDesc.ComparisonFunc = gl_d3d11::ConvertComparison(samplerState.getCompareFunc());
-    samplerDesc.BorderColor[0] = samplerState.getBorderColor().colorF.red;
-    samplerDesc.BorderColor[1] = samplerState.getBorderColor().colorF.green;
-    samplerDesc.BorderColor[2] = samplerState.getBorderColor().colorF.blue;
-    samplerDesc.BorderColor[3] = samplerState.getBorderColor().colorF.alpha;
+    angle::ColorF borderColor;
+    if (samplerState.getBorderColor().type == angle::ColorGeneric::Type::Float)
+    {
+        borderColor = samplerState.getBorderColor().colorF;
+    }
+    samplerDesc.BorderColor[0] = borderColor.red;
+    samplerDesc.BorderColor[1] = borderColor.green;
+    samplerDesc.BorderColor[2] = borderColor.blue;
+    samplerDesc.BorderColor[3] = borderColor.alpha;
     samplerDesc.MinLOD         = samplerState.getMinLod();
     samplerDesc.MaxLOD         = samplerState.getMaxLod();
 

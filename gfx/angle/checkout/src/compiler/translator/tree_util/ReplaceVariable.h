@@ -10,7 +10,6 @@
 #define COMPILER_TRANSLATOR_TREEUTIL_REPLACEVARIABLE_H_
 
 #include "common/angleutils.h"
-#include "common/hash_containers.h"
 
 namespace sh
 {
@@ -18,9 +17,7 @@ namespace sh
 class TCompiler;
 class TIntermBlock;
 class TIntermTyped;
-class TIntermNode;
 class TSymbolTable;
-class TSymbolUniqueId;
 class TVariable;
 
 [[nodiscard]] bool ReplaceVariable(TCompiler *compiler,
@@ -32,11 +29,11 @@ class TVariable;
                                             const TVariable *toBeReplaced,
                                             const TIntermTyped *replacement);
 
-using VariableReplacementMap = angle::HashMap<TSymbolUniqueId, const TIntermTyped *>;
+using VariableReplacementMap = angle::HashMap<const TVariable *, const TIntermTyped *>;
 
 // Replace a set of variables with their corresponding expression.
 [[nodiscard]] bool ReplaceVariables(TCompiler *compiler,
-                                    TIntermNode *root,
+                                    TIntermBlock *root,
                                     const VariableReplacementMap &variableMap);
 
 // Find all declarators, and replace the TVariable they are declaring with a duplicate.  This is

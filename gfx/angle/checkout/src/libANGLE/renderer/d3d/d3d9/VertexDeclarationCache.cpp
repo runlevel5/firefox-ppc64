@@ -6,16 +6,12 @@
 
 // VertexDeclarationCache.cpp: Implements a helper class to construct and cache vertex declarations.
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "libANGLE/renderer/d3d/d3d9/VertexDeclarationCache.h"
 
 #include "libANGLE/Context.h"
 #include "libANGLE/VertexAttribute.h"
 #include "libANGLE/formatutils.h"
-#include "libANGLE/renderer/d3d/ProgramExecutableD3D.h"
+#include "libANGLE/renderer/d3d/ProgramD3D.h"
 #include "libANGLE/renderer/d3d/d3d9/Context9.h"
 #include "libANGLE/renderer/d3d/d3d9/VertexBuffer9.h"
 #include "libANGLE/renderer/d3d/d3d9/formatutils9.h"
@@ -52,7 +48,7 @@ angle::Result VertexDeclarationCache::applyDeclaration(
     const gl::Context *context,
     IDirect3DDevice9 *device,
     const std::vector<TranslatedAttribute> &attributes,
-    gl::ProgramExecutable *executable,
+    gl::Program *program,
     GLint start,
     GLsizei instances,
     GLsizei *repeatDraw)
@@ -111,8 +107,8 @@ angle::Result VertexDeclarationCache::applyDeclaration(
     D3DVERTEXELEMENT9 elements[gl::MAX_VERTEX_ATTRIBS + 1];
     D3DVERTEXELEMENT9 *element = &elements[0];
 
-    ProgramExecutableD3D *executableD3D = GetImplAs<ProgramExecutableD3D>(executable);
-    const auto &semanticIndexes         = executableD3D->getAttribLocationToD3DSemantics();
+    ProgramD3D *programD3D      = GetImplAs<ProgramD3D>(program);
+    const auto &semanticIndexes = programD3D->getAttribLocationToD3DSemantics();
 
     for (size_t i = 0; i < attributes.size(); i++)
     {

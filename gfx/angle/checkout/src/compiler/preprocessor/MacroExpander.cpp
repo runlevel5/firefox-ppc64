@@ -101,10 +101,9 @@ MacroExpander::MacroExpander(Lexer *lexer,
 MacroExpander::~MacroExpander()
 {
     ASSERT(mMacrosToReenable.empty());
-    for (MacroContext &context : mContextStack)
+    for (MacroContext *context : mContextStack)
     {
-        context.macro->expansionCount--;
-        context.macro->disabled = false;
+        delete context;
     }
 }
 
@@ -202,14 +201,14 @@ void MacroExpander::getToken(Token *token)
     }
 
     // First pop all empty macro contexts.
-    while (!mContextStack.empty() && mContextStack.back().empty())
+    while (!mContextStack.empty() && mContextStack.back()->empty())
     {
         popMacro();
     }
 
     if (!mContextStack.empty())
     {
-        *token = mContextStack.back().get();
+        *token = mContextStack.back()->get();
     }
     else
     {
@@ -222,9 +221,9 @@ void MacroExpander::ungetToken(const Token &token)
 {
     if (!mContextStack.empty())
     {
-        MacroContext &context = mContextStack.back();
-        context.unget();
-        ASSERT(context.replacements[context.index] == token);
+        MacroContext *context = mContextStack.back();
+        context->unget();
+        ASSERT(context->replacements[context->index] == token);
     }
     else
     {
@@ -258,8 +257,11 @@ bool MacroExpander::pushMacro(std::shared_ptr<Macro> macro, const Token &identif
     // Macro is disabled for expansion until it is popped off the stack.
     macro->disabled = true;
 
-    mTotalTokensInContexts += replacements.size();
-    mContextStack.emplace_back(std::move(macro), std::move(replacements));
+    MacroContext *context = new MacroContext;
+    context->macro        = macro;
+    context->replacements.swap(replacements);
+    mContextStack.push_back(context);
+    mTotalTokensInContexts += context->replacements.size();
     return true;
 }
 
@@ -267,22 +269,23 @@ void MacroExpander::popMacro()
 {
     ASSERT(!mContextStack.empty());
 
-    MacroContext context = std::move(mContextStack.back());
+    MacroContext *context = mContextStack.back();
     mContextStack.pop_back();
 
-    ASSERT(context.empty());
-    ASSERT(context.macro->disabled);
-    ASSERT(context.macro->expansionCount > 0);
+    ASSERT(context->empty());
+    ASSERT(context->macro->disabled);
+    ASSERT(context->macro->expansionCount > 0);
     if (mDeferReenablingMacros)
     {
-        mMacrosToReenable.push_back(context.macro);
+        mMacrosToReenable.push_back(context->macro);
     }
     else
     {
-        context.macro->disabled = false;
+        context->macro->disabled = false;
     }
-    context.macro->expansionCount--;
-    mTotalTokensInContexts -= context.replacements.size();
+    context->macro->expansionCount--;
+    mTotalTokensInContexts -= context->replacements.size();
+    delete context;
 }
 
 bool MacroExpander::expandMacro(const Macro &macro,
@@ -502,6 +505,10 @@ void MacroExpander::replaceMacroParams(const Macro &macro,
         replacements->at(iRepl).setHasLeadingSpace(repl.hasLeadingSpace());
     }
 }
+
+MacroExpander::MacroContext::MacroContext() : macro(0), index(0) {}
+
+MacroExpander::MacroContext::~MacroContext() {}
 
 bool MacroExpander::MacroContext::empty() const
 {

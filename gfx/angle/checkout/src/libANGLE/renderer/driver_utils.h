@@ -10,13 +10,7 @@
 #define LIBANGLE_RENDERER_DRIVER_UTILS_H_
 
 #include "common/platform.h"
-#include "common/platform_helpers.h"
 #include "libANGLE/angletypes.h"
-
-namespace angle
-{
-struct VersionInfo;
-}
 
 namespace rx
 {
@@ -40,19 +34,16 @@ enum VendorID : uint32_t
     VENDOR_ID_SAMSUNG       = 0x144D,
     VENDOR_ID_VIVANTE       = 0x9999,
     VENDOR_ID_VMWARE        = 0x15AD,
-    VENDOR_ID_VIRTIO        = 0x1AF4,
 };
 
 enum AndroidDeviceID : uint32_t
 {
+    ANDROID_DEVICE_ID_UNKNOWN     = 0x0,
     ANDROID_DEVICE_ID_NEXUS5X     = 0x4010800,
     ANDROID_DEVICE_ID_PIXEL2      = 0x5040001,
     ANDROID_DEVICE_ID_PIXEL1XL    = 0x5030004,
     ANDROID_DEVICE_ID_PIXEL4      = 0x6040001,
-    ANDROID_DEVICE_ID_GALAXYA23   = 0x6010901,
-    ANDROID_DEVICE_ID_GALAXYS23   = 0x43050A01,
     ANDROID_DEVICE_ID_SWIFTSHADER = 0xC0DE,
-    ANDROID_DEVICE_ID_LAVAPIPE    = 0x0,
 };
 
 inline bool IsAMD(uint32_t vendorId)
@@ -60,7 +51,7 @@ inline bool IsAMD(uint32_t vendorId)
     return vendorId == VENDOR_ID_AMD;
 }
 
-inline bool IsAppleGPU(uint32_t vendorId)
+inline bool IsApple(uint32_t vendorId)
 {
     return vendorId == VENDOR_ID_APPLE;
 }
@@ -127,16 +118,6 @@ inline bool IsVMWare(uint32_t vendorId)
     return vendorId == VENDOR_ID_VMWARE;
 }
 
-inline bool IsVirtIO(uint32_t vendorId)
-{
-    return vendorId == VENDOR_ID_VIRTIO;
-}
-
-inline bool IsMesa(uint32_t vendorId)
-{
-    return vendorId == VENDOR_ID_MESA;
-}
-
 inline bool IsNexus5X(uint32_t vendorId, uint32_t deviceId)
 {
     return IsQualcomm(vendorId) && deviceId == ANDROID_DEVICE_ID_NEXUS5X;
@@ -157,27 +138,30 @@ inline bool IsPixel4(uint32_t vendorId, uint32_t deviceId)
     return IsQualcomm(vendorId) && deviceId == ANDROID_DEVICE_ID_PIXEL4;
 }
 
-inline bool IsGalaxyA23(uint32_t vendorId, uint32_t deviceId)
-{
-    return IsQualcomm(vendorId) && deviceId == ANDROID_DEVICE_ID_GALAXYA23;
-}
-
-inline bool IsGalaxyS23(uint32_t vendorId, uint32_t deviceId)
-{
-    return IsQualcomm(vendorId) && deviceId == ANDROID_DEVICE_ID_GALAXYS23;
-}
-
 inline bool IsSwiftshader(uint32_t vendorId, uint32_t deviceId)
 {
     return IsGoogle(vendorId) && deviceId == ANDROID_DEVICE_ID_SWIFTSHADER;
 }
 
-inline bool IsLavapipe(uint32_t vendorId, uint32_t deviceId)
-{
-    return IsMesa(vendorId) && deviceId == ANDROID_DEVICE_ID_LAVAPIPE;
-}
+const char *GetVendorString(uint32_t vendorId);
 
-std::string GetVendorString(uint32_t vendorId);
+// For Linux, Intel graphics driver version is the Mesa version. The version number has three
+// fields: major revision, minor revision and release number.
+// For Windows, The version number includes 3rd and 4th fields. Please refer the details at
+// http://www.intel.com/content/www/us/en/support/graphics-drivers/000005654.html.
+// Current implementation only supports Windows.
+class IntelDriverVersion
+{
+  public:
+    IntelDriverVersion(uint32_t buildNumber);
+    bool operator==(const IntelDriverVersion &);
+    bool operator!=(const IntelDriverVersion &);
+    bool operator<(const IntelDriverVersion &);
+    bool operator>=(const IntelDriverVersion &);
+
+  private:
+    uint32_t mBuildNumber;
+};
 
 bool IsSandyBridge(uint32_t DeviceId);
 bool IsIvyBridge(uint32_t DeviceId);
@@ -189,40 +173,110 @@ bool IsBroxton(uint32_t DeviceId);
 bool IsKabyLake(uint32_t DeviceId);
 bool IsGeminiLake(uint32_t DeviceId);
 bool IsCoffeeLake(uint32_t DeviceId);
-bool IsMeteorLake(uint32_t DeviceId);
 bool Is9thGenIntel(uint32_t DeviceId);
 bool Is11thGenIntel(uint32_t DeviceId);
 bool Is12thGenIntel(uint32_t DeviceId);
 
-// For ease of comparison of SystemInfo's external-facing VersionInfo with ANGLE's more commonly
-// used VersionTriple.
-bool operator==(const angle::VersionInfo &a, const angle::VersionTriple &b);
-bool operator!=(const angle::VersionInfo &a, const angle::VersionTriple &b);
-bool operator<(const angle::VersionInfo &a, const angle::VersionTriple &b);
-bool operator>=(const angle::VersionInfo &a, const angle::VersionTriple &b);
+struct MajorMinorPatchVersion
+{
+    MajorMinorPatchVersion();
+    MajorMinorPatchVersion(int major, int minor, int patch);
+
+    int majorVersion = 0;
+    int minorVersion = 0;
+    int patchVersion = 0;
+};
+bool operator==(const MajorMinorPatchVersion &a, const MajorMinorPatchVersion &b);
+bool operator!=(const MajorMinorPatchVersion &a, const MajorMinorPatchVersion &b);
+bool operator<(const MajorMinorPatchVersion &a, const MajorMinorPatchVersion &b);
+bool operator>=(const MajorMinorPatchVersion &a, const MajorMinorPatchVersion &b);
+
+using ARMDriverVersion = MajorMinorPatchVersion;
+ARMDriverVersion ParseARMDriverVersion(uint32_t driverVersion);
 
 // Platform helpers
-using angle::IsAndroid;
-using angle::IsApple;
-using angle::IsChromeOS;
-using angle::IsFuchsia;
-using angle::IsIOS;
-using angle::IsLinux;
-using angle::IsMac;
-using angle::IsWindows;
-using angle::IsWindows10OrLater;
-using angle::IsWindows8OrLater;
-using angle::IsWindowsVistaOrLater;
+inline bool IsWindows()
+{
+#if defined(ANGLE_PLATFORM_WINDOWS)
+    return true;
+#else
+    return false;
+#endif
+}
+
+inline bool IsLinux()
+{
+#if defined(ANGLE_PLATFORM_LINUX)
+    return true;
+#else
+    return false;
+#endif
+}
+
+inline bool IsChromeOS()
+{
+#if defined(ANGLE_PLATFORM_CHROMEOS)
+    return true;
+#else
+    return false;
+#endif
+}
+
+inline bool IsApple()
+{
+#if defined(ANGLE_PLATFORM_APPLE)
+    return true;
+#else
+    return false;
+#endif
+}
+
+inline bool IsMac()
+{
+#if defined(ANGLE_PLATFORM_APPLE) && defined(ANGLE_PLATFORM_MACOS)
+    return true;
+#else
+    return false;
+#endif
+}
+
+inline bool IsFuchsia()
+{
+#if defined(ANGLE_PLATFORM_FUCHSIA)
+    return true;
+#else
+    return false;
+#endif
+}
+
+inline bool IsIOS()
+{
+#if defined(ANGLE_PLATFORM_IOS)
+    return true;
+#else
+    return false;
+#endif
+}
 
 bool IsWayland();
+bool IsWin10OrGreater();
 
-using OSVersion = angle::VersionTriple;
+using OSVersion = MajorMinorPatchVersion;
 
 OSVersion GetMacOSVersion();
 
 OSVersion GetiOSVersion();
 
 OSVersion GetLinuxOSVersion();
+
+inline bool IsAndroid()
+{
+#if defined(ANGLE_PLATFORM_ANDROID)
+    return true;
+#else
+    return false;
+#endif
+}
 
 int GetAndroidSDKVersion();
 

@@ -12,7 +12,6 @@
 #include "common/debug.h"
 #include "compiler/translator/Common.h"
 #include "compiler/translator/Diagnostics.h"
-#include "compiler/translator/ParseContext.h"
 
 namespace sh
 {
@@ -37,11 +36,11 @@ static TBehavior getBehavior(const std::string &str)
 
 TDirectiveHandler::TDirectiveHandler(TExtensionBehavior &extBehavior,
                                      TDiagnostics &diagnostics,
-                                     TParseContext &context,
+                                     int &shaderVersion,
                                      sh::GLenum shaderType)
     : mExtensionBehavior(extBehavior),
       mDiagnostics(diagnostics),
-      mContext(context),
+      mShaderVersion(shaderVersion),
       mShaderType(shaderType)
 {}
 
@@ -64,7 +63,7 @@ void TDirectiveHandler::handlePragma(const angle::pp::SourceLocation &loc,
 
         if (name == kInvariant && value == kAll)
         {
-            if (mContext.getShaderVersion() == 300 && mShaderType == GL_FRAGMENT_SHADER)
+            if (mShaderVersion == 300 && mShaderType == GL_FRAGMENT_SHADER)
             {
                 // ESSL 3.00.4 section 4.6.1
                 mDiagnostics.error(
@@ -144,16 +143,13 @@ void TDirectiveHandler::handleExtension(const angle::pp::SourceLocation &loc,
         {
             for (TExtensionBehavior::iterator iter = mExtensionBehavior.begin();
                  iter != mExtensionBehavior.end(); ++iter)
-            {
                 iter->second = behaviorVal;
-            }
         }
         return;
     }
 
     TExtensionBehavior::iterator iter = mExtensionBehavior.find(GetExtensionByName(name.c_str()));
-    if (iter != mExtensionBehavior.end() &&
-        CheckExtensionVersion(iter->first, mContext.getShaderVersion()))
+    if (iter != mExtensionBehavior.end())
     {
         iter->second = behaviorVal;
         // OVR_multiview is implicitly enabled when OVR_multiview2 is enabled
@@ -249,36 +245,19 @@ void TDirectiveHandler::handleExtension(const angle::pp::SourceLocation &loc,
                 iter->second = behaviorVal;
             }
         }
-        // OES_shader_io_blocks is implicitly enabled when OES_geometry_shader or
-        // OES_tessellation_shader is enabled.
-        else if (name == "GL_OES_geometry_shader" || name == "GL_OES_tessellation_shader")
+        // GL_APPLE_clip_distance is implicitly enabled when GL_EXT_clip_cull_distance is enabled
+        else if (name == "GL_EXT_clip_cull_distance")
         {
-            constexpr char kIOBlocksOESName[] = "GL_OES_shader_io_blocks";
-            iter = mExtensionBehavior.find(GetExtensionByName(kIOBlocksOESName));
-            if (iter != mExtensionBehavior.end())
+            // This extension only can be enabled on greater than ESSL 300
+            if (mShaderVersion < 300)
             {
-                iter->second = behaviorVal;
+                mDiagnostics.error(loc, "extension can be enabled on greater than ESSL 300",
+                                   name.c_str());
+                return;
             }
-        }
-        // GL_APPLE_clip_distance is implicitly enabled when GL_EXT_clip_cull_distance or
-        // GL_ANGLE_clip_cull_distance are enabled.
-        else if (name == "GL_EXT_clip_cull_distance" || name == "GL_ANGLE_clip_cull_distance")
-        {
+
             constexpr char kAPPLEClipDistanceEXTName[] = "GL_APPLE_clip_distance";
             iter = mExtensionBehavior.find(GetExtensionByName(kAPPLEClipDistanceEXTName));
-            if (iter != mExtensionBehavior.end())
-            {
-                iter->second = behaviorVal;
-            }
-        }
-        // GL_EXT_fragment_shading_rate_primitive is implicitly enabled when
-        // GL_EXT_fragment_shading_rate are enabled.
-        else if (name == "GL_EXT_fragment_shading_rate")
-        {
-            constexpr char kFragmentShadingRatePrimitiveEXTName[] =
-                "GL_EXT_fragment_shading_rate_primitive";
-            iter =
-                mExtensionBehavior.find(GetExtensionByName(kFragmentShadingRatePrimitiveEXTName));
             if (iter != mExtensionBehavior.end())
             {
                 iter->second = behaviorVal;
@@ -305,26 +284,13 @@ void TDirectiveHandler::handleExtension(const angle::pp::SourceLocation &loc,
 
 void TDirectiveHandler::handleVersion(const angle::pp::SourceLocation &loc,
                                       int version,
-                                      ShShaderSpec spec,
-                                      angle::pp::MacroSet *macro_set)
+                                      ShShaderSpec spec)
 {
-    if (version == 100 || version == 300 || version == 310 || version == 320)
+    if (((version == 100 || version == 300 || version == 310 || version == 320) &&
+         !IsDesktopGLSpec(spec)) ||
+        IsDesktopGLSpec(spec))
     {
-        mContext.onShaderVersionDeclared(version);
-
-        // Add macros for supported extensions
-        for (const auto &iter : mExtensionBehavior)
-        {
-            if (CheckExtensionVersion(iter.first, version))
-            {
-                // OVR_multiview should not be defined for WebGL spec'ed shaders.
-                if (IsWebGLBasedSpec(spec) && (iter.first == TExtension::OVR_multiview))
-                {
-                    continue;
-                }
-                PredefineMacro(macro_set, GetExtensionNameString(iter.first), 1);
-            }
-        }
+        mShaderVersion = version;
     }
     else
     {

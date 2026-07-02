@@ -75,18 +75,11 @@ class TypedResourceManager : public ResourceManagerBase
         return GetIDValue(handle) == 0 || mObjectMap.contains(handle);
     }
 
-    void recycleHandle(IDType handle)
+    typename ResourceMap<ResourceType, IDType>::Iterator begin() const
     {
-        if (isHandleGenerated(handle))
-        {
-            return;
-        }
-
-        // Requires an explicit this-> because of C++ template rules.
-        this->mHandleAllocator.release(GetIDValue(handle));
+        return mObjectMap.begin();
     }
-
-    const ResourceMap<ResourceType, IDType> &getResourcesForCapture() const { return mObjectMap; }
+    typename ResourceMap<ResourceType, IDType>::Iterator end() const { return mObjectMap.end(); }
 
   protected:
     ~TypedResourceManager() override;
@@ -133,28 +126,10 @@ class TypedResourceManager : public ResourceManagerBase
     }
 };
 
-template <typename ResourceType, typename ImplT, typename IDType>
-class TypedResourceManagerWithTotalMemorySize
-    : public TypedResourceManager<ResourceType, ImplT, IDType>
+class BufferManager : public TypedResourceManager<Buffer, BufferManager, BufferID>
 {
   public:
-    size_t getTotalMemorySize() const
-    {
-        size_t totalBytes = 0;
-
-        for (const auto &rb : UnsafeResourceMapIter(this->mObjectMap))
-        {
-            totalBytes += static_cast<size_t>(rb.second->getMemorySize());
-        }
-        return totalBytes;
-    }
-};
-
-class BufferManager
-    : public TypedResourceManagerWithTotalMemorySize<Buffer, BufferManager, BufferID>
-{
-  public:
-    bool createBuffer(BufferID *outBuffer);
+    BufferID createBuffer();
     Buffer *getBuffer(BufferID handle) const;
 
     ANGLE_INLINE Buffer *checkBufferAllocation(rx::GLImplFactory *factory, BufferID handle)
@@ -175,14 +150,13 @@ class ShaderProgramManager : public ResourceManagerBase
   public:
     ShaderProgramManager();
 
-    bool createShader(rx::GLImplFactory *factory,
-                      const Limitations &rendererLimitations,
-                      ShaderType type,
-                      ShaderProgramID *outShader);
+    ShaderProgramID createShader(rx::GLImplFactory *factory,
+                                 const Limitations &rendererLimitations,
+                                 ShaderType type);
     void deleteShader(const Context *context, ShaderProgramID shader);
     Shader *getShader(ShaderProgramID handle) const;
 
-    bool createProgram(rx::GLImplFactory *factory, ShaderProgramID *outProgram);
+    ShaderProgramID createProgram(rx::GLImplFactory *factory);
     void deleteProgram(const Context *context, ShaderProgramID program);
 
     ANGLE_INLINE Program *getProgram(ShaderProgramID handle) const
@@ -215,7 +189,7 @@ class ShaderProgramManager : public ResourceManagerBase
 class TextureManager : public TypedResourceManager<Texture, TextureManager, TextureID>
 {
   public:
-    bool createTexture(TextureID *outTexture);
+    TextureID createTexture();
     ANGLE_INLINE Texture *getTexture(TextureID handle) const
     {
         ASSERT(mObjectMap.query({0}) == nullptr);
@@ -238,18 +212,15 @@ class TextureManager : public TypedResourceManager<Texture, TextureManager, Text
 
     void enableHandleAllocatorLogging();
 
-    size_t getTotalMemorySize() const;
-
   protected:
     ~TextureManager() override;
 };
 
-class RenderbufferManager : public TypedResourceManagerWithTotalMemorySize<Renderbuffer,
-                                                                           RenderbufferManager,
-                                                                           RenderbufferID>
+class RenderbufferManager
+    : public TypedResourceManager<Renderbuffer, RenderbufferManager, RenderbufferID>
 {
   public:
-    bool createRenderbuffer(RenderbufferID *outRenderbuffer);
+    RenderbufferID createRenderbuffer();
     Renderbuffer *getRenderbuffer(RenderbufferID handle) const;
 
     Renderbuffer *checkRenderbufferAllocation(rx::GLImplFactory *factory, RenderbufferID handle)
@@ -267,9 +238,9 @@ class RenderbufferManager : public TypedResourceManagerWithTotalMemorySize<Rende
 class SamplerManager : public TypedResourceManager<Sampler, SamplerManager, SamplerID>
 {
   public:
-    bool createSampler(SamplerID *outSampler);
-    Sampler *getSampler(SamplerID handle) const { return mObjectMap.query(handle); }
-    bool isSampler(SamplerID sampler) const { return mObjectMap.contains(sampler); }
+    SamplerID createSampler();
+    Sampler *getSampler(SamplerID handle) const;
+    bool isSampler(SamplerID sampler) const;
 
     Sampler *checkSamplerAllocation(rx::GLImplFactory *factory, SamplerID handle)
     {
@@ -283,11 +254,11 @@ class SamplerManager : public TypedResourceManager<Sampler, SamplerManager, Samp
     ~SamplerManager() override;
 };
 
-class SyncManager : public TypedResourceManager<Sync, SyncManager, SyncID>
+class SyncManager : public TypedResourceManager<Sync, SyncManager, GLuint>
 {
   public:
-    bool createSync(rx::GLImplFactory *factory, const Context *context, SyncID *outSync);
-    Sync *getSync(SyncID handle) const;
+    GLuint createSync(rx::GLImplFactory *factory);
+    Sync *getSync(GLuint handle) const;
 
     static void DeleteObject(const Context *context, Sync *sync);
 
@@ -299,7 +270,7 @@ class FramebufferManager
     : public TypedResourceManager<Framebuffer, FramebufferManager, FramebufferID>
 {
   public:
-    bool createFramebuffer(FramebufferID *outFramebuffer);
+    FramebufferID createFramebuffer();
     Framebuffer *getFramebuffer(FramebufferID handle) const;
     void setDefaultFramebuffer(Framebuffer *framebuffer);
     Framebuffer *getDefaultFramebuffer() const;
@@ -326,7 +297,7 @@ class ProgramPipelineManager
     : public TypedResourceManager<ProgramPipeline, ProgramPipelineManager, ProgramPipelineID>
 {
   public:
-    bool createProgramPipeline(ProgramPipelineID *outProgramPipeline);
+    ProgramPipelineID createProgramPipeline();
     ProgramPipeline *getProgramPipeline(ProgramPipelineID handle) const;
 
     ProgramPipeline *checkProgramPipelineAllocation(rx::GLImplFactory *factory,
@@ -347,7 +318,7 @@ class MemoryObjectManager : public ResourceManagerBase
   public:
     MemoryObjectManager();
 
-    bool createMemoryObject(rx::GLImplFactory *factory, MemoryObjectID *outMemoryObject);
+    MemoryObjectID createMemoryObject(rx::GLImplFactory *factory);
     void deleteMemoryObject(const Context *context, MemoryObjectID handle);
     MemoryObject *getMemoryObject(MemoryObjectID handle) const;
 
@@ -365,7 +336,7 @@ class SemaphoreManager : public ResourceManagerBase
   public:
     SemaphoreManager();
 
-    bool createSemaphore(rx::GLImplFactory *factory, SemaphoreID *outSemaphore);
+    SemaphoreID createSemaphore(rx::GLImplFactory *factory);
     void deleteSemaphore(const Context *context, SemaphoreID handle);
     Semaphore *getSemaphore(SemaphoreID handle) const;
 

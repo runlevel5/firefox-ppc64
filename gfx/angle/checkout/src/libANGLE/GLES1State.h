@@ -84,15 +84,6 @@ struct FogParameters
     ColorF color;
 };
 
-struct AlphaTestParameters
-{
-    AlphaTestParameters();
-    bool operator!=(const AlphaTestParameters &other) const;
-
-    AlphaTestFunc func = AlphaTestFunc::AlwaysPass;
-    GLfloat ref        = 0.0f;
-};
-
 struct TextureEnvironmentParameters
 {
     TextureEnvironmentParameters();
@@ -162,7 +153,7 @@ struct ClipPlaneParameters
 
 class Context;
 class GLES1Renderer;
-class PrivateState;
+class State;
 
 class GLES1State final : angle::NonCopyable
 {
@@ -170,11 +161,9 @@ class GLES1State final : angle::NonCopyable
     GLES1State();
     ~GLES1State();
 
-    void initialize(const Context *context, const PrivateState *state);
+    void initialize(const Context *context, const State *state);
 
-    void setAlphaTestParameters(AlphaTestFunc func, GLfloat ref);
-    const AlphaTestParameters &getAlphaTestParameters() const;
-
+    void setAlphaFunc(AlphaTestFunc func, GLfloat ref);
     void setClientTextureUnit(unsigned int unit);
     unsigned int getClientTextureUnit() const;
 
@@ -204,8 +193,6 @@ class GLES1State final : angle::NonCopyable
 
     void loadMatrix(const angle::Mat4 &m);
     void multMatrix(const angle::Mat4 &m);
-
-    void setTextureEnabled(GLint activeSampler, TextureType type, bool enabled);
 
     void setLogicOpEnabled(bool enabled);
     void setLogicOp(LogicalOperation opcodePacked);
@@ -273,11 +260,11 @@ class GLES1State final : angle::NonCopyable
     void setAllDirty() { mDirtyBits.set(); }
 
   private:
-    friend class PrivateState;
+    friend class State;
     friend class GLES1Renderer;
 
     // Back pointer for reading from State.
-    const PrivateState *mGLState;
+    const State *mGLState;
 
     using DirtyBits = angle::BitSet<DIRTY_GLES1_MAX>;
     DirtyBits mDirtyBits;
@@ -345,7 +332,8 @@ class GLES1State final : angle::NonCopyable
     PointParameters mPointParameters;
 
     // Table 6.16
-    AlphaTestParameters mAlphaTestParameters;
+    AlphaTestFunc mAlphaTestFunc;
+    GLfloat mAlphaTestRef;
     LogicalOperation mLogicOp;
 
     // Table 6.7

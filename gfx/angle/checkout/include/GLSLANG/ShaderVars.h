@@ -25,12 +25,10 @@ typedef unsigned int GLenum;
 enum InterpolationType
 {
     INTERPOLATION_SMOOTH,
-    INTERPOLATION_FLAT,
-    INTERPOLATION_NOPERSPECTIVE,
     INTERPOLATION_CENTROID,
     INTERPOLATION_SAMPLE,
-    INTERPOLATION_NOPERSPECTIVE_CENTROID,
-    INTERPOLATION_NOPERSPECTIVE_SAMPLE
+    INTERPOLATION_FLAT,
+    INTERPOLATION_NOPERSPECTIVE
 };
 
 const char *InterpolationTypeToString(InterpolationType type);
@@ -53,14 +51,16 @@ const char *BlockLayoutTypeToString(BlockLayoutType type);
 // Interface Blocks, see section 4.3.9 of the ESSL 3.10 spec
 enum class BlockType
 {
-    kBlockUniform,
-    kBlockBuffer,
+    BLOCK_UNIFORM,
+    BLOCK_BUFFER,
 };
 
 const char *BlockTypeToString(BlockType type);
 
-// All interface variables defined in shaders like varyings, uniforms, etc, excluding interface
-// blocks.
+// Base class for all variables defined in shaders, including Varyings, Uniforms, etc
+// Note: we must override the copy constructor and assignment operator so we can
+// work around excessive GCC binary bloating:
+// See https://code.google.com/p/angleproject/issues/detail?id=697
 struct ShaderVariable
 {
     ShaderVariable();
@@ -237,13 +237,6 @@ struct ShaderVariable
     // If the variable is a sampler that has ever been statically used with texelFetch
     bool texelFetchStaticUse;
 
-    // Id of the variable in the shader.  Currently used by the SPIR-V output to communicate the
-    // SPIR-V id of the variable.  This value is only set for variables that the SPIR-V transformer
-    // needs to know about, i.e. active variables, excluding non-zero array elements etc.
-    uint32_t id;
-
-    bool isFloat16;
-
   protected:
     bool isSameVariableAtLinkTime(const ShaderVariable &other,
                                   bool matchPrecision,
@@ -256,7 +249,7 @@ struct ShaderVariable
     int flattenedOffsetInParentArrays;
 };
 
-// TODO: anglebug.com/42262544
+// TODO: anglebug.com/3899
 // For backwards compatibility for other codebases (e.g., chromium/src/gpu/command_buffer/service)
 using Uniform             = ShaderVariable;
 using Attribute           = ShaderVariable;
@@ -289,16 +282,15 @@ struct InterfaceBlock
     unsigned int arraySize;
     BlockLayoutType layout;
 
+    // Deprecated. Matrix packing should only be queried from individual fields of the block.
+    // TODO(oetuaho): Remove this once it is no longer used in Chromium.
+    bool isRowMajorLayout;
+
     int binding;
     bool staticUse;
     bool active;
-    // Only applied to SSBOs, |isReadOnly| tells if the readonly qualifier is specified.
-    bool isReadOnly;
     BlockType blockType;
     std::vector<ShaderVariable> fields;
-
-    // Id of the interface block in the shader.  Similar to |ShaderVariable::id|.
-    uint32_t id;
 };
 
 struct WorkGroupSize

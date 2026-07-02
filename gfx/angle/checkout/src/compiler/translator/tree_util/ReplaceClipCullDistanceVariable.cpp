@@ -15,7 +15,6 @@
 #include "compiler/translator/Compiler.h"
 #include "compiler/translator/SymbolTable.h"
 #include "compiler/translator/tree_util/BuiltIn.h"
-#include "compiler/translator/tree_util/FindMain.h"
 #include "compiler/translator/tree_util/IntermNode_util.h"
 #include "compiler/translator/tree_util/IntermTraverse.h"
 #include "compiler/translator/tree_util/ReplaceVariable.h"
@@ -54,21 +53,18 @@ class GLClipCullDistanceReferenceTraverser : public TIntermTraverser
 {
   public:
     GLClipCullDistanceReferenceTraverser(const TIntermSymbol **redeclaredSymOut,
-                                         const TVariable **variableOut,
                                          bool *nonConstIdxUsedOut,
                                          unsigned int *maxConstIdxOut,
                                          ClipCullDistanceIdxSet *constIndicesOut,
                                          TQualifier targetQualifier)
         : TIntermTraverser(true, false, false),
           mRedeclaredSym(redeclaredSymOut),
-          mVariable(variableOut),
           mUseNonConstClipCullDistanceIndex(nonConstIdxUsedOut),
           mMaxConstClipCullDistanceIndex(maxConstIdxOut),
           mConstClipCullDistanceIndices(constIndicesOut),
           mTargetQualifier(targetQualifier)
     {
         *mRedeclaredSym                    = nullptr;
-        *mVariable                         = nullptr;
         *mUseNonConstClipCullDistanceIndex = false;
         *mMaxConstClipCullDistanceIndex    = 0;
         mConstClipCullDistanceIndices->reset();
@@ -152,7 +148,6 @@ class GLClipCullDistanceReferenceTraverser : public TIntermTraverser
             mConstClipCullDistanceIndices->set(idx);
 
             *mMaxConstClipCullDistanceIndex = std::max(*mMaxConstClipCullDistanceIndex, idx);
-            *mVariable                      = &clipCullDistance->variable();
         }
 
         return true;
@@ -160,7 +155,6 @@ class GLClipCullDistanceReferenceTraverser : public TIntermTraverser
 
   private:
     const TIntermSymbol **mRedeclaredSym;
-    const TVariable **mVariable;
     // Flag indicating whether there is at least one reference of gl_ClipDistance with non-constant
     // index
     bool *mUseNonConstClipCullDistanceIndex;
@@ -204,9 +198,6 @@ TIntermNode *simpleAssignFunc(const unsigned int index,
                               TIntermSymbol *rightSymbol,
                               const TIntermTyped * /*enableFlags*/)
 {
-    if (!rightSymbol)
-        return nullptr;
-
     // leftSymbol[index] = rightSymbol[index]
     // E.g., ANGLEClipDistance[index] = gl_ClipDistance[index]
     TIntermBinary *left =
@@ -233,14 +224,11 @@ TIntermNode *assignFuncWithEnableFlags(const unsigned int index,
 
     TIntermBinary *left =
         new TIntermBinary(EOpIndexDirect, leftSymbol->deepCopy(), CreateIndexNode(index));
-    TIntermBlock *trueBlock = new TIntermBlock();
-    if (rightSymbol)
-    {
-        TIntermBinary *right =
-            new TIntermBinary(EOpIndexDirect, rightSymbol->deepCopy(), CreateIndexNode(index));
-        TIntermBinary *assignment = new TIntermBinary(EOpAssign, left, right);
-        trueBlock->appendStatement(assignment);
-    }
+    TIntermBinary *right =
+        new TIntermBinary(EOpIndexDirect, rightSymbol->deepCopy(), CreateIndexNode(index));
+    TIntermBinary *assignment = new TIntermBinary(EOpAssign, left, right);
+    TIntermBlock *trueBlock   = new TIntermBlock();
+    trueBlock->appendStatement(assignment);
 
     TIntermBinary *zeroAssignment =
         new TIntermBinary(EOpAssign, left->deepCopy(), CreateFloatNode(0, EbpMedium));
@@ -273,17 +261,17 @@ class ReplaceClipCullDistanceAssignments : angle::NonCopyable
                                             const unsigned int maxConstIndex);
     const TVariable *declareANGLEVariable(const TVariable *originalVariable);
     bool assignOriginalValueToANGLEVariable(const GLenum shaderType);
-    bool assignValueToOriginalVariable(const GLenum shaderType,
-                                       const bool isRedeclared,
-                                       const TIntermTyped *enableFlags,
-                                       const ClipCullDistanceIdxSet *constIndices);
+    bool assignANGLEValueToOriginalVariable(const GLenum shaderType,
+                                            const bool isRedeclared,
+                                            const TIntermTyped *enableFlags,
+                                            const ClipCullDistanceIdxSet *constIndices);
 
   private:
     bool assignOriginalValueToANGLEVariableImpl();
-    bool assignValueToOriginalVariableImpl(const bool isRedeclared,
-                                           const TIntermTyped *enableFlags,
-                                           const ClipCullDistanceIdxSet *constIndices,
-                                           AssignFunc assignFunc);
+    bool assignANGLEValueToOriginalVariableImpl(const bool isRedeclared,
+                                                const TIntermTyped *enableFlags,
+                                                const ClipCullDistanceIdxSet *constIndices,
+                                                AssignFunc assignFunc);
 
     // Common variables for replacing gl_Clip/CullDistances with ANGLEClip/CullDistances
     TCompiler *mCompiler;
@@ -295,7 +283,7 @@ class ReplaceClipCullDistanceAssignments : angle::NonCopyable
     const ImmutableString mANGLEVarName;
 
     unsigned int mEnabledDistances;
-    const TVariable *mANGLEVar = nullptr;
+    const TVariable *mANGLEVar;
 };
 
 unsigned int ReplaceClipCullDistanceAssignments::getEnabledClipCullDistance(
@@ -358,7 +346,7 @@ bool ReplaceClipCullDistanceAssignments::assignOriginalValueToANGLEVariableImpl(
     return RunAtTheBeginningOfShader(mCompiler, mRoot, readBlock);
 }
 
-bool ReplaceClipCullDistanceAssignments::assignValueToOriginalVariableImpl(
+bool ReplaceClipCullDistanceAssignments::assignANGLEValueToOriginalVariableImpl(
     const bool isRedeclared,
     const TIntermTyped *enableFlags,
     const ClipCullDistanceIdxSet *constIndices,
@@ -368,7 +356,7 @@ bool ReplaceClipCullDistanceAssignments::assignValueToOriginalVariableImpl(
 
     TIntermBlock *assignBlock               = new TIntermBlock;
     TIntermSymbol *glClipCullDistanceSymbol = new TIntermSymbol(mGlVar);
-    TIntermSymbol *clipCullDistanceSymbol   = mANGLEVar ? new TIntermSymbol(mANGLEVar) : nullptr;
+    TIntermSymbol *clipCullDistanceSymbol   = new TIntermSymbol(mANGLEVar);
 
     // The array size is decided by either redeclaring the variable or accessing the variable with a
     // integral constant index. And this size is the count of the enabled value. So, if the index
@@ -436,7 +424,7 @@ bool ReplaceClipCullDistanceAssignments::assignValueToOriginalVariableImpl(
     return true;
 }
 
-[[nodiscard]] bool ReplaceClipCullDistanceAssignments::assignValueToOriginalVariable(
+[[nodiscard]] bool ReplaceClipCullDistanceAssignments::assignANGLEValueToOriginalVariable(
     const GLenum shaderType,
     const bool isRedeclared,
     const TIntermTyped *enableFlags,
@@ -455,7 +443,7 @@ bool ReplaceClipCullDistanceAssignments::assignValueToOriginalVariableImpl(
             // ...
             // Shaders writing gl_CullDistance must write all enabled distances, or culling results
             // are undefined.
-            if (!assignValueToOriginalVariableImpl(
+            if (!assignANGLEValueToOriginalVariableImpl(
                     isRedeclared, enableFlags, constIndices,
                     enableFlags ? assignFuncWithEnableFlags : simpleAssignFunc))
             {
@@ -493,13 +481,11 @@ bool ReplaceClipCullDistanceAssignments::assignValueToOriginalVariableImpl(
     ClipCullDistanceIdxSet constIndices;
     bool useNonConstIndex                  = false;
     const TIntermSymbol *redeclaredBuiltIn = nullptr;
-    const TVariable *builtInVariable       = nullptr;
     unsigned int maxConstIndex             = 0;
-    GLClipCullDistanceReferenceTraverser indexTraverser(&redeclaredBuiltIn, &builtInVariable,
-                                                        &useNonConstIndex, &maxConstIndex,
-                                                        &constIndices, builtInQualifier);
+    GLClipCullDistanceReferenceTraverser indexTraverser(
+        &redeclaredBuiltIn, &useNonConstIndex, &maxConstIndex, &constIndices, builtInQualifier);
     root->traverse(&indexTraverser);
-    if (!useNonConstIndex && constIndices.none() && redeclaredBuiltIn == nullptr)
+    if (!useNonConstIndex && constIndices.none())
     {
         // No references of gl_ClipDistance
         return true;
@@ -514,9 +500,9 @@ bool ReplaceClipCullDistanceAssignments::assignValueToOriginalVariableImpl(
     }
     else
     {
-        // User defined not found, use implicitly defined. The symbol table cannot be used here as
-        // the variable type could have been adjusted after validation
-        builtInVar = builtInVariable;
+        // User defined not found, find in built-in table
+        builtInVar = static_cast<const TVariable *>(
+            symbolTable->findBuiltIn(name, compiler->getShaderVersion()));
     }
     if (!builtInVar)
     {
@@ -527,6 +513,7 @@ bool ReplaceClipCullDistanceAssignments::assignValueToOriginalVariableImpl(
                                                         redeclaredBuiltIn,
                                                         ImmutableString(replacementName));
 
+    // Declare a global variable substituting gl_ClipDistance
     unsigned int enabledClipDistances =
         replacementUtils.getEnabledClipCullDistance(useNonConstIndex, maxConstIndex);
     if (!enabledClipDistances)
@@ -538,33 +525,28 @@ bool ReplaceClipCullDistanceAssignments::assignValueToOriginalVariableImpl(
         return false;
     }
 
-    if (replacementName)
+    const TVariable *replacementVar = replacementUtils.declareANGLEVariable(builtInVar);
+
+    // Replace gl_ClipDistance reference with ANGLEClipDistance, except the declaration
+    ReplaceVariableExceptOneTraverser replaceTraverser(builtInVar,
+                                                       new TIntermSymbol(replacementVar),
+                                                       /** exception */ redeclaredBuiltIn);
+    root->traverse(&replaceTraverser);
+    if (!replaceTraverser.updateTree(compiler, root))
     {
+        return false;
+    }
 
-        // Declare a global variable substituting gl_ClipDistance
-        const TVariable *replacementVar = replacementUtils.declareANGLEVariable(builtInVar);
-
-        // Replace gl_ClipDistance reference with ANGLEClipDistance, except the declaration
-        ReplaceVariableExceptOneTraverser replaceTraverser(builtInVar,
-                                                           new TIntermSymbol(replacementVar),
-                                                           /** exception */ redeclaredBuiltIn);
-        root->traverse(&replaceTraverser);
-        if (!replaceTraverser.updateTree(compiler, root))
-        {
-            return false;
-        }
-
-        // Read gl_ClipDistance to ANGLEClipDistance for getting original data
-        if (!replacementUtils.assignOriginalValueToANGLEVariable(shaderType))
-        {
-            return false;
-        }
+    // Read gl_ClipDistance to ANGLEClipDistance for getting a original data
+    if (!replacementUtils.assignOriginalValueToANGLEVariable(shaderType))
+    {
+        return false;
     }
 
     // Reassign ANGLEClipDistance to gl_ClipDistance but ignore those that are disabled
     const bool isRedeclared = redeclaredBuiltIn != nullptr;
-    if (!replacementUtils.assignValueToOriginalVariable(shaderType, isRedeclared,
-                                                        clipDistanceEnableFlags, &constIndices))
+    if (!replacementUtils.assignANGLEValueToOriginalVariable(
+            shaderType, isRedeclared, clipDistanceEnableFlags, &constIndices))
     {
         return false;
     }
@@ -577,13 +559,7 @@ bool ReplaceClipCullDistanceAssignments::assignValueToOriginalVariableImpl(
 
         TVariable *resizedVar = new TVariable(symbolTable, name, resizedType, SymbolType::BuiltIn);
 
-        if (!ReplaceVariable(compiler, root, builtInVar, resizedVar))
-        {
-            return false;
-        }
-
-        // Built-in was not redeclared in the original shader, add it to the vertex out struct
-        return root->insertChildNodes(FindMainIndex(root), {new TIntermDeclaration{resizedVar}});
+        return ReplaceVariable(compiler, root, builtInVar, resizedVar);
     }
 
     return true;
@@ -610,17 +586,6 @@ bool ReplaceClipCullDistanceAssignments::assignValueToOriginalVariableImpl(
     return ReplaceClipCullDistanceAssignmentsImpl(compiler, root, symbolTable, shaderType, nullptr,
                                                   "gl_CullDistance", "ANGLECullDistance",
                                                   EvqCullDistance);
-}
-
-[[nodiscard]] bool ZeroDisabledClipDistanceAssignments(TCompiler *compiler,
-                                                       TIntermBlock *root,
-                                                       TSymbolTable *symbolTable,
-                                                       const GLenum shaderType,
-                                                       const TIntermTyped *clipDistanceEnableFlags)
-{
-    return ReplaceClipCullDistanceAssignmentsImpl(compiler, root, symbolTable, shaderType,
-                                                  clipDistanceEnableFlags, "gl_ClipDistance",
-                                                  nullptr, EvqClipDistance);
 }
 
 }  // namespace sh

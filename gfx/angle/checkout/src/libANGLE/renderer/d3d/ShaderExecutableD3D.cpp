@@ -7,10 +7,6 @@
 // ShaderExecutable.cpp: Implements a class to contain D3D shader executable
 // implementation details.
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "libANGLE/renderer/d3d/ShaderExecutableD3D.h"
 
 #include "common/angleutils.h"

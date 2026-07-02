@@ -17,8 +17,11 @@
 #elif defined(__APPLE__)
 #    define ANGLE_PLATFORM_APPLE 1
 #    define ANGLE_PLATFORM_POSIX 1
-#elif defined(ANDROID) && !defined(ANGLE_ANDROID_DMA_BUF)
+#elif defined(ANDROID)
 #    define ANGLE_PLATFORM_ANDROID 1
+#    define ANGLE_PLATFORM_POSIX 1
+#elif defined(__ggp__)
+#    define ANGLE_PLATFORM_GGP 1
 #    define ANGLE_PLATFORM_POSIX 1
 #elif defined(__linux__) || defined(EMSCRIPTEN)
 #    define ANGLE_PLATFORM_LINUX 1
@@ -78,18 +81,11 @@
 #        endif
 #    endif
 
-// GCC < 10.4 or 11.0 - 11.3 miscodegen extern thread_local variable accesses.
-// This affects MinGW targets only.
-// See https://gcc.gnu.org/bugzilla/show_bug.cgi?id=104862
-#    if defined(__GNUC__)
-#        if __GNUC__ < 10 || __GNUC__ == 10 && __GNUC_MINOR__ < 4 || \
-            __GNUC__ == 11 && __GNUC_MINOR__ < 3
-#            define ANGLE_USE_STATIC_THREAD_LOCAL_VARIABLES 1
-#        endif
+// Include <windows.h> to ensure tests related files can be built when building
+// vulkan only backend ANGLE on windows.
+#    if defined(ANGLE_ENABLE_VULKAN)
+#        include <windows.h>
 #    endif
-
-// Include <windows.h> to ensure files that refer to near/far can be compiled.
-#    include <windows.h>
 
 // Macros 'near', 'far', 'NEAR' and 'FAR' are defined by 'shared/minwindef.h' in the Windows SDK.
 // Macros 'near' and 'far' are empty. They are not used by other Windows headers and are undefined
@@ -103,16 +99,28 @@
 #    define FAR
 #endif
 
+#if defined(_MSC_VER) && !defined(_M_ARM) && !defined(_M_ARM64)
+#    include <intrin.h>
+#    define ANGLE_USE_SSE
+#elif defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
+#    include <x86intrin.h>
+#    define ANGLE_USE_SSE
+#endif
+
 // Mips and arm devices need to include stddef for size_t.
-#if defined(__mips__) || defined(__arm__) || defined(__aarch64__) || defined(__riscv)
+#if defined(__mips__) || defined(__arm__) || defined(__aarch64__)
 #    include <stddef.h>
 #endif
+
+// The MemoryBarrier function name collides with a macro under Windows
+// We will undef the macro so that the function name does not get replaced
+#undef MemoryBarrier
 
 // Macro for hinting that an expression is likely to be true/false.
 #if !defined(ANGLE_LIKELY) || !defined(ANGLE_UNLIKELY)
 #    if defined(__GNUC__) || defined(__clang__)
-#        define ANGLE_LIKELY(x) __builtin_expect_with_probability(!!(x), 1, 0.9999)
-#        define ANGLE_UNLIKELY(x) __builtin_expect_with_probability(!!(x), 0, 0.9999)
+#        define ANGLE_LIKELY(x) __builtin_expect(!!(x), 1)
+#        define ANGLE_UNLIKELY(x) __builtin_expect(!!(x), 0)
 #    else
 #        define ANGLE_LIKELY(x) (x)
 #        define ANGLE_UNLIKELY(x) (x)
@@ -120,36 +128,42 @@
 #endif      // !defined(ANGLE_LIKELY) || !defined(ANGLE_UNLIKELY)
 
 #ifdef ANGLE_PLATFORM_APPLE
-#    include <AvailabilityMacros.h>
 #    include <TargetConditionals.h>
 #    if TARGET_OS_OSX
-#        if __MAC_OS_X_VERSION_MAX_ALLOWED < 120000
-#            error macOS 12 SDK or newer is required.
-#        endif
 #        define ANGLE_PLATFORM_MACOS 1
 #    elif TARGET_OS_IPHONE
-#        define ANGLE_PLATFORM_IOS_FAMILY 1
+#        define ANGLE_PLATFORM_IOS 1
 #        if TARGET_OS_SIMULATOR
-#            define ANGLE_PLATFORM_IOS_FAMILY_SIMULATOR 1
+#            define ANGLE_PLATFORM_IOS_SIMULATOR 1
 #        endif
-#        if TARGET_OS_VISION  // Must be checked before iOS
-#            define ANGLE_PLATFORM_VISIONOS 1
-#        elif TARGET_OS_IOS
-#            if __IPHONE_OS_VERSION_MAX_ALLOWED < 170000
-#                error iOS 17 SDK or newer is required.
-#            endif
-#            define ANGLE_PLATFORM_IOS 1
-#            if TARGET_OS_MACCATALYST
-#                define ANGLE_PLATFORM_MACCATALYST 1
-#            endif
-#        elif TARGET_OS_WATCH
-#            define ANGLE_PLATFORM_WATCHOS 1
-#        elif TARGET_OS_TV
-#            if __TV_OS_VERSION_MAX_ALLOWED < 170000
-#                error tvOS 17 SDK or newer is required.
-#            endif
-#            define ANGLE_PLATFORM_APPLETV 1
+#        if TARGET_OS_MACCATALYST
+#            define ANGLE_PLATFORM_MACCATALYST 1
 #        endif
+#    elif TARGET_OS_WATCH
+#        define ANGLE_PLATFORM_WATCHOS 1
+#        if TARGET_OS_SIMULATOR
+#            define ANGLE_PLATFORM_IOS_SIMULATOR 1
+#        endif
+#    elif TARGET_OS_TV
+#        define ANGLE_PLATFORM_APPLETV 1
+#        if TARGET_OS_SIMULATOR
+#            define ANGLE_PLATFORM_IOS_SIMULATOR 1
+#        endif
+#    endif
+#    // This might be useful globally. At the moment it is used
+#    // to differentiate MacCatalyst on Intel and Apple Silicon.
+#    if defined(__arm64__) || defined(__aarch64__)
+#        define ANGLE_CPU_ARM64 1
+#    endif
+#    // EAGL should be enabled on iOS, but not Mac Catalyst unless it is running on Apple Silicon.
+#    if (defined(ANGLE_PLATFORM_IOS) && !defined(ANGLE_PLATFORM_MACCATALYST)) || \
+        (defined(ANGLE_PLATFORM_MACCATALYST) && defined(ANGLE_CPU_ARM64))
+#        define ANGLE_ENABLE_EAGL
+#    endif
+#    // Identify Metal API >= what shipped on macOS Catalina.
+#    if (defined(ANGLE_PLATFORM_MACOS) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500) || \
+        (defined(ANGLE_PLATFORM_IOS) && __IPHONE_OS_VERSION_MAX_ALLOWED >= 130000)
+#        define ANGLE_WITH_MODERN_METAL_API 1
 #    endif
 #endif
 
@@ -185,7 +199,7 @@
 #    define ANGLE_WITH_SANITIZER 1
 #endif  // defined(ANGLE_WITH_ASAN) || defined(ANGLE_WITH_TSAN) || defined(ANGLE_WITH_UBSAN)
 
-#include <stdint.h>
+#include <cstdint>
 #if INTPTR_MAX == INT64_MAX
 #    define ANGLE_IS_64_BIT_CPU 1
 #else

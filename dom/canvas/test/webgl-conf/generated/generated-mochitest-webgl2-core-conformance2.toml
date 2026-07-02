@@ -564,10 +564,6 @@ skip-if = [
 
 ["test_2_conformance2__textures__misc__immutable-tex-render-feedback.html"]
 fail-if = [
-  # E.g. checkFramebufferStatus expected: FRAMEBUFFER_INCOMPLETE_ATTACHMENT. Was FRAMEBUFFER_COMPLETE
-  # due to disagreement between CTS and ANGLE/GLES spec. See https://issues.angleproject.org/issues/42267266.
-  "os == 'win'",
-  # E.g. getError expected: NO_ERROR. Was INVALID_VALUE : after draw with texture
   "os == 'linux' && os_version == '22.04' && arch == 'x86_64' && display == 'wayland'",
   "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11'",
   "os == 'mac' && os_version == '10.15' && arch == 'x86_64'",

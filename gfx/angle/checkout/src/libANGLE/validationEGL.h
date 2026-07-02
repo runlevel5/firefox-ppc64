@@ -10,7 +10,6 @@
 #define LIBANGLE_VALIDATIONEGL_H_
 
 #include "common/PackedEnums.h"
-#include "libANGLE/Display.h"
 #include "libANGLE/Error.h"
 #include "libANGLE/Thread.h"
 
@@ -57,29 +56,26 @@ struct ValidationContext
 
 // Object validation
 bool ValidateDisplay(const ValidationContext *val, const Display *display);
-bool ValidateSurface(const ValidationContext *val, const Display *display, SurfaceID surfaceID);
+bool ValidateSurface(const ValidationContext *val, const Display *display, const Surface *surface);
 bool ValidateConfig(const ValidationContext *val, const Display *display, const Config *config);
-bool ValidateContext(const ValidationContext *val, const Display *display, gl::ContextID contextID);
-bool ValidateImage(const ValidationContext *val, const Display *display, ImageID imageID);
+bool ValidateContext(const ValidationContext *val,
+                     const Display *display,
+                     const gl::Context *context);
+bool ValidateImage(const ValidationContext *val, const Display *display, const Image *image);
 bool ValidateDevice(const ValidationContext *val, const Device *device);
-bool ValidateSync(const ValidationContext *val, const Display *display, SyncID sync);
+bool ValidateSync(const ValidationContext *val, const Display *display, const Sync *sync);
 
 // Return the requested object only if it is valid (otherwise nullptr)
 const Thread *GetThreadIfValid(const Thread *thread);
 const Display *GetDisplayIfValid(const Display *display);
-const Surface *GetSurfaceIfValid(const Display *display, SurfaceID surfaceID);
-const Image *GetImageIfValid(const Display *display, ImageID imageID);
+const Surface *GetSurfaceIfValid(const Display *display, const Surface *surface);
+const Image *GetImageIfValid(const Display *display, const Image *image);
 const Stream *GetStreamIfValid(const Display *display, const Stream *stream);
-const gl::Context *GetContextIfValid(const Display *display, gl::ContextID contextID);
-gl::Context *GetContextIfValid(Display *display, gl::ContextID contextID);
+const gl::Context *GetContextIfValid(const Display *display, const gl::Context *context);
 const Device *GetDeviceIfValid(const Device *device);
-const Sync *GetSyncIfValid(const Display *display, SyncID sync);
-const LabeledObject *GetLabeledObjectIfValid(Thread *thread,
-                                             const Display *display,
-                                             ObjectType objectType,
-                                             EGLObjectKHR object);
+const Sync *GetSyncIfValid(const Display *display, const Sync *sync);
 LabeledObject *GetLabeledObjectIfValid(Thread *thread,
-                                       Display *display,
+                                       const Display *display,
                                        ObjectType objectType,
                                        EGLObjectKHR object);
 
@@ -100,13 +96,6 @@ GetDefaultReturnValue<angle::EntryPoint::EGLLabelObjectKHR, EGLint>(Thread *thre
     return thread->getError();
 }
 
-template <>
-ANGLE_INLINE EGLint
-GetDefaultReturnValue<angle::EntryPoint::EGLDupNativeFenceFDANDROID, EGLint>(Thread *thread)
-{
-    return EGL_NO_NATIVE_FENCE_FD_ANDROID;
-}
-
 template <angle::EntryPoint EP, typename ReturnType>
 ANGLE_INLINE ReturnType GetDefaultReturnValue(Thread *thread)
 {
@@ -120,15 +109,6 @@ typename std::enable_if<std::is_enum<PackedT>::value, PackedT>::type PackParam(F
     return FromEGLenum<PackedT>(from);
 }
 
-// Second case: handling resource ids.
-template <typename PackedT,
-          typename FromT,
-          typename std::enable_if<IsResourceIDType<PackedT>::value>::type * = nullptr>
-PackedT PackParam(FromT from)
-{
-    return {static_cast<GLuint>(reinterpret_cast<uintptr_t>(from))};
-}
-
 // This and the next 2 template specializations handle distinguishing between EGLint, EGLAttrib
 // and other. This is needed because on some architectures EGLint and EGLAttrib are not the same
 // base type. Previously the code conditionally compiled 2 specializations on 64 bit but it turns
@@ -136,7 +116,7 @@ PackedT PackParam(FromT from)
 // different did not hold.
 template <typename PackedT,
           typename FromT,
-          typename std::enable_if<!std::is_enum<PackedT>::value>::type              * = nullptr,
+          typename std::enable_if<!std::is_enum<PackedT>::value>::type *              = nullptr,
           typename std::enable_if<std::is_same<FromT, const EGLint *>::value>::type * = nullptr>
 typename std::remove_reference<PackedT>::type PackParam(FromT attribs)
 {
@@ -145,8 +125,8 @@ typename std::remove_reference<PackedT>::type PackParam(FromT attribs)
 
 template <typename PackedT,
           typename FromT,
-          typename std::enable_if<!std::is_enum<PackedT>::value>::type                 * = nullptr,
-          typename std::enable_if<!std::is_same<FromT, const EGLint *>::value>::type   * = nullptr,
+          typename std::enable_if<!std::is_enum<PackedT>::value>::type *                 = nullptr,
+          typename std::enable_if<!std::is_same<FromT, const EGLint *>::value>::type *   = nullptr,
           typename std::enable_if<std::is_same<FromT, const EGLAttrib *>::value>::type * = nullptr>
 typename std::remove_reference<PackedT>::type PackParam(FromT attribs)
 {
@@ -155,13 +135,12 @@ typename std::remove_reference<PackedT>::type PackParam(FromT attribs)
 
 template <typename PackedT,
           typename FromT,
-          typename std::enable_if<!std::is_enum<PackedT>::value>::type                  * = nullptr,
-          typename std::enable_if<!std::is_same<FromT, const EGLint *>::value>::type    * = nullptr,
-          typename std::enable_if<!std::is_same<FromT, const EGLAttrib *>::value>::type * = nullptr,
-          typename std::enable_if<!IsResourceIDType<PackedT>::value>::type              * = nullptr>
-typename std::remove_reference<PackedT>::type PackParam(FromT from)
+          typename std::enable_if<!std::is_enum<PackedT>::value>::type *                  = nullptr,
+          typename std::enable_if<!std::is_same<FromT, const EGLint *>::value>::type *    = nullptr,
+          typename std::enable_if<!std::is_same<FromT, const EGLAttrib *>::value>::type * = nullptr>
+typename std::remove_reference<PackedT>::type PackParam(FromT attribs)
 {
-    return static_cast<PackedT>(from);
+    return static_cast<PackedT>(attribs);
 }
 
 }  // namespace egl
@@ -208,14 +187,6 @@ typename std::remove_reference<PackedT>::type PackParam(FromT from)
             return RETVAL;                                                \
         }                                                                 \
     } while (0)
-
-#if ANGLE_USE_DISPLAY_PREPARE_FOR_CALL
-#    define ANGLE_EGL_TRY_PREPARE_FOR_CALL_RETURN ANGLE_EGL_TRY_RETURN
-#    define ANGLE_EGL_TRY_PREPARE_FOR_CALL ANGLE_EGL_TRY
-#else
-#    define ANGLE_EGL_TRY_PREPARE_FOR_CALL_RETURN(...)
-#    define ANGLE_EGL_TRY_PREPARE_FOR_CALL(...)
-#endif
 
 #define ANGLE_EGLBOOLEAN_TRY(EXPR)           \
     do                                       \

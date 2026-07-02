@@ -89,7 +89,7 @@ class ClampIndirectIndicesTraverser : public TIntermTraverser
             index = TIntermAggregate::CreateConstructor(*clampType, &constructorArgs);
         }
 
-        // clamp(index, zero, max)
+        // min(gl_PointSize, maxPointSize)
         TIntermSequence args;
         args.push_back(index);
         args.push_back(zero);

@@ -10,18 +10,30 @@
 #ifndef COMPILER_TRANSLATOR_IMMUTABLESTRING_H_
 #define COMPILER_TRANSLATOR_IMMUTABLESTRING_H_
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include <string>
 
 #include "common/string_utils.h"
-#include "common/utilities.h"
 #include "compiler/translator/Common.h"
 
 namespace sh
 {
+
+namespace
+{
+constexpr size_t constStrlen(const char *str)
+{
+    if (str == nullptr)
+    {
+        return 0u;
+    }
+    size_t len = 0u;
+    while (*(str + len) != '\0')
+    {
+        ++len;
+    }
+    return len;
+}
+}  // namespace
 
 class ImmutableString
 {
@@ -31,8 +43,7 @@ class ImmutableString
     //  2. a null-terminated static char array like a string literal.
     //  3. a null-terminated pool allocated char array. This can't be c_str() of a local TString,
     //     since when a TString goes out of scope it clears its first character.
-    explicit constexpr ImmutableString(const char *data)
-        : mData(data), mLength(angle::ConstStrLen(data))
+    explicit constexpr ImmutableString(const char *data) : mData(data), mLength(constStrlen(data))
     {}
 
     constexpr ImmutableString(const char *data, size_t length) : mData(data), mLength(length) {}
@@ -51,10 +62,7 @@ class ImmutableString
     char operator[](size_t index) const { return data()[index]; }
 
     constexpr bool empty() const { return mLength == 0; }
-    constexpr bool beginsWith(const char *prefix) const
-    {
-        return beginsWith(ImmutableString(prefix));
-    }
+    bool beginsWith(const char *prefix) const { return angle::BeginsWith(data(), prefix); }
     constexpr bool beginsWith(const ImmutableString &prefix) const
     {
         return mLength >= prefix.length() && memcmp(data(), prefix.data(), prefix.length()) == 0;
@@ -128,9 +136,8 @@ class ImmutableString
 };
 
 constexpr ImmutableString kEmptyImmutableString("");
-
-std::ostream &operator<<(std::ostream &os, const ImmutableString &str);
-
 }  // namespace sh
+
+std::ostream &operator<<(std::ostream &os, const sh::ImmutableString &str);
 
 #endif  // COMPILER_TRANSLATOR_IMMUTABLESTRING_H_

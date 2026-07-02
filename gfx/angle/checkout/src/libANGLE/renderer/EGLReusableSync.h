@@ -22,15 +22,14 @@ namespace rx
 class ReusableSync final : public EGLSyncImpl
 {
   public:
-    ReusableSync();
+    ReusableSync(const egl::AttributeMap &attribs);
     ~ReusableSync() override;
 
     void onDestroy(const egl::Display *display) override;
 
     egl::Error initialize(const egl::Display *display,
                           const gl::Context *context,
-                          EGLenum type,
-                          const egl::AttributeMap &attribs) override;
+                          EGLenum type) override;
     egl::Error clientWait(const egl::Display *display,
                           const gl::Context *context,
                           EGLint flags,

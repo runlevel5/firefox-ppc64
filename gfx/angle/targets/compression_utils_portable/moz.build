@@ -3,11 +3,11 @@
 include("../../moz.build.common")
 
 # DEFINES["CERT_CHAIN_PARA_HAS_EXTRA_FIELDS"] = True
-DEFINES["CR_CLANG_REVISION"] = '"llvmorg-23-init-5669-g8a0be0bc-1"'
+DEFINES["CR_CLANG_REVISION"] = '"llvmorg-16-init-6578-g0d30e92f-2"'
 DEFINES["DYNAMIC_ANNOTATIONS_ENABLED"] = "0"
 # DEFINES["NDEBUG"] = True
 DEFINES["NOMINMAX"] = True
-# DEFINES["NTDDI_VERSION"] = "NTDDI_WIN11_GE"
+# DEFINES["NTDDI_VERSION"] = "NTDDI_WIN10_FE"
 # DEFINES["NVALGRIND"] = True
 # DEFINES["PSAPI_VERSION"] = "2"
 DEFINES["UNICODE"] = True
@@ -15,7 +15,6 @@ DEFINES["UNICODE"] = True
 # DEFINES["WIN32"] = True
 # DEFINES["WIN32_LEAN_AND_MEAN"] = True
 # DEFINES["WINAPI_FAMILY"] = "WINAPI_FAMILY_DESKTOP_APP"
-DEFINES["WINCRYPT_USE_SYMBOL_PREFIX"] = True
 DEFINES["WINVER"] = "0x0A00"
 DEFINES["_ATL_NO_OPENGL"] = True
 DEFINES["_CRT_NONSTDC_NO_WARNINGS"] = True
@@ -23,7 +22,6 @@ DEFINES["_CRT_RAND_S"] = True
 DEFINES["_CRT_SECURE_NO_DEPRECATE"] = True
 DEFINES["_HAS_EXCEPTIONS"] = "0"
 # DEFINES["_HAS_NODISCARD"] = True
-DEFINES["_LIBCPP_HARDENING_MODE"] = "_LIBCPP_HARDENING_MODE_NONE"
 DEFINES["_SCL_SECURE_NO_DEPRECATE"] = True
 DEFINES["_SECURE_ATL"] = True
 DEFINES["_UNICODE"] = True
@@ -45,62 +43,37 @@ LOCAL_INCLUDES += [
 #     "-D__TIMESTAMP__=",
 #     "-fcolor-diagnostics",
 #     "-fcomplete-member-pointers",
-#     "-fcrash-diagnostics-dir=clang-crashreports",
+#     "-fcrash-diagnostics-dir=../tools/clang/crashreports",
 #     "-ffile-compilation-dir=.",
 #     "-ffile-reproducible",
 #     "-fmerge-all-constants",
-#     "-fmsc-version=1934",
+#     "-fmsc-version=1916",
 #     "-fno-delete-null-pointer-checks",
 #     "-fno-ident",
-#     "-fno-lifetime-dse",
-#     "-fsanitize-ignore-for-ubsan-feature=array-bounds",
-#     "-fsanitize-ignore-for-ubsan-feature=return",
-#     "-fsanitize-trap=array-bounds",
-#     "-fsanitize-trap=return",
-#     "-fsanitize=array-bounds",
-#     "-fsanitize=return",
 #     "-ftrivial-auto-var-init=pattern",
 #     "-fuse-ctor-homing",
 #     "-gcodeview-ghash",
-#     "-gno-codeview-command-line",
-#     "-gomit-unreferenced-methods",
 #     "-instcombine-lower-dbg-declare=0",
 #     "-m64",
 #     "-mllvm",
 #     "-msse3",
 #     "-no-canonical-prefixes",
-#     "-pick-merged-source-locations",
 #     "-plugin-arg-find-bad-constructs",
-#     "-plugin-arg-raw-ptr-plugin",
-#     "-split-threshold-for-reg-with-hint=0",
 #     "-Wenum-compare-conditional",
 #     "-Wextra-semi",
-#     "-Wgnu",
 #     "-Wheader-hygiene",
 #     "-Wimplicit-fallthrough",
 #     "-Wloop-analysis",
+#     "-Wno-bitfield-constant-conversion",
 #     "-Wno-builtin-macro-redefined",
-#     "-Wno-cast-function-type",
-#     "-Wno-gnu-anonymous-struct",
-#     "-Wno-gnu-conditional-omitted-operand",
-#     "-Wno-gnu-include-next",
-#     "-Wno-gnu-label-as-value",
-#     "-Wno-gnu-redeclared-enum",
-#     "-Wno-gnu-statement-expression",
-#     "-Wno-gnu-zero-variadic-macro-arguments",
-#     "-Wno-invalid-offsetof",
+#     "-Wno-deprecated-builtins",
+#     "-Wno-ignored-pragma-optimize",
 #     "-Wno-missing-field-initializers",
 #     "-Wno-nonportable-include-path",
-#     "-Wno-nontrivial-memcall",
-#     "-Wno-nullability-completeness",
 #     "-Wno-psabi",
-#     "-Wno-thread-safety-reference-return",
 #     "-Wno-trigraphs",
-#     "-Wno-uninitialized-const-pointer",
 #     "-Wno-unneeded-internal-declaration",
-#     "-Wno-unsafe-buffer-usage-in-static-sized-array",
 #     "-Wno-unused-parameter",
-#     "-Wno-zero-length-array",
 #     "-Wshadow",
 #     "-Wstring-conversion",
 #     "-Wtautological-overlap-compare",
@@ -110,9 +83,6 @@ LOCAL_INCLUDES += [
 #     "/bigobj",
 #     "/Brepro",
 #     "/clang:-ffp-contract=off",
-#     "/clang:-fno-math-errno",
-#     "/clang:-fno-strict-overflow",
-#     "/clang:-O2",
 #     "/D__WRL_ENABLE_FUNCTION_STATICS__",
 #     "/FS",
 #     "/GR-",
@@ -120,24 +90,21 @@ LOCAL_INCLUDES += [
 #     "/Gw",
 #     "/Gy",
 #     "/MT",
-#     "/O2",
+#     "/O1",
+#     "/Ob2",
+#     "/Oi",
 #     "/Oy-",
-#     "/std:c++20",
+#     "/std:c++17",
+#     "/TP",
 #     "/utf-8",
 #     "/W4",
 #     "/WX",
 #     "/Z7",
 #     "/Zc:inline",
+#     "/Zc:sizedDealloc-",
 #     "/Zc:twoPhase",
-#     "check-raw-ptr-to-stack-allocated",
-#     "check-stack-allocated",
-#     "check-std-ranges-pipe-operator",
-#     "disable-check-raw-ptr-to-stack-allocated-error",
 #     "find-bad-constructs",
-#     "no-special-treatment-for-oilpanized-paths",
-#     "raw-ptr-exclude-path=../build/config/clang/chrome/test/fuzzing/webidl_fuzzing/",
-#     "raw-ptr-exclude-path=../third_party/dawn/",
-#     "raw-ptr-plugin",
+#     "raw-ref-template-as-trivial-member",
 # ]
 
 SOURCES += [
@@ -149,6 +116,8 @@ USE_LIBS += [
 ]
 
 # LDFLAGS += [
+#     "--color-diagnostics",
+#     "/call-graph-profile-sort:no",
 #     "/CETCOMPAT",
 #     "/DEBUG:GHASH",
 #     "/FIXED:NO",
@@ -157,10 +126,8 @@ USE_LIBS += [
 #     "/OPT:ICF",
 #     "/OPT:NOLLDTAILMERGE",
 #     "/OPT:REF",
-#     "/pdbaltpath:%_PDB%",
-#     "/pdbpagesize:8192",
 #     "/PROFILE",
-#     "/TIMESTAMP:1772341200",
+#     "/TIMESTAMP:1664686800",
 #     "/WX",
 # ]
 

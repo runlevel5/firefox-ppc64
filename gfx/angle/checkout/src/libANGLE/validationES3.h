@@ -14,16 +14,6 @@
 
 namespace gl
 {
-
-void RecordVersionErrorES30(const Context *context, angle::EntryPoint entryPoint);
-
-bool ValidateTexImageFormatCombination(const Context *context,
-                                       angle::EntryPoint entryPoint,
-                                       TextureType target,
-                                       GLenum internalFormat,
-                                       GLenum format,
-                                       GLenum type);
-
 bool ValidateES3TexImageParametersBase(const Context *context,
                                        angle::EntryPoint entryPoint,
                                        TextureTarget target,

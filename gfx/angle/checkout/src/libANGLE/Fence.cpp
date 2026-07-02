@@ -11,7 +11,6 @@
 #include "angle_gl.h"
 
 #include "common/utilities.h"
-#include "libANGLE/Context.h"
 #include "libANGLE/renderer/FenceNVImpl.h"
 #include "libANGLE/renderer/GLImplFactory.h"
 #include "libANGLE/renderer/SyncImpl.h"
@@ -64,9 +63,9 @@ angle::Result FenceNV::finish(const Context *context)
     return angle::Result::Continue;
 }
 
-Sync::Sync(rx::GLImplFactory *factory, SyncID id, const Context *context)
+Sync::Sync(rx::GLImplFactory *factory, GLuint id)
     : RefCountObject(factory->generateSerial(), id),
-      mFence(factory->createSync(context)),
+      mFence(factory->createSync()),
       mLabel(),
       mCondition(GL_SYNC_GPU_COMMANDS_COMPLETE),
       mFlags(0)
@@ -75,11 +74,6 @@ Sync::Sync(rx::GLImplFactory *factory, SyncID id, const Context *context)
 void Sync::onDestroy(const Context *context)
 {
     ASSERT(mFence);
-
-    if (context && context->retainIdUntilObjectDestroyed())
-    {
-        context->onSyncDestroy(this);
-    }
     mFence->onDestroy(context);
 }
 

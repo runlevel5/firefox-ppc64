@@ -4,10 +4,6 @@
 // found in the LICENSE file.
 //
 
-#ifdef UNSAFE_BUFFERS_BUILD
-#    pragma allow_unsafe_buffers
-#endif
-
 #include "libANGLE/AttributeMap.h"
 
 #include "common/debug.h"
@@ -133,7 +129,6 @@ AttributeMap AttributeMap::CreateFromIntArray(const EGLint *attributes)
 {
     AttributeMap map;
     map.mIntPointer = attributes;
-    map.mMapType    = AttributeMapType::Int;
     return map;
 }
 
@@ -142,7 +137,6 @@ AttributeMap AttributeMap::CreateFromAttribArray(const EGLAttrib *attributes)
 {
     AttributeMap map;
     map.mAttribPointer = attributes;
-    map.mMapType       = AttributeMapType::Attrib;
     return map;
 }
 

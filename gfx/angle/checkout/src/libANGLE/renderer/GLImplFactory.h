@@ -16,7 +16,6 @@
 #include "libANGLE/Framebuffer.h"
 #include "libANGLE/Overlay.h"
 #include "libANGLE/Program.h"
-#include "libANGLE/ProgramExecutable.h"
 #include "libANGLE/ProgramPipeline.h"
 #include "libANGLE/Renderbuffer.h"
 #include "libANGLE/Shader.h"
@@ -28,7 +27,6 @@
 namespace gl
 {
 class State;
-class Context;
 }  // namespace gl
 
 namespace rx
@@ -42,7 +40,6 @@ class FramebufferImpl;
 class MemoryObjectImpl;
 class OverlayImpl;
 class PathImpl;
-class ProgramExecutableImpl;
 class ProgramImpl;
 class ProgramPipelineImpl;
 class QueryImpl;
@@ -64,8 +61,6 @@ class GLImplFactory : angle::NonCopyable
     virtual CompilerImpl *createCompiler()                           = 0;
     virtual ShaderImpl *createShader(const gl::ShaderState &data)    = 0;
     virtual ProgramImpl *createProgram(const gl::ProgramState &data) = 0;
-    virtual ProgramExecutableImpl *createProgramExecutable(
-        const gl::ProgramExecutable *executable) = 0;
 
     // Framebuffer creation
     virtual FramebufferImpl *createFramebuffer(const gl::FramebufferState &data) = 0;
@@ -80,14 +75,12 @@ class GLImplFactory : angle::NonCopyable
     virtual BufferImpl *createBuffer(const gl::BufferState &state) = 0;
 
     // Vertex Array creation
-    virtual VertexArrayImpl *createVertexArray(
-        const gl::VertexArrayState &data,
-        const gl::VertexArrayBuffers &vertexArrayBuffers) = 0;
+    virtual VertexArrayImpl *createVertexArray(const gl::VertexArrayState &data) = 0;
 
     // Query and Fence creation
     virtual QueryImpl *createQuery(gl::QueryType type) = 0;
     virtual FenceNVImpl *createFenceNV()               = 0;
-    virtual SyncImpl *createSync(const gl::Context *context) = 0;
+    virtual SyncImpl *createSync()                     = 0;
 
     // Transform Feedback creation
     virtual TransformFeedbackImpl *createTransformFeedback(
@@ -108,10 +101,10 @@ class GLImplFactory : angle::NonCopyable
     // Overlay creation
     virtual OverlayImpl *createOverlay(const gl::OverlayState &state) = 0;
 
-    rx::UniqueSerial generateSerial() { return mSerialFactory.generate(); }
+    rx::Serial generateSerial() { return mSerialFactory.generate(); }
 
   private:
-    rx::UniqueSerialFactory mSerialFactory;
+    rx::SerialFactory mSerialFactory;
 };
 
 inline GLImplFactory::GLImplFactory() = default;

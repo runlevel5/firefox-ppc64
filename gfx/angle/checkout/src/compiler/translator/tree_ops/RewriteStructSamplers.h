@@ -29,10 +29,10 @@ class TCompiler;
 class TIntermBlock;
 class TSymbolTable;
 
-bool RewriteStructSamplers(TCompiler *compiler,
-                           TIntermBlock *root,
-                           TSymbolTable *symbolTable,
-                           int *removedUniformsCountOut);
+[[nodiscard]] bool RewriteStructSamplers(TCompiler *compiler,
+                                         TIntermBlock *root,
+                                         TSymbolTable *symbolTable,
+                                         int *removedUniformsCountOut);
 }  // namespace sh
 
-#endif  // COMPILER_TRANSLATOR_TREEOPS_REWRITESTRUCTSAMPLERS_H_
+#endif  // COMPILER_TRANSLATOR_TREEOPS_VULKAN_REWRITESTRUCTSAMPLERS_H_

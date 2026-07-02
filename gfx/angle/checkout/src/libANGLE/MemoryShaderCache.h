@@ -37,10 +37,11 @@ class MemoryShaderCache final : angle::NonCopyable
 
     // Check the cache, and deserialize and load the shader if found. Evict existing hash if load
     // fails.
-    egl::CacheGetResult getShader(const Context *context,
-                                  Shader *shader,
-                                  const egl::BlobCache::Key &shaderHash,
-                                  angle::JobResultExpectancy resultExpectancy);
+    angle::Result getShader(const Context *context,
+                            Shader *shader,
+                            const ShCompileOptions &compileOptions,
+                            const ShCompilerInstance &compilerInstance,
+                            egl::BlobCache::Key *hashOut);
 
     // Empty the cache.
     void clear();
@@ -50,6 +51,8 @@ class MemoryShaderCache final : angle::NonCopyable
 
   private:
     egl::BlobCache &mBlobCache;
+
+    std::mutex mHistogramMutex;
 };
 
 }  // namespace gl

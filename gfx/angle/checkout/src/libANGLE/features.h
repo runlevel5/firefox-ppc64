@@ -9,6 +9,9 @@
 
 #include "common/platform.h"
 
+#define ANGLE_DISABLED 0
+#define ANGLE_ENABLED 1
+
 // Feature defaults
 
 // Direct3D9EX
@@ -16,22 +19,22 @@
 // D3D9Ex interfaces.  In order to get debug pixel to work on a Vista/Win 7
 // machine, define "ANGLE_D3D9EX=0" in your project file.
 #if !defined(ANGLE_D3D9EX)
-#    define ANGLE_D3D9EX 1
+#    define ANGLE_D3D9EX ANGLE_ENABLED
 #endif
 
 // Vsync
 // ENABLED allows Vsync to be configured at runtime
 // DISABLED disallows Vsync
 #if !defined(ANGLE_VSYNC)
-#    define ANGLE_VSYNC 1
+#    define ANGLE_VSYNC ANGLE_ENABLED
 #endif
 
 // Append HLSL assembly to shader debug info. Defaults to enabled in Debug and off in Release.
 #if !defined(ANGLE_APPEND_ASSEMBLY_TO_SHADER_DEBUG_INFO)
 #    if !defined(NDEBUG)
-#        define ANGLE_APPEND_ASSEMBLY_TO_SHADER_DEBUG_INFO 1
+#        define ANGLE_APPEND_ASSEMBLY_TO_SHADER_DEBUG_INFO ANGLE_ENABLED
 #    else
-#        define ANGLE_APPEND_ASSEMBLY_TO_SHADER_DEBUG_INFO 0
+#        define ANGLE_APPEND_ASSEMBLY_TO_SHADER_DEBUG_INFO ANGLE_DISABLED
 #    endif  // !defined(NDEBUG)
 #endif      // !defined(ANGLE_APPEND_ASSEMBLY_TO_SHADER_DEBUG_INFO)
 
@@ -41,7 +44,13 @@
 // ENABLED validate that precision for uniforms match between vertex and fragment shaders
 // DISABLED allow precision for uniforms to differ between vertex and fragment shaders
 #if !defined(ANGLE_PROGRAM_LINK_VALIDATE_UNIFORM_PRECISION)
-#    define ANGLE_PROGRAM_LINK_VALIDATE_UNIFORM_PRECISION 1
+#    define ANGLE_PROGRAM_LINK_VALIDATE_UNIFORM_PRECISION ANGLE_ENABLED
 #endif
+
+// Controls if our threading code uses std::async or falls back to single-threaded operations.
+// Note that we can't easily use std::async in UWPs due to UWP threading restrictions.
+#if !defined(ANGLE_STD_ASYNC_WORKERS) && !defined(ANGLE_ENABLE_WINDOWS_UWP)
+#    define ANGLE_STD_ASYNC_WORKERS ANGLE_ENABLED
+#endif  // !defined(ANGLE_STD_ASYNC_WORKERS) && & !defined(ANGLE_ENABLE_WINDOWS_UWP)
 
 #endif  // LIBANGLE_FEATURES_H_
