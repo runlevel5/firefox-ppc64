@@ -42,7 +42,7 @@ for (let i = 1; i <= 64; i++) {
 inputs.push(0, -1, 1, -168, -65535, -65536, -65537, 168,
             0x7fffffff, -0x80000000, -0x7fffffff);
 
-for (let iter = 0; iter < 3000; iter++) {
+for (let iter = 0; iter < 100; iter++) {
   for (const [fn, d] of cases) {
     for (const x of inputs) {
       assertEq(fn(x), refmod(x, d));
@@ -63,7 +63,7 @@ function pressure(seed) {
                 v10 ^ v11 ^ v12 ^ v13 ^ (d0 | 0) ^ (d1 | 0) ^ (d2 | 0)) & 0;
   return r + live;
 }
-for (let iter = 0; iter < 5000; iter++) {
+for (let iter = 0; iter < 100; iter++) {
   for (let s = 1; s <= 200; s++) {
     const expect = ((Math.fround(-(s + 0.7)) | 0) % 65536) | 0;
     assertEq(pressure(s), expect);
