@@ -155,20 +155,22 @@ bool js::jit::EnterInterpreterEntryTrampoline(uint8_t* code, JSContext* cx,
     __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
   // PPC64 ELFv1: |code| is a raw JIT entry, but the compiler emits every
   // function-pointer call as a descriptor dereference. Wrap it in a synthetic
-  // descriptor; see JitRuntime::enterJit.
-  static struct alignas(8) Descriptor {
+  // descriptor; see JitRuntime::enterJit. The descriptor is per-call (the
+  // entry differs per script and runtimes run concurrently), so it lives on
+  // the stack; the asm barrier forces it to be stored before the call, since
+  // the compiler cannot see the dereference through the cast.
+  struct alignas(8) Descriptor {
     void* entry;
     void* toc;
     void* env;
   } desc;
-  if (!desc.toc) {
-    void* toc;
-    asm volatile("mr %0, 2" : "=r"(toc));
-    desc.env = nullptr;
-    desc.toc = toc;
-  }
+  void* toc;
+  asm volatile("mr %0, 2" : "=r"(toc));
   desc.entry = code;
+  desc.toc = toc;
+  desc.env = nullptr;
   auto funcPtr = reinterpret_cast<EnterTrampolineCodePtr>(&desc);
+  asm volatile("" : : "r"(&desc) : "memory");
 #else
   auto funcPtr = JS_DATA_TO_FUNC_PTR(EnterTrampolineCodePtr, code);
 #endif

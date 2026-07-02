@@ -139,6 +139,18 @@ class JitRuntime {
   // Trampoline for entering JIT code.
   WriteOnceData<uint32_t> enterJITOffset_{0};
 
+#if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
+    __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // ELFv1 function descriptor for this runtime's enterJIT trampoline; see
+  // enterJit().
+  struct alignas(8) EnterJitDescriptor {
+    void* entry = nullptr;
+    void* toc = nullptr;
+    void* env = nullptr;
+  };
+  mutable EnterJitDescriptor enterJitDesc_;
+#endif
+
   // Generic bailout table; used if the bailout table overflows.
   WriteOnceData<uint32_t> bailoutHandlerOffset_{0};
 
@@ -387,21 +399,18 @@ class JitRuntime {
     // prologue bytes as the descriptor. Build a synthetic descriptor
     // pointing at the trampoline; capture libmozjs's TOC on first use
     // so the trampoline can call back into libmozjs C++ with r2 valid.
-    static struct alignas(8) Descriptor {
-      void* entry;
-      void* toc;
-      void* env;
-    } desc;
-    if (!desc.entry) {
+    // The descriptor is a member, not a function-local static: each
+    // runtime (workers included) has its own trampoline code, and a
+    // process-wide descriptor would keep pointing at the first
+    // initializing runtime's trampoline after that runtime dies.
+    if (!enterJitDesc_.entry) {
       void* toc;
       asm volatile("mr %0, 2" : "=r"(toc));
-      desc.toc = toc;
-      desc.env = nullptr;
-      // Set entry last so concurrent readers see a fully-initialised
-      // descriptor (single 8-byte aligned store on PPC64 is atomic).
-      desc.entry = trampolineCode(enterJITOffset_).value;
+      enterJitDesc_.toc = toc;
+      enterJitDesc_.env = nullptr;
+      enterJitDesc_.entry = trampolineCode(enterJITOffset_).value;
     }
-    return reinterpret_cast<EnterJitCode>(&desc);
+    return reinterpret_cast<EnterJitCode>(&enterJitDesc_);
 #else
     return JS_DATA_TO_FUNC_PTR(EnterJitCode,
                                trampolineCode(enterJITOffset_).value);
