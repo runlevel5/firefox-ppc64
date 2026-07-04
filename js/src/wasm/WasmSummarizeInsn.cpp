@@ -1823,6 +1823,8 @@ Maybe<TrapMachineInsn> SummarizeTrapInstruction(const uint8_t* insnAddr) {
         return Some(TrapMachineInsn::Load16);
       case 534:  // lwbrx (byte-reverse word)
         return Some(TrapMachineInsn::Load32);
+      case 532:  // ldbrx (byte-reverse doubleword)
+        return Some(TrapMachineInsn::Load64);
 
       // Indexed stores.
       case 215:  // stbx
@@ -1841,6 +1843,8 @@ Maybe<TrapMachineInsn> SummarizeTrapInstruction(const uint8_t* insnAddr) {
         return Some(TrapMachineInsn::Store16);
       case 662:  // stwbrx (byte-reverse word store)
         return Some(TrapMachineInsn::Store32);
+      case 660:  // stdbrx (byte-reverse doubleword store)
+        return Some(TrapMachineInsn::Store64);
 
       // VSX SIMD indexed load/store (XX1-form, same major opcode 31).
       case 268:  // lxvx (POWER9)

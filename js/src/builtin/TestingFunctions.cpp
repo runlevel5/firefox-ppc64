@@ -601,6 +601,11 @@ static bool GetBuildConfiguration(JSContext* cx, unsigned argc, Value* vp) {
     return false;
   }
 
+  value = BooleanValue(MOZ_BIG_ENDIAN());
+  if (!JS_SetProperty(cx, info, "big-endian", value)) {
+    return false;
+  }
+
 #ifdef ENABLE_DECORATORS
   value = BooleanValue(true);
 #else
@@ -1234,9 +1239,18 @@ static bool WasmGlobalFromArrayBuffer(JSContext* cx, unsigned argc, Value* vp) {
     return false;
   }
 
-  // Copy the bytes from buffer into a tagged val
+  // Copy the bytes from buffer into a tagged val. The buffer holds the
+  // value's little-endian image; scalar Val cells are native-endian.
+  uint8_t bytes[16];
+  MOZ_RELEASE_ASSERT(valType.size() <= sizeof(bytes));
+  memcpy(bytes, buffer->dataPointer(), valType.size());
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  if (valType.kind() != wasm::ValType::V128) {
+    std::reverse(bytes, bytes + valType.size());
+  }
+#endif
   wasm::RootedVal val(cx);
-  val.get().initFromRootedLocation(valType, buffer->dataPointer());
+  val.get().initFromRootedLocation(valType, bytes);
 
   // Create the global object
   RootedObject proto(

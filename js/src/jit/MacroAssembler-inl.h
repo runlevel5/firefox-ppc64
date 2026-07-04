@@ -128,7 +128,17 @@ CodeOffset MacroAssembler::call(const wasm::CallSiteDesc& desc,
                                 wasm::SymbolicAddress imm) {
   MOZ_ASSERT(wasm::NeedsBuiltinThunk(imm),
              "only for functions which may appear in profiler");
+#ifdef JS_CODEGEN_PPC64
+  // On PPC64 a wasm-module SymbolicAddress is patched (StaticallyLink ->
+  // SymbolicAddressTarget) to a builtin thunk's raw wasm-ABI entry when it needs
+  // a thunk, or to a C function pointer (an ELFv1 descriptor on big-endian)
+  // otherwise. Route through callWasmSymbolic, which calls the former straight
+  // and dereferences the latter -- unlike the bare call(SymbolicAddress) used by
+  // stubs, which always targets a C function.
+  CodeOffset raOffset = callWasmSymbolic(imm);
+#else
   CodeOffset raOffset = call(imm);
+#endif
   append(desc, raOffset);
   return raOffset;
 }

@@ -6242,6 +6242,12 @@ bool BaseCompiler::emitGetGlobal() {
       RegV128 rv = needV128();
       ScratchPtr tmp(*this);
       masm.loadUnalignedSimd128(addressOfGlobalVar(global, tmp), rv);
+#if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
+    __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      // The global cell holds the little-endian image; byte-reverse to the
+      // canonical SIMD register order.
+      masm.byteReverseSimd128(rv, rv);
+#endif
       pushV128(rv);
       break;
     }
@@ -6316,6 +6322,12 @@ bool BaseCompiler::emitSetGlobal() {
     case ValType::V128: {
       RegV128 rv = popV128();
       ScratchPtr tmp(*this);
+#if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
+    __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      // The global cell holds the little-endian image; byte-reverse the
+      // canonical SIMD register before storing. rv is dead after the store.
+      masm.byteReverseSimd128(rv, rv);
+#endif
       masm.storeUnalignedSimd128(rv, addressOfGlobalVar(global, tmp));
       freeV128(rv);
       break;

@@ -52,16 +52,17 @@ let ins = wasmEvalText(`(module
     )
 )`, {"": {mem,}});
 
+// Wasm memory is little-endian, so access it with explicit byte order.
 function check(off, count, value) {
-    const arr = new Int32Array(mem.buffer);
+    const dv = new DataView(mem.buffer);
     for (let i = 0; i < count; i++) {
-        assertEq(arr[(off >> 2) + i], value);
+        assertEq(dv.getInt32(off + i * 4, true), value);
     }
 }
 function fill(off, count, value) {
-    const arr = new Int32Array(mem.buffer);
+    const dv = new DataView(mem.buffer);
     for (let i = 0; i < count; i++) {
-        arr[i] = value;
+        dv.setInt32(i * 4, value, true);
     }
 }
 

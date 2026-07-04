@@ -566,8 +566,8 @@ void MacroAssembler::createFunctionClone(Register result, Register canonical,
            Address(result, NativeObject::offsetOfElements()));
 
   // Initialize FlagsAndArgCountSlot.
-  storeValue(Address(canonical, JSFunction::offsetOfFlagsAndArgCount()),
-             Address(result, JSFunction::offsetOfFlagsAndArgCount()), temp);
+  storeValue(Address(canonical, JSFunction::offsetOfFlagsAndArgCountSlot()),
+             Address(result, JSFunction::offsetOfFlagsAndArgCountSlot()), temp);
 
   // Initialize NativeFuncOrInterpretedEnvSlot.
   storeValue(JSVAL_TYPE_OBJECT, envChain,
@@ -4869,7 +4869,15 @@ void MacroAssembler::callWithABINoProfiler(void* fun, ABIType result,
   }
 #endif
 
+#if defined(JS_CODEGEN_PPC64) && defined(_CALL_ELF) && _CALL_ELF == 1
+  // ELFv1: |fun| is a C function pointer, i.e. the address of a 24-byte
+  // descriptor, not a code entry. Route through the PPC64 descriptor dance
+  // rather than jumping to the descriptor as code (which call(ImmPtr) would do).
+  movePtr(ImmPtr(fun), SecondScratchReg);
+  callABIDescriptorELFv1(SecondScratchReg);
+#else
   call(ImmPtr(fun));
+#endif
 
   callWithABIPost(stackAdjust, result);
 
@@ -5318,7 +5326,9 @@ void MacroAssembler::minMaxArrayNumber(Register array, FloatRegister result,
 void MacroAssembler::loadRegExpLastIndex(Register regexp, Register string,
                                          Register lastIndex,
                                          Label* notFoundZeroLastIndex) {
-  Address flagsSlot(regexp, RegExpObject::offsetOfFlags());
+  // The flags are a boxed Int32Value tested with 32-bit loads; address the
+  // payload word (see RegExpObject::offsetOfFlagsForJit32).
+  Address flagsSlot(regexp, RegExpObject::offsetOfFlagsForJit32());
   Address lastIndexSlot(regexp, RegExpObject::offsetOfLastIndex());
   Address stringLength(string, JSString::offsetOfLength());
 
