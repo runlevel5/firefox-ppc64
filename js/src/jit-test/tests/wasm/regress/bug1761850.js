@@ -28,12 +28,18 @@ for (let ty of ['f32', 'f64']) {
             )
             (data (i32.const 128) "\\00\\01"))`));
         const instance = new WebAssembly.Instance(module);
-        const arr = new (ty == 'f32' ? Float32Array : Float64Array)(instance.exports.memory.buffer);
+        // Wasm memory is little-endian; use a DataView with explicit byte
+        // order so the test is endian-neutral.
+        const view = new DataView(instance.exports.memory.buffer);
+        const size = ty == 'f32' ? 4 : 8;
+        const get = ty == 'f32' ? view.getFloat32.bind(view) : view.getFloat64.bind(view);
+        const set = ty == 'f32' ? view.setFloat32.bind(view) : view.setFloat64.bind(view);
         for (let [a, b] of cross(
             [0, 1, -1e100, Infinity, -Infinity, 1e100, -1e-10, 1/-Infinity, NaN]
         )) {
-            arr[0] = a; arr[1] = b;
-            assertEq(instance.exports.test(), floatOps[op](arr[0], arr[1]))
+            set(0, a, true); set(size, b, true);
+            assertEq(instance.exports.test(),
+                     floatOps[op](get(0, true), get(size, true)))
         }
     }
 }
@@ -65,15 +71,21 @@ for (let [ty, signed] of [['i32', true], ['i32', false], ['i64', true], ['i64', 
             )
             (data (i32.const 128) "\\00\\01"))`));
         const instance = new WebAssembly.Instance(module);
-        const arr = new (ty == 'i32' ? (signed ? Int32Array : Uint32Array) :
-                                       (signed ? BigInt64Array : BigUint64Array))
-                        (instance.exports.memory.buffer);
+        // Wasm memory is little-endian; use a DataView with explicit byte
+        // order so the test is endian-neutral.
+        const view = new DataView(instance.exports.memory.buffer);
+        const size = ty == 'i32' ? 4 : 8;
+        const get = ty == 'i32' ? (signed ? view.getInt32 : view.getUint32).bind(view)
+                                : (signed ? view.getBigInt64 : view.getBigUint64).bind(view);
+        const set = ty == 'i32' ? (signed ? view.setInt32 : view.setUint32).bind(view)
+                                : (signed ? view.setBigInt64 : view.setBigUint64).bind(view);
         const c = ty == 'i32' ? (a => a|0) : BigInt;
         for (let [a, b] of cross(
             [c(0), ~c(0), c(1), ~c(1), c(1) << c(8), ~c(1) << c(12)]
         )) {
-            arr[0] = a; arr[1] = b;
-            assertEq(instance.exports.test(), intOps[op](arr[0], arr[1]))
+            set(0, a, true); set(size, b, true);
+            assertEq(instance.exports.test(),
+                     intOps[op](get(0, true), get(size, true)))
         }
     }
 }

@@ -192,6 +192,16 @@ class TracingBuffer {
     // No magic hidden work allowed here - we are just reducing duplicate code
     // serializing integers and floats.
     static_assert(std::is_arithmetic_v<T>);
+    if constexpr (std::is_floating_point_v<T> && sizeof(T) > 1) {
+      // mozilla::byteswap (like std::byteswap) is integer-only: passing a float
+      // truncates it to an integer before swapping. Swap the raw bit pattern via
+      // an unsigned integer of the same width instead. (No-op on little-endian.)
+      std::conditional_t<sizeof(T) == 4, uint32_t, uint64_t> bits;
+      memcpy(&bits, &val, sizeof(T));
+      bits = mozilla::NativeEndian::swapToLittleEndian(bits);
+      writeBytes(reinterpret_cast<const uint8_t*>(&bits), sizeof(bits));
+      return;
+    }
     if constexpr (sizeof(T) > 1) {
       val = mozilla::NativeEndian::swapToLittleEndian(val);
     }
@@ -323,14 +333,27 @@ class TracingBuffer {
     uncommittedReadHead_ += length;
   }
 
+  // byteswap is integer-only, so swap a float's raw bit pattern through an
+  // unsigned integer of the same width rather than the value itself (which would
+  // truncate it to an integer). No-op on little-endian.
+  template <typename T>
+  static void swapFromLittleEndianInPlace(T* val) {
+    if constexpr (std::is_floating_point_v<T> && sizeof(T) > 1) {
+      std::conditional_t<sizeof(T) == 4, uint32_t, uint64_t> bits;
+      memcpy(&bits, val, sizeof(T));
+      bits = mozilla::NativeEndian::swapFromLittleEndian(bits);
+      memcpy(val, &bits, sizeof(T));
+    } else if constexpr (sizeof(T) > 1) {
+      *val = mozilla::NativeEndian::swapFromLittleEndian(*val);
+    }
+  }
+
   template <typename T>
   void read(T* val) {
     static_assert(std::is_arithmetic_v<T>);
 
     readBytes(reinterpret_cast<uint8_t*>(val), sizeof(T));
-    if constexpr (sizeof(T) > 1) {
-      *val = mozilla::NativeEndian::swapFromLittleEndian(*val);
-    }
+    swapFromLittleEndianInPlace(val);
   }
 
   template <typename T>
@@ -338,9 +361,7 @@ class TracingBuffer {
     static_assert(std::is_arithmetic_v<T>);
 
     readBytesAtOffset(reinterpret_cast<uint8_t*>(val), sizeof(T), offset);
-    if constexpr (sizeof(T) > 1) {
-      *val = mozilla::NativeEndian::swapFromLittleEndian(*val);
-    }
+    swapFromLittleEndianInPlace(val);
   }
 
   // Reads a string from our buffer into the stringBuffer. Converts everything
