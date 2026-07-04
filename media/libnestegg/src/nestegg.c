@@ -1117,7 +1117,10 @@ ne_read_float(ne_io * io, double * val, uint64_t length)
   union {
     uint64_t u;
     struct {
-#if defined(__FLOAT_WORD_ORDER__) && __FLOAT_WORD_ORDER__ == __ORDER_BIG_ENDIAN__
+#if (defined(__FLOAT_WORD_ORDER__) && \
+     __FLOAT_WORD_ORDER__ == __ORDER_BIG_ENDIAN__) || \
+    (!defined(__FLOAT_WORD_ORDER__) && defined(__BYTE_ORDER__) && \
+     __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
       uint32_t _pad;
       float f;
 #else
