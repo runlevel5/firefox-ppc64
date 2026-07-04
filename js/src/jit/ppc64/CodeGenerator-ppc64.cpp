@@ -1543,7 +1543,12 @@ void CodeGenerator::visitWrapInt64ToInt32(LWrapInt64ToInt32* lir) {
 
   if (lir->mir()->bottomHalf()) {
     if (input.value().isMemory()) {
-      masm.load32(ToAddress(input), output);
+      Address addr = ToAddress(input);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      // The low word of the spilled 64-bit value is at byte offset +4.
+      addr = Address(addr.base, addr.offset + sizeof(int32_t));
+#endif
+      masm.load32(addr, output);
     } else {
       masm.move64To32(ToRegister64(input), output);
     }
@@ -1906,12 +1911,26 @@ void CodeGenerator::visitAsmJSStoreHeap(LAsmJSStoreHeap* ins) {
 void CodeGenerator::visitWasmStackArg(LWasmStackArg* ins) {
   const MWasmStackArg* mir = ins->mir();
   if (ins->arg()->isConstant()) {
-    masm.storePtr(ImmWord(ToInt32(ins->arg())),
-                  Address(StackPointer, mir->spOffset()));
+    // An i32 stack arg must be stored as 32 bits: a 64-bit store places the
+    // value in the low half of the 8-byte slot, which on big-endian is the
+    // high address word, while the callee reads a 32-bit value at the slot
+    // offset (the low address word) and would see 0.
+    if (mir->input()->type() == MIRType::Int32) {
+      masm.store32(Imm32(ToInt32(ins->arg())),
+                   Address(StackPointer, mir->spOffset()));
+    } else {
+      masm.storePtr(ImmWord(ToInt32(ins->arg())),
+                    Address(StackPointer, mir->spOffset()));
+    }
   } else {
     if (ins->arg()->isGeneralReg()) {
-      masm.storePtr(ToRegister(ins->arg()),
-                    Address(StackPointer, mir->spOffset()));
+      if (mir->input()->type() == MIRType::Int32) {
+        masm.store32(ToRegister(ins->arg()),
+                     Address(StackPointer, mir->spOffset()));
+      } else {
+        masm.storePtr(ToRegister(ins->arg()),
+                      Address(StackPointer, mir->spOffset()));
+      }
     } else if (mir->input()->type() == MIRType::Double) {
       masm.storeDouble(ToFloatRegister(ins->arg()),
                        Address(StackPointer, mir->spOffset()));
@@ -3107,7 +3126,9 @@ void CodeGenerator::visitWasmPermuteSimd128(LWasmPermuteSimd128* ins) {
       break;
     }
     case SimdPermuteOp::BROADCAST_16x8: {
-      uint8_t lane = reinterpret_cast<const int8_t*>(ctrl.bytes())[0];
+      // control has int16 halfword indices; a byte-sized read of element 0
+      // would pick up the wrong half on big-endian.
+      uint8_t lane = uint8_t(ctrl.asInt16x8()[0] & 0x7);
       for (int i = 0; i < 8; i++) {
         rawLanes[i * 2] = lane * 2;
         rawLanes[i * 2 + 1] = lane * 2 + 1;

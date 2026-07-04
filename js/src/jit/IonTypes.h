@@ -334,6 +334,11 @@ class SimdConstant {
   static SimdConstant SplatX8(int16_t v) {
     SimdConstant cst;
     cst.type_ = Int16x8;
+    // SimdConstant bytes are a little-endian image (matching CreateX* from a
+    // wasm constant); store v little-endian so it is correct on big-endian too.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    v = int16_t(__builtin_bswap16(uint16_t(v)));
+#endif
     std::fill_n(cst.u.i16x8, 8, v);
     return cst;
   }
@@ -346,6 +351,9 @@ class SimdConstant {
   static SimdConstant SplatX4(int32_t v) {
     SimdConstant cst;
     cst.type_ = Int32x4;
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    v = int32_t(__builtin_bswap32(uint32_t(v)));
+#endif
     std::fill_n(cst.u.i32x4, 4, v);
     return cst;
   }
@@ -358,6 +366,9 @@ class SimdConstant {
   static SimdConstant SplatX2(int64_t v) {
     SimdConstant cst;
     cst.type_ = Int64x2;
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    v = int64_t(__builtin_bswap64(uint64_t(v)));
+#endif
     std::fill_n(cst.u.i64x2, 2, v);
     return cst;
   }
@@ -370,6 +381,12 @@ class SimdConstant {
   static SimdConstant SplatX4(float v) {
     SimdConstant cst;
     cst.type_ = Float32x4;
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    uint32_t bits;
+    memcpy(&bits, &v, sizeof(bits));
+    bits = __builtin_bswap32(bits);
+    memcpy(&v, &bits, sizeof(v));
+#endif
     std::fill_n(cst.u.f32x4, 4, v);
     return cst;
   }
@@ -382,6 +399,12 @@ class SimdConstant {
   static SimdConstant SplatX2(double v) {
     SimdConstant cst;
     cst.type_ = Float64x2;
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    uint64_t bits;
+    memcpy(&bits, &v, sizeof(bits));
+    bits = __builtin_bswap64(bits);
+    memcpy(&v, &bits, sizeof(v));
+#endif
     std::fill_n(cst.u.f64x2, 2, v);
     return cst;
   }

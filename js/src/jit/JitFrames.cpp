@@ -75,7 +75,9 @@ static inline int32_t ReadFrameInt32Slot(JitFrameLayout* fp, int32_t slot) {
 }
 
 static inline bool ReadFrameBooleanSlot(JitFrameLayout* fp, int32_t slot) {
-  return *(bool*)AddressOfFrameSlot(fp, slot);
+  // The slot holds a boolean spilled as an int32; a bool-sized read would
+  // see the zero high byte on big-endian.
+  return *(int32_t*)AddressOfFrameSlot(fp, slot) != 0;
 }
 
 static uint32_t NumArgAndLocalSlots(const InlineFrameIterator& frame) {

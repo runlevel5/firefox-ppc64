@@ -507,6 +507,13 @@ enum PPCOpcodes {
   // equivalent of lwzx + extsw.
   PPC_lwax = 0x7C0002AA,
   PPC_lwzx = 0x7C00002E,
+  // Byte-reverse (little-endian) indexed load/store. Used for wasm's
+  // spec-mandated little-endian linear memory on big-endian hosts (opcode 31).
+  PPC_lhbrx = 0x7C00062C,   // XO=790
+  PPC_lwbrx = 0x7C00042C,   // XO=534
+  PPC_ldbrx = 0x7C000428,   // XO=532 (POWER7+)
+  PPC_sthbrx = 0x7C00072C,  // XO=918
+  PPC_stdbrx = 0x7C000528,  // XO=660 (POWER7+)
   PPC_mcrxrx = 0x7C000480,
   PPC_mcrfs = 0xFC000080,
   PPC_mfocrf = 0x7C100026,
@@ -773,6 +780,7 @@ enum PPCOpcodes {
   PPC_xsmaxdp = 0xF0000400,
   PPC_xsmindp = 0xF0000440,
   PPC_xxbrd = 0xF017076C,
+  PPC_xxbrq = 0xF01F076C,  // VSX vector byte-reverse quadword (whole 16 bytes)
   PPC_xvabsdp = 0xF0000764,
   PPC_xvabssp = 0xF0000664,
   PPC_xvadddp = 0xF0000300,
@@ -1574,6 +1582,11 @@ class Assembler : public AssemblerShared {
   BufferOffset as_stbcx(Register rd, Register ra, Register rb);
   BufferOffset as_stwx(Register rd, Register ra, Register rb);
   BufferOffset as_stwbrx(Register rd, Register ra, Register rb);
+  BufferOffset as_lhbrx(Register rd, Register ra, Register rb);
+  BufferOffset as_lwbrx(Register rd, Register ra, Register rb);
+  BufferOffset as_ldbrx(Register rd, Register ra, Register rb);
+  BufferOffset as_sthbrx(Register rd, Register ra, Register rb);
+  BufferOffset as_stdbrx(Register rd, Register ra, Register rb);
   BufferOffset as_sthx(Register rd, Register ra, Register rb);
   BufferOffset as_sthcx(Register rd, Register ra, Register rb);
   BufferOffset as_stdx(Register rd, Register ra, Register rb);
@@ -1655,6 +1668,7 @@ class Assembler : public AssemblerShared {
   BufferOffset as_mtvsrwz(FloatRegister xs, Register ra);
   BufferOffset as_mtvsrws(FloatRegister xs, Register ra);
   BufferOffset as_xxbrd(FloatRegister xt, FloatRegister xb);
+  BufferOffset as_xxbrq(FloatRegister xt, FloatRegister xb);
   // POWER9 scalar VSX max/min with Java/JavaScript semantics (matches
   // ECMA-262 Math.max / Math.min). Operate on FPR-space (encoding 0..31).
   BufferOffset as_xsmaxjdp(FloatRegister xt, FloatRegister xa,

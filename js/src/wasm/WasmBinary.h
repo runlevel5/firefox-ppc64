@@ -210,9 +210,28 @@ class Encoder {
     return writeFixedU8(i);
   }
   [[nodiscard]] bool writeFixedU8(uint8_t i) { return write<uint8_t>(i); }
-  [[nodiscard]] bool writeFixedU32(uint32_t i) { return write<uint32_t>(i); }
-  [[nodiscard]] bool writeFixedF32(float f) { return write<float>(f); }
-  [[nodiscard]] bool writeFixedF64(double d) { return write<double>(d); }
+  [[nodiscard]] bool writeFixedU32(uint32_t i) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    i = __builtin_bswap32(i);
+#endif
+    return write<uint32_t>(i);
+  }
+  [[nodiscard]] bool writeFixedF32(float f) {
+    uint32_t u;
+    memcpy(&u, &f, sizeof(f));
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    u = __builtin_bswap32(u);
+#endif
+    return write<uint32_t>(u);
+  }
+  [[nodiscard]] bool writeFixedF64(double d) {
+    uint64_t u;
+    memcpy(&u, &d, sizeof(d));
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    u = __builtin_bswap64(u);
+#endif
+    return write<uint64_t>(u);
+  }
 
   // Variable-length encodings that all use LEB128.
 
@@ -480,10 +499,40 @@ class Decoder {
   // Fixed-size encoding operations simply copy the literal bytes (without
   // attempting to align).
 
+  // The wasm binary format is little-endian. On big-endian hosts the
+  // fixed-width multi-byte reads must byte-swap to recover the encoded value.
   [[nodiscard]] bool readFixedU8(uint8_t* i) { return read<uint8_t>(i); }
-  [[nodiscard]] bool readFixedU32(uint32_t* u) { return read<uint32_t>(u); }
-  [[nodiscard]] bool readFixedF32(float* f) { return read<float>(f); }
-  [[nodiscard]] bool readFixedF64(double* d) { return read<double>(d); }
+  [[nodiscard]] bool readFixedU32(uint32_t* u) {
+    if (!read<uint32_t>(u)) {
+      return false;
+    }
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    *u = __builtin_bswap32(*u);
+#endif
+    return true;
+  }
+  [[nodiscard]] bool readFixedF32(float* f) {
+    uint32_t u;
+    if (!read<uint32_t>(&u)) {
+      return false;
+    }
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    u = __builtin_bswap32(u);
+#endif
+    memcpy(f, &u, sizeof(*f));
+    return true;
+  }
+  [[nodiscard]] bool readFixedF64(double* d) {
+    uint64_t u;
+    if (!read<uint64_t>(&u)) {
+      return false;
+    }
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    u = __builtin_bswap64(u);
+#endif
+    memcpy(d, &u, sizeof(*d));
+    return true;
+  }
 #ifdef ENABLE_WASM_SIMD
   [[nodiscard]] bool readFixedV128(V128* d) {
     for (unsigned i = 0; i < 16; i++) {
