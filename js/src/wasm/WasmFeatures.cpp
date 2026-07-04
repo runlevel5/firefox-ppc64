@@ -244,9 +244,14 @@ bool wasm::ThreadsAvailable(JSContext* cx) {
 }
 
 bool wasm::HasPlatformSupport() {
+#ifndef JS_CODEGEN_PPC64
+  // PPC64 is the only big-endian target with the byte-swapping linear-memory
+  // support needed for wasm's little-endian memory model; other big-endian
+  // targets are unsupported.
   if constexpr (std::endian::native != std::endian::little) {
     return false;
   }
+#endif
 
   if (!HasJitBackend()) {
     return false;

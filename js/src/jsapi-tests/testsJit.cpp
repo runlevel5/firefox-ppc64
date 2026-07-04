@@ -95,6 +95,15 @@ bool ExecuteJit(JSContext* cx, js::jit::MacroAssembler& masm) {
 
   JS::AutoSuppressGCAnalysis suppress;
   EnterTest test = code->as<EnterTest>();
+#if defined(JS_CODEGEN_PPC64) && defined(_CALL_ELF) && _CALL_ELF == 1
+  // PPC64 ELFv1: a C function pointer is the address of a {entry, toc, env}
+  // descriptor, not a code entry, so calling the raw JIT entry would read the
+  // prologue as descriptor data. Build one on the stack, as the production
+  // entry points do; it must outlive the call below.
+  js::jit::ELFv1FunctionDescriptor elfv1Desc;
+  test = js::jit::MakeELFv1Call<EnterTest>(reinterpret_cast<void*>(test),
+                                           &elfv1Desc);
+#endif
 
 #if defined(JS_CODEGEN_ARM64) && !defined(JS_SIMULATOR_ARM64)
   {

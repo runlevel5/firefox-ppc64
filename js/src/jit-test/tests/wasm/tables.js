@@ -184,9 +184,10 @@ var e2 = new Instance(m, {a:{mem:mem2, tbl, imp() {return 10} }}).exports;
 tbl.set(1, e2.call);
 var mem3 = new Memory({initial:1});
 var e3 = new Instance(m, {a:{mem:mem3, tbl, imp() {return 100} }}).exports;
-new Int32Array(mem1.buffer)[0] = 1000;
-new Int32Array(mem2.buffer)[0] = 10000;
-new Int32Array(mem3.buffer)[0] = 100000;
+// Wasm memory is little-endian, so write with explicit byte order.
+new DataView(mem1.buffer).setInt32(0, 1000, true);
+new DataView(mem2.buffer).setInt32(0, 10000, true);
+new DataView(mem3.buffer).setInt32(0, 100000, true);
 assertEq(e3.call(2), 111111);
 failTime = true;
 assertErrorMessage(() => e3.call(2), Error, "ohai");

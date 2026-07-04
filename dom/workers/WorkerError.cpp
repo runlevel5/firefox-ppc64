@@ -20,6 +20,7 @@
 #include "mozilla/ArrayAlgorithm.h"
 #include "mozilla/ArrayIterator.h"
 #include "mozilla/Assertions.h"
+#include "mozilla/AsyncEventDispatcher.h"
 #include "mozilla/BasicEvents.h"
 #include "mozilla/DOMEventTargetHelper.h"
 #include "mozilla/ErrorResult.h"
@@ -27,6 +28,7 @@
 #include "mozilla/RefPtr.h"
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/BindingUtils.h"
+#include "mozilla/dom/Document.h"
 #include "mozilla/dom/ErrorEvent.h"
 #include "mozilla/dom/ErrorEventBinding.h"
 #include "mozilla/dom/Event.h"
@@ -107,7 +109,11 @@ class ReportErrorRunnable final : public WorkerParentDebuggeeRunnable {
         (void)NS_WARN_IF(!actor);
 
         if (actor) {
-          actor->ErrorPropagationOnMainThread(nullptr, false);
+          if (mReport->mErrorNumber == JSMSG_BIG_ENDIAN_UNSUPPORTED) {
+            actor->ErrorPropagationOnMainThread(mReport.get(), true);
+          } else {
+            actor->ErrorPropagationOnMainThread(nullptr, false);
+          }
         }
 
         return true;
@@ -367,10 +373,13 @@ void WorkerErrorReport::LogErrorToConsole(JSContext* aCx,
   ErrorData errorData(
       aReport.mIsWarning, aReport.mLineNumber, aReport.mColumnNumber,
       aReport.mMessage, aReport.mFilename,
-      TransformIntoNewArray(aReport.mNotes, [](const WorkerErrorNote& note) {
-        return ErrorDataNote(note.mLineNumber, note.mColumnNumber,
-                             note.mMessage, note.mFilename);
-      }));
+      TransformIntoNewArray(aReport.mNotes,
+                            [](const WorkerErrorNote& note) {
+                              return ErrorDataNote(
+                                  note.mLineNumber, note.mColumnNumber,
+                                  note.mMessage, note.mFilename);
+                            }),
+      aReport.mErrorNumber);
   LogErrorToConsole(errorData, aInnerWindowId, stack, stackGlobal);
 }
 
@@ -380,6 +389,16 @@ void WorkerErrorReport::LogErrorToConsole(const ErrorData& aReport,
                                           JS::Handle<JSObject*> aStack,
                                           JS::Handle<JSObject*> aStackGlobal) {
   AssertIsOnMainThread();
+
+  if (aReport.errorNumber() == JSMSG_BIG_ENDIAN_UNSUPPORTED) {
+    nsGlobalWindowInner* win =
+        nsGlobalWindowInner::GetInnerWindowWithId(aInnerWindowId);
+    if (Document* doc = win ? win->GetExtantDoc() : nullptr) {
+      (new AsyncEventDispatcher(doc, u"MozBigEndianUnsupported"_ns,
+                                CanBubble::eYes, ChromeOnlyDispatch::eYes))
+          ->PostDOMEvent();
+    }
+  }
 
   RefPtr<nsScriptErrorBase> scriptError =
       CreateScriptError(nullptr, JS::NothingHandleValue, aStack, aStackGlobal);
