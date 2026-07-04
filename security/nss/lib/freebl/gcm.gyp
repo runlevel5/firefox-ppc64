@@ -46,6 +46,32 @@
           'HAVE_PLATFORM_GHASH'
         ]
       }],
+      # gcm.c must see the same __ALTIVEC__/__VSX__ visibility as
+      # ghash-ppc.c: gcmHashContext's vec_u64 x/h fields are gated on
+      # those macros, and a mismatch between translation units shifts
+      # every field after them (including ghash_mul) to different
+      # offsets, corrupting the hardware GHASH dispatch.
+      [ 'target_arch=="ppc64" or target_arch=="ppc64le"', {
+        'conditions': [
+          [ 'disable_crypto_vsx==0', {
+            'cflags': [
+              '-mcrypto',
+              '-maltivec'
+            ],
+            'cflags_mozilla': [
+              '-mcrypto',
+              '-maltivec'
+            ],
+          }, 'disable_crypto_vsx==1', {
+            'cflags': [
+              '-maltivec'
+            ],
+            'cflags_mozilla': [
+              '-maltivec'
+            ],
+          }],
+        ],
+      }],
       [ 'OS=="linux"', {
         'defines': [
           'FREEBL_NO_DEPEND',
