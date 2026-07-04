@@ -422,6 +422,13 @@ void SMRegExpMacroAssembler::EmitSkipUntilBitInTableSimd(
   // nibbleTable: 16-byte Boyer-Moore nibble table from regexp data.
   masm_.movePtr(ImmPtr(nibble_table->data()), temp0_);
   masm_.loadUnalignedSimd128(Address(temp0_, 0), nibbleTable);
+#  if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
+      __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // The table and the input are byte sequences indexed by lane; on big-endian
+  // the plain 16-byte load leaves them in memory order, so byte-reverse to the
+  // canonical lane order the swizzle and bitmask operations use.
+  masm_.byteReverseSimd128(nibbleTable, nibbleTable);
+#  endif
   // nibbleMask: 0x0f repeated 16 times.
   masm_.loadConstantSimd128(SimdConstant::SplatX16(int8_t(0x0f)), nibbleMask);
   // hiLookup: bit-position table {0x01,0x02,0x04,...,0x80} repeated twice.
@@ -446,6 +453,10 @@ void SMRegExpMacroAssembler::EmitSkipUntilBitInTableSimd(
   BaseIndex inputAddr(input_end_pointer_, current_position_, js::jit::TimesOne,
                       cp_offset);
   masm_.loadUnalignedSimd128(inputAddr, inputVec);
+#  if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
+      __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  masm_.byteReverseSimd128(inputVec, inputVec);
+#  endif
 
   // loNibbles = inputVec & 0x0f
   masm_.bitwiseAndSimd128(nibbleMask, inputVec, loNibbles);
@@ -914,11 +925,25 @@ void SMRegExpMacroAssembler::LoadCurrentCharacterUnchecked(int cp_offset,
                                                            int characters) {
   BaseIndex address(input_end_pointer_, current_position_, js::jit::TimesOne,
                     cp_offset * char_size());
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // The generated comparisons expect multiple characters composed with the
+  // first character in the least significant bits, so multi-character loads
+  // must be swapped to that order on big-endian.
+  constexpr bool kSwapMultiChar = true;
+#else
+  constexpr bool kSwapMultiChar = false;
+#endif
   if (mode_ == LATIN1) {
     if (characters == 4) {
       masm_.load32(address, current_character_);
+      if (kSwapMultiChar) {
+        masm_.byteSwap32(current_character_);
+      }
     } else if (characters == 2) {
       masm_.load16ZeroExtend(address, current_character_);
+      if (kSwapMultiChar) {
+        masm_.byteSwap16ZeroExtend(current_character_);
+      }
     } else {
       MOZ_ASSERT(characters == 1);
       masm_.load8ZeroExtend(address, current_character_);
@@ -927,6 +952,11 @@ void SMRegExpMacroAssembler::LoadCurrentCharacterUnchecked(int cp_offset,
     MOZ_ASSERT(mode_ == UC16);
     if (characters == 2) {
       masm_.load32(address, current_character_);
+      if (kSwapMultiChar) {
+        // Characters are native-endian within each half; swap the halves.
+        masm_.rotateLeft(js::jit::Imm32(16), current_character_,
+                         current_character_);
+      }
     } else {
       MOZ_ASSERT(characters == 1);
       masm_.load16ZeroExtend(address, current_character_);
