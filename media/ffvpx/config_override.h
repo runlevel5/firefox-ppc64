@@ -98,6 +98,14 @@
 #endif
 
 /**
+ * Big-endian targets (the generic config is generated on little-endian)
+ **/
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  #undef HAVE_BIGENDIAN
+  #define HAVE_BIGENDIAN 1
+#endif
+
+/**
  * BSD / Solaris
  **/
 #if defined(XP_OPENBSD) || defined(XP_NETBSD) || defined(XP_FREEBSD) || defined(XP_SOLARIS)

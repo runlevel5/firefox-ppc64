@@ -343,10 +343,13 @@ void BaseCompiler::boundsCheckBelow4GBAccess(uint32_t memoryIndex,
                                              RegI32 ptr, Label* ok) {
   // If the memory's max size is known to be smaller than 64K pages exactly,
   // we can use a 32-bit check and avoid extension and wrapping.
-  masm.wasmBoundsCheck32(Assembler::Below, ptr,
-                         Address(instance, instanceOffsetOfBoundsCheckLimit(
-                                               memoryIndex, byteSize)),
-                         ok);
+  uint32_t offset = instanceOffsetOfBoundsCheckLimit(memoryIndex, byteSize);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // The bounds check limit is a pointer-sized field; the 32-bit check must
+  // read its low word.
+  offset += sizeof(uint32_t);
+#endif
+  masm.wasmBoundsCheck32(Assembler::Below, ptr, Address(instance, offset), ok);
 }
 
 void BaseCompiler::boundsCheck4GBOrLargerAccess(uint32_t memoryIndex,
