@@ -56,8 +56,8 @@ void JitRuntime::generateBaselineInterpreterEntryTrampoline(
   // Compute in |nargs| the number of Values the caller pushed above ThisV. The
   // loop below then copies ThisV and these Values.
   Label resuming, argsCounted, argsPushed;
-  masm.branchTest32(Assembler::NonZero, descriptorAddr,
-                    Imm32(FrameDescriptor::IsResumingGenerator), &resuming);
+  masm.branchTestPtr(Assembler::NonZero, descriptorAddr,
+                     Imm32(FrameDescriptor::IsResumingGenerator), &resuming);
 
   Label notFunction;
   {
@@ -161,8 +161,8 @@ void JitRuntime::generateBaselineInterpreterEntryTrampoline(
   // resuming a generator we have to propagate the IsResumingGenerator bit so
   // that the callee's prologue dispatches to the resume point.
   Label descriptorPushed, notResuming;
-  masm.branchTest32(Assembler::Zero, descriptorAddr,
-                    Imm32(FrameDescriptor::IsResumingGenerator), &notResuming);
+  masm.branchTestPtr(Assembler::Zero, descriptorAddr,
+                     Imm32(FrameDescriptor::IsResumingGenerator), &notResuming);
   masm.push(FrameDescriptor(FrameType::BaselineInterpreterEntry, /* argc = */ 0,
                             /* hasInlinedICScript = */ false,
                             /* isResumingGenerator = */ true));
