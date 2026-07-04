@@ -578,8 +578,8 @@ void MacroAssembler::createFunctionClone(Register result, Register canonical,
            Address(result, NativeObject::offsetOfElements()));
 
   // Initialize FlagsAndArgCountSlot.
-  storeValue(Address(canonical, JSFunction::offsetOfFlagsAndArgCount()),
-             Address(result, JSFunction::offsetOfFlagsAndArgCount()), temp);
+  storeValue(Address(canonical, JSFunction::offsetOfFlagsAndArgCountSlot()),
+             Address(result, JSFunction::offsetOfFlagsAndArgCountSlot()), temp);
 
   // Initialize NativeFuncOrInterpretedEnvSlot.
   storeValue(JSVAL_TYPE_OBJECT, envChain,
@@ -3261,7 +3261,8 @@ void MacroAssembler::extractCurrentIndexAndKindFromIterator(Register iterator,
   Label iterActive;
   branchTest32(Assembler::NonZero,
                Address(outIndex, NativeIterator::offsetOfFlags()),
-               Imm32(NativeIterator::Flags::Active), &iterActive);
+               Imm32(NativeIterator::flagForJit32(NativeIterator::Flags::Active)),
+               &iterActive);
   assumeUnreachable("iterator-index fast path on an inactive iterator");
   bind(&iterActive);
 #endif
@@ -5247,7 +5248,15 @@ void MacroAssembler::callWithABINoProfiler(void* fun, ABIType result,
   }
 #endif
 
+#if defined(JS_CODEGEN_PPC64) && defined(_CALL_ELF) && _CALL_ELF == 1
+  // ELFv1: |fun| is a C function pointer, i.e. the address of a 24-byte
+  // descriptor, not a code entry. Route through the PPC64 descriptor dance
+  // rather than jumping to the descriptor as code (which call(ImmPtr) would do).
+  movePtr(ImmPtr(fun), SecondScratchReg);
+  callABIDescriptorELFv1(SecondScratchReg);
+#else
   call(ImmPtr(fun));
+#endif
 
   callWithABIPost(stackAdjust, result);
 
@@ -5757,7 +5766,9 @@ void MacroAssembler::minMaxArrayNumber(Register array, FloatRegister result,
 void MacroAssembler::loadRegExpLastIndex(Register regexp, Register string,
                                          Register lastIndex,
                                          Label* notFoundZeroLastIndex) {
-  Address flagsSlot(regexp, RegExpObject::offsetOfFlags());
+  // The flags are a boxed Int32Value tested with 32-bit loads; address the
+  // payload word (see RegExpObject::offsetOfFlagsForJit32).
+  Address flagsSlot(regexp, RegExpObject::offsetOfFlagsForJit32());
   Address lastIndexSlot(regexp, RegExpObject::offsetOfLastIndex());
   Address stringLength(string, JSString::offsetOfLength());
 
@@ -6021,8 +6032,14 @@ void MacroAssembler::branchTestObjShapeListSetOffset(
                              shapeScratch, endScratch, spectreScratch, fail);
 
   // The shapeElements register points to the matched shape (if found).
-  // The corresponding offset is saved in the array as the next value.
+  // The corresponding offset is saved in the array as the next value: an
+  // Int32Value whose 32-bit payload, on big-endian targets, lives in the low
+  // word at byte offset +4 within the 8-byte slot.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  load32(Address(shapeElements, sizeof(Value) + sizeof(int32_t)), offset);
+#else
   load32(Address(shapeElements, sizeof(Value)), offset);
+#endif
 }
 
 void MacroAssembler::branchTestObjCompartment(Condition cond, Register obj,
@@ -9756,7 +9773,9 @@ void MacroAssembler::branchIfNativeIteratorNotReusable(Register ni,
 #ifdef DEBUG
   Label niIsInitialized;
   branchTest32(Assembler::NonZero, flagsAddr,
-               Imm32(NativeIterator::Flags::Initialized), &niIsInitialized);
+               Imm32(NativeIterator::flagForJit32(
+                   NativeIterator::Flags::Initialized)),
+               &niIsInitialized);
   assumeUnreachable(
       "Expected a NativeIterator that's been completely "
       "initialized");
@@ -9764,7 +9783,9 @@ void MacroAssembler::branchIfNativeIteratorNotReusable(Register ni,
 #endif
 
   branchTest32(Assembler::NonZero, flagsAddr,
-               Imm32(NativeIterator::Flags::NotReusable), notReusable);
+               Imm32(NativeIterator::flagForJit32(
+                   NativeIterator::Flags::NotReusable)),
+               notReusable);
 }
 
 static void LoadNativeIterator(MacroAssembler& masm, Register obj,
@@ -9843,7 +9864,9 @@ void MacroAssembler::maybeLoadIteratorFromShape(Register obj, Register dest,
          temp3);
   branchTest32(Assembler::Zero,
                Address(nativeIterator, NativeIterator::offsetOfFlags()),
-               Imm32(NativeIterator::Flags::IndicesAllocated), &skipIndices);
+               Imm32(NativeIterator::flagForJit32(
+                   NativeIterator::Flags::IndicesAllocated)),
+               &skipIndices);
 
   computeEffectiveAddress(BaseIndex(nativeIterator, temp3, Scale::TimesFour),
                           nativeIterator);
@@ -9924,7 +9947,14 @@ void MacroAssembler::iteratorMore(Register obj, ValueOperand output,
   loadPtr(propAddr, temp);
 
   // Increase the cursor.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // propertyCursor_ is a uint32_t. A pointer-sized increment would target the
+  // high word of the 64-bit access on big-endian (i.e. the adjacent field),
+  // leaving the cursor unchanged so the iterator never advances.
+  add32(Imm32(1), cursorAddr);
+#else
   addPtr(Imm32(1), cursorAddr);
+#endif
 
   // Check if the property has been deleted while iterating. Skip it if so.
   branchTestPtr(Assembler::NonZero, temp,
@@ -9972,7 +10002,9 @@ void MacroAssembler::iteratorClose(Register obj, Register temp1, Register temp2,
   // unlinked. See NativeIterator::isEmptyIteratorSingleton.
   Label done;
   branchTest32(Assembler::NonZero, flagsAddr,
-               Imm32(NativeIterator::Flags::IsEmptyIteratorSingleton), &done);
+               Imm32(NativeIterator::flagForJit32(
+                   NativeIterator::Flags::IsEmptyIteratorSingleton)),
+               &done);
 
   // Clear objectBeingIterated.
   Address iterObjAddr(temp1, NativeIterator::offsetOfObjectBeingIterated());
@@ -9985,7 +10017,8 @@ void MacroAssembler::iteratorClose(Register obj, Register temp1, Register temp2,
   // Clear deleted bits (only if we have unvisited deletions)
   Label clearDeletedLoopStart, clearDeletedLoopEnd;
   branchTest32(Assembler::Zero, flagsAddr,
-               Imm32(NativeIterator::Flags::HasUnvisitedPropertyDeletion),
+               Imm32(NativeIterator::flagForJit32(
+                   NativeIterator::Flags::HasUnvisitedPropertyDeletion)),
                &clearDeletedLoopEnd);
 
   load32(Address(temp1, NativeIterator::offsetOfPropertyCount()), temp3);
@@ -9997,15 +10030,25 @@ void MacroAssembler::iteratorClose(Register obj, Register temp1, Register temp2,
       Address(temp1, NativeIterator::offsetOfFirstProperty()), temp2);
 
   bind(&clearDeletedLoopStart);
-  and32(Imm32(~uint32_t(IteratorProperty::DeletedBit)), Address(temp2, 0));
+  // IteratorProperty::raw_ is a pointer-sized tagged word whose DeletedBit is
+  // bit 0. A 32-bit clear must target the word that holds bit 0: the low-
+  // address word on little-endian, and the high-address word (offset +4 in the
+  // 8-byte slot) on big-endian.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  Address deletedBitWord(temp2, sizeof(uintptr_t) - sizeof(uint32_t));
+#else
+  Address deletedBitWord(temp2, 0);
+#endif
+  and32(Imm32(~uint32_t(IteratorProperty::DeletedBit)), deletedBitWord);
   addPtr(Imm32(sizeof(IteratorProperty)), temp2);
   branchPtr(Assembler::Below, temp2, temp3, &clearDeletedLoopStart);
 
   bind(&clearDeletedLoopEnd);
 
   // Clear active and unvisited deletions bits
-  and32(Imm32(~(NativeIterator::Flags::Active |
-                NativeIterator::Flags::HasUnvisitedPropertyDeletion)),
+  and32(Imm32(~NativeIterator::flagForJit32(
+            NativeIterator::Flags::Active |
+            NativeIterator::Flags::HasUnvisitedPropertyDeletion)),
         flagsAddr);
 
   // Unlink from the iterator list.

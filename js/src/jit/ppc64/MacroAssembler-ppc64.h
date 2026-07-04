@@ -126,6 +126,29 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
 
   bool buildOOLFakeExitFrame(void* fakeReturnAddr);
 
+#if defined(_CALL_ELF) && _CALL_ELF == 1
+  // ELFv1: call a C function whose ELFv1 descriptor address is in |descriptor|.
+  // Allocates a 48-byte linkage area, loads the callee entry/TOC from the
+  // descriptor, and restores our TOC afterwards. Used by the callWithABI ABI
+  // sites (the only places we know the target is a C function, not JIT code).
+  CodeOffset callABIDescriptorELFv1(Register descriptor);
+#endif
+
+  // The wasm-module SymbolicAddress call (the call(CallSiteDesc,
+  // SymbolicAddress) path). Calls a builtin thunk's raw wasm-ABI entry straight
+  // and dereferences a C-function descriptor on ELFv1. See the
+  // definition for why this differs from the bare call(SymbolicAddress).
+  CodeOffset callWasmSymbolic(wasm::SymbolicAddress imm);
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // Byte-reverse the 16 bytes of |src| into |dest|, converting between the
+  // raw native image of little-endian v128 memory and the canonical LE
+  // register layout. xxbrq on POWER9+; on POWER8 a vperm whose control
+  // vector is pool-loaded into v0, so |src| must not be v0 there (|dest|
+  // may alias |src| or v0).
+  void byteReverseSimd128(FloatRegister src, FloatRegister dest);
+#endif
+
   // ===============================================================
   // Conversion functions
 
@@ -138,7 +161,13 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
     as_mtvsrwa(dest, src);
     as_fcfid(dest, dest);
   }
-  void convertInt32ToDouble(const Address& src, FloatRegister dest) {
+  void convertInt32ToDouble(const Address& srcArg, FloatRegister dest) {
+    // On PUNBOX64 the int32 lives in the low word of an 8-byte slot, at byte
+    // +4 on big-endian: either the payload of a boxed Value (ensureDouble) or
+    // a raw int32 spilled through a 64-bit push (CacheIR PayloadStack). Mirror
+    // unboxInt32(Address)'s valuePayload() shift so we read the low word rather
+    // than the high word. No-op on little-endian.
+    Address src = valuePayload(srcArg);
     // lfiwax (P7+): FPR.dw[0] = sign_ext_64(MEM[addr, 4]). X-form indexed
     // — no immediate offset, so when offset != 0 we add it into a scratch
     // first. Replaces lwz + extsw + mtvsrd with lfiwax (one insn) plus
@@ -418,8 +447,11 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
       // No LR clobber, no embedded data — pure instruction sequence.
       uint32_t lo32 = (uint32_t)(imm.value);
       uint32_t hi32 = (uint32_t)(imm.value >> 32);
-      Register temp = (dest != SecondScratchReg) ? SecondScratchReg
-                                                 : SavedScratchRegister;
+      // The temp must be volatile in the C ABI: r16 leaked through code that
+      // is entered from C++ without an enterJit-style non-volatile save (the
+      // per-script interpreter entry trampolines). r0 is safe here since
+      // lis/ori/rldimi are computational (no base-register zero semantics).
+      Register temp = (dest != SecondScratchReg) ? SecondScratchReg : r0;
       m_buffer.ensureSpace(5 * sizeof(uint32_t));
       xs_lis(dest, (int16_t)(lo32 >> 16));
       as_ori(dest, dest, lo32 & 0xFFFF);
@@ -505,7 +537,19 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
     uint32_t hint = ((uint32_t(dest.encoding()) & 0x1F) << 16) |
                     (uint32_t(PoolLoadSimd128) << 21) | 0xF0000000;
     uint32_t inst[5] = {hint, NopInst, NopInst, NopInst, NopInst};
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // Store the constant byte-reversed: a raw pool load (lxvx on POWER9+,
+    // identity lxvd2x on POWER8) then yields the canonical little-endian
+    // register layout directly, with no runtime reversal instruction.
+    uint8_t reversed[16];
+    const uint8_t* raw = reinterpret_cast<const uint8_t*>(v.bytes());
+    for (size_t i = 0; i < 16; i++) {
+      reversed[i] = raw[15 - i];
+    }
+    return m_buffer.allocEntry(slots, 4, (uint8_t*)inst, reversed);
+#else
     return m_buffer.allocEntry(slots, 4, (uint8_t*)inst, (uint8_t*)v.bytes());
+#endif
   }
   void movePtr(wasm::SymbolicAddress imm, Register dest) {
     BufferOffset bo = emitLoad64Stanza(dest, (uint64_t)-1);
@@ -986,6 +1030,25 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
     splitTag(value, tag);
   }
 
+  // PUNBOX64: the int32/boolean payload is the low 32 bits of the 64-bit Value.
+  // In memory those bytes are at offset +4 on a big-endian target and +0 on
+  // little-endian, so a 32-bit payload load must skip the tag word on BE.
+  // No-op on little-endian.
+  static Address valuePayload(const Address& a) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    return Address(a.base, a.offset + 4);
+#else
+    return a;
+#endif
+  }
+  static BaseIndex valuePayload(const BaseIndex& a) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    return BaseIndex(a.base, a.index, a.scale, a.offset + 4);
+#else
+    return a;
+#endif
+  }
+
   void unboxNonDouble(const ValueOperand& operand, Register dest,
                       JSValueType type) {
     unboxNonDouble(operand.valueReg(), dest, type);
@@ -994,7 +1057,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
   void unboxNonDouble(T src, Register dest, JSValueType type) {
     MOZ_ASSERT(type != JSVAL_TYPE_DOUBLE);
     if (type == JSVAL_TYPE_INT32 || type == JSVAL_TYPE_BOOLEAN) {
-      load32(src, dest);
+      load32(valuePayload(src), dest);
       return;
     }
     loadPtr(src, dest);
@@ -1048,13 +1111,21 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
   void unboxInt32(const ValueOperand& operand, Register dest) {
     as_extsw(dest, operand.valueReg());
   }
-  void unboxInt32(const Address& src, Register dest) { load32(src, dest); }
-  void unboxInt32(const BaseIndex& src, Register dest) { load32(src, dest); }
+  void unboxInt32(const Address& src, Register dest) {
+    load32(valuePayload(src), dest);
+  }
+  void unboxInt32(const BaseIndex& src, Register dest) {
+    load32(valuePayload(src), dest);
+  }
   void unboxBoolean(const ValueOperand& operand, Register dest) {
     as_extsw(dest, operand.valueReg());
   }
-  void unboxBoolean(const Address& src, Register dest) { load32(src, dest); }
-  void unboxBoolean(const BaseIndex& src, Register dest) { load32(src, dest); }
+  void unboxBoolean(const Address& src, Register dest) {
+    load32(valuePayload(src), dest);
+  }
+  void unboxBoolean(const BaseIndex& src, Register dest) {
+    load32(valuePayload(src), dest);
+  }
   void unboxDouble(const ValueOperand& operand, FloatRegister dest) {
     as_mtvsrd(dest, operand.valueReg());
   }

@@ -469,6 +469,20 @@ static Register LoadBytecodePC(MacroAssembler& masm, Register scratch) {
   return scratch;
 }
 
+// Bytecode operands wider than one byte are stored little-endian in the
+// bytecode stream; on a big-endian target a multi-byte load reads them
+// byte-swapped, so swap back to native. No-ops on little-endian.
+static void SwapBytecodeOperandToNative32(MacroAssembler& masm, Register dest) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  masm.byteSwap32(dest);
+#endif
+}
+static void SwapBytecodeOperandToNative16(MacroAssembler& masm, Register dest) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  masm.byteSwap16ZeroExtend(dest);
+#endif
+}
+
 static void LoadInt8Operand(MacroAssembler& masm, Register dest) {
   Register pc = LoadBytecodePC(masm, dest);
   masm.load8SignExtend(Address(pc, sizeof(jsbytecode)), dest);
@@ -482,6 +496,7 @@ static void LoadUint8Operand(MacroAssembler& masm, Register dest) {
 static void LoadUint16Operand(MacroAssembler& masm, Register dest) {
   Register pc = LoadBytecodePC(masm, dest);
   masm.load16ZeroExtend(Address(pc, sizeof(jsbytecode)), dest);
+  SwapBytecodeOperandToNative16(masm, dest);
 }
 
 static void LoadConstantCompareOperand(MacroAssembler& masm,
@@ -500,11 +515,19 @@ static void LoadConstantCompareOperand(MacroAssembler& masm,
 static void LoadInt32Operand(MacroAssembler& masm, Register dest) {
   Register pc = LoadBytecodePC(masm, dest);
   masm.load32(Address(pc, sizeof(jsbytecode)), dest);
+  SwapBytecodeOperandToNative32(masm, dest);
 }
 
 static void LoadInt32OperandSignExtendToPtr(MacroAssembler& masm, Register pc,
                                             Register dest) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // The operand is little-endian; byteSwap32 byte-reverses and sign-extends the
+  // low word to 64 bits, i.e. exactly the sign-extend-to-ptr we want.
+  masm.load32(Address(pc, sizeof(jsbytecode)), dest);
+  masm.byteSwap32(dest);
+#else
   masm.load32SignExtendToPtr(Address(pc, sizeof(jsbytecode)), dest);
+#endif
 }
 
 static void LoadUint24Operand(MacroAssembler& masm, size_t offset,
@@ -512,6 +535,9 @@ static void LoadUint24Operand(MacroAssembler& masm, size_t offset,
   // Load the opcode and operand, then left shift to discard the opcode.
   Register pc = LoadBytecodePC(masm, dest);
   masm.load32(Address(pc, offset), dest);
+  // Swap to native first so the opcode byte ends up in the low 8 bits, then
+  // shift it out, leaving the 24-bit operand.
+  SwapBytecodeOperandToNative32(masm, dest);
   masm.rshift32(Imm32(8), dest);
 }
 
@@ -521,6 +547,12 @@ static void LoadInlineValueOperand(MacroAssembler& masm, ValueOperand dest) {
   // floating point instructions on ARM).
   Register pc = LoadBytecodePC(masm, dest.scratchReg());
   masm.loadUnalignedValue(Address(pc, sizeof(jsbytecode)), dest);
+#if defined(JS_PUNBOX64) && defined(__BYTE_ORDER__) && \
+    __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // The inline Value is stored little-endian in the bytecode (see
+  // GET_INLINE_VALUE), so byte-reverse it to native order on big-endian.
+  masm.byteSwap64(Register64(dest.valueReg()));
+#endif
 }
 
 template <typename Handler>
@@ -5793,11 +5825,19 @@ void BaselineInterpreterCodeGen::emitGetTableSwitchIndex(ValueOperand val,
   Address lowAddr(pcReg, sizeof(jsbytecode) + TableSwitchOpLowOffset);
   Address highAddr(pcReg, sizeof(jsbytecode) + TableSwitchOpHighOffset);
 
-  // Jump to default if val > high.
+  // Jump to default if val > high. The low/high operands are little-endian in
+  // the bytecode, so byte-swap to native on big-endian before comparing.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  masm.load32(highAddr, scratch2);
+  masm.byteSwap32(scratch2);
+  masm.branch32(Assembler::LessThan, scratch2, dest, &jumpToDefault);
+#else
   masm.branch32(Assembler::LessThan, highAddr, dest, &jumpToDefault);
+#endif
 
   // Jump to default if val < low.
   masm.load32(lowAddr, scratch2);
+  SwapBytecodeOperandToNative32(masm, scratch2);
   masm.branch32(Assembler::GreaterThan, scratch2, dest, &jumpToDefault);
 
   // index := val - low.

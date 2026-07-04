@@ -16,6 +16,7 @@
 #include "jit/ppc64/SharedICRegisters-ppc64.h"
 #include "vm/JitActivation.h"
 #include "vm/JSContext.h"
+#include "wasm/WasmBuiltins.h"
 #include "wasm/WasmStubs.h"
 
 #include "jit/MacroAssembler-inl.h"
@@ -599,7 +600,68 @@ void MacroAssembler::call(ImmPtr target) {
 
 CodeOffset MacroAssembler::call(wasm::SymbolicAddress target) {
   movePtr(target, CallReg);
+#if defined(_CALL_ELF) && _CALL_ELF == 1
+  // ELFv1: a non-thunked SymbolicAddress (a C function) resolves to a
+  // {entry,toc,env} function descriptor, not a raw code entry, so it must be
+  // dereferenced like the callWithABI sites do. Thunked symbols are patched
+  // to the builtin thunk, which is raw JIT code; the dance would jump to its
+  // first eight instruction bytes read as an address.
+  if (!wasm::NeedsBuiltinThunk(target)) {
+    return callABIDescriptorELFv1(CallReg);
+  }
+#endif
   return call(CallReg);
+}
+
+#if defined(_CALL_ELF) && _CALL_ELF == 1
+CodeOffset MacroAssemblerPPC64Compat::callABIDescriptorELFv1(
+    Register descriptor) {
+  // On ELFv1 a C function pointer is a 24-byte descriptor {entry@0, toc@8,
+  // env@16}, not a code entry (the ELFv2 convention call(Register) assumes).
+  // Allocate the ELFv1 call frame: a 48-byte linkage area (the callee's LR
+  // (+16) / TOC saves land in scratch space; we park our r2, the JIT's
+  // libmozjs TOC, in the reserved +24 slot) plus a 64-byte parameter save area
+  // (8 doublewords). The parameter save area is mandatory: a GCC-compiled
+  // callee may spill its incoming register arguments to [SP+48 ..), and without
+  // it those spills land on the JIT's outparameter slot sitting just above SP
+  // and corrupt it (e.g. CreateThisFromICWithAllocSite's MutableHandleValue
+  // result). Load the callee entry and TOC from the descriptor, call, restore
+  // r2 and pop. Load TOC before entry so a descriptor==r12 alias is safe. Note:
+  // register-arg calls only; stack-passed args would need the area folded into
+  // callWithABIPre.
+  constexpr int32_t kELFv1FrameSize = 48 + 64;
+  as_stdu(StackPointer, StackPointer, -kELFv1FrameSize);
+  as_std(r2, StackPointer, 24);
+  as_ld(r2, descriptor, 8);
+  as_ld(r12, descriptor, 0);
+  xs_mtctr(r12);
+  as_bctr(LinkB);
+  // Return address (where the callee returns to) is the instruction after bctr.
+  CodeOffset callOffset(currentOffset());
+  as_ld(r2, StackPointer, 24);
+  as_addi(StackPointer, StackPointer, kELFv1FrameSize);
+  return callOffset;
+}
+#endif
+
+// The wasm-module SymbolicAddress call (the call(CallSiteDesc, SymbolicAddress)
+// path). StaticallyLink patches this access to SymbolicAddressTarget(): a symbol
+// that NeedsBuiltinThunk resolves to the builtin thunk's raw wasm-ABI code
+// entry, while a non-thunk symbol resolves to a C function pointer, which on
+// ELFv1 is a {entry,toc,env} descriptor. So call the thunk straight
+// and dereference the C function. (The bare call(SymbolicAddress) used by stubs
+// and the process-global thunks always targets a C function, so it always
+// dereferences.)
+CodeOffset MacroAssemblerPPC64Compat::callWasmSymbolic(wasm::SymbolicAddress imm) {
+  asMasm().movePtr(imm, CallReg);
+#if defined(_CALL_ELF) && _CALL_ELF == 1
+  if (wasm::NeedsBuiltinThunk(imm)) {
+    return asMasm().call(CallReg);
+  }
+  return callABIDescriptorELFv1(CallReg);
+#else
+  return asMasm().call(CallReg);
+#endif
 }
 
 void MacroAssembler::callWithABINoProfiler(const Address& fun, ABIType result) {
@@ -609,7 +671,11 @@ void MacroAssembler::callWithABINoProfiler(const Address& fun, ABIType result) {
 
   uint32_t stackAdjust;
   callWithABIPre(&stackAdjust);
+#if defined(_CALL_ELF) && _CALL_ELF == 1
+  callABIDescriptorELFv1(scratch);
+#else
   call(scratch);
+#endif
   callWithABIPost(stackAdjust, result);
 }
 
@@ -1191,6 +1257,23 @@ void MacroAssembler::callWithABINoProfiler(Register fun, ABIType result) {
 
   uint32_t stackAdjust;
   callWithABIPre(&stackAdjust);
+#if defined(_CALL_ELF) && _CALL_ELF == 1
+  callABIDescriptorELFv1(scratch);
+#else
+  call(scratch);
+#endif
+  callWithABIPost(stackAdjust, result);
+}
+
+void MacroAssembler::callWithABIJitCode(Register fun, ABIType result) {
+  AutoProfilerCallInstrumentation profiler(*this);
+  UseScratchRegisterScope temps(asMasm());
+  Register scratch = temps.Acquire();
+  movePtr(fun, scratch);
+
+  uint32_t stackAdjust;
+  callWithABIPre(&stackAdjust);
+  // The target is JIT code, never an ELFv1 descriptor, on either endianness.
   call(scratch);
   callWithABIPost(stackAdjust, result);
 }
@@ -2152,6 +2235,26 @@ void MacroAssemblerPPC64Compat::ma_mod_mask(Register src, Register dest,
 // ========================================================================
 // Atomic operations.
 
+// Byte-reverse the 32-bit value in the low half of `reg` (upper 32 bits are
+// left unspecified) for the wasm-BE atomic RMW loops below, at call sites
+// where the 2-register scratch pool (r11/r12) is already fully acquired.
+// Uses r0 as a working register instead of acquiring a scratch: r0 is
+// excluded from the allocatable set and, at these call sites, only ever
+// appears as the hardwired-zero RA operand of indexed loads/stores, so its
+// content is never read as live state and is safe to clobber. Emits no
+// memory access, so it is also safe between an lwarx/lharx and its paired
+// stwcx/sthcx (an intervening store could clear the reservation).
+static void ReverseWordBytesForAtomics(MacroAssembler& masm, Register reg) {
+  if (HasPOWER10()) {
+    masm.as_brw(reg, reg);
+    masm.as_extsw(reg, reg);
+  } else {
+    // Byte-reverse into r0 (rather than an acquired scratch), then sign-extend.
+    ByteReverseLow32(masm, r0, reg);
+    masm.as_extsw(reg, r0);
+  }
+}
+
 template <typename T>
 static void CompareExchange(MacroAssembler& masm,
                             const wasm::MemoryAccessDesc* access,
@@ -2183,6 +2286,24 @@ static void CompareExchange(MacroAssembler& masm,
 
   if (nbytes == 4) {
     masm.memoryBarrierBefore(sync);
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // wasm atomic memory is little-endian. Byte-reverse the replacement value
+    // to native once before the loop, and the loaded value to LE inside the
+    // loop (it is compared against the little-endian oldval and returned). The
+    // byte-reversal mutates newval in place, but the register allocator hands
+    // us newval as a plain read-only input that may be shared with a value
+    // that is still live after this op (a coalesced copy). Preserve the
+    // caller's register across the mutation via the ABI protected zone below
+    // SP (no call happens here, so it is safe). JS atomics (access == nullptr)
+    // are native byte order, so no swap and nothing to preserve.
+    if (access) {
+      masm.storePtr(newval, Address(StackPointer, -8));
+      masm.as_rldicl(newval, newval, 0, 32);
+      masm.byteSwap32(newval);
+    }
+#endif
+
     masm.bind(&again);
 
     if (access) {
@@ -2192,6 +2313,11 @@ static void CompareExchange(MacroAssembler& masm,
     }
 
     masm.as_lwarx(output, r0, scratch);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    if (access) {
+      masm.byteSwap32(output);
+    }
+#endif
     // ma_cmp(..., is32bit=true) emits cmpw, which compares only bits
     // 32:63 (low 32) of both operands per ISA v3.0B. The upper
     // 32 bits of oldval are ignored, so no canonicalising extsw needed.
@@ -2205,6 +2331,11 @@ static void CompareExchange(MacroAssembler& masm,
     // lwarx zero-extends; sign-extend for 32-bit canonical form.
     masm.as_extsw(output, output);
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    if (access) {
+      masm.loadPtr(Address(StackPointer, -8), newval);
+    }
+#endif
     return;
   }
 
@@ -2240,6 +2371,17 @@ static void CompareExchange(MacroAssembler& masm,
       break;
     case 2:
       masm.as_lharx(output, r0, scratch);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      // wasm atomic memory is little-endian; byte-reverse the loaded halfword
+      // to LE so it compares against the (little-endian) oldval and is returned
+      // correctly. offsetTemp is unused in the sub-word path. JS atomics
+      // (access == nullptr) are native byte order, so no swap.
+      if (access) {
+        masm.as_rlwinm(offsetTemp, output, 8, 16, 23);
+        masm.as_rlwinm(output, output, 24, 24, 31);
+        masm.as_or_(output, output, offsetTemp);
+      }
+#endif
       if (signExtend) {
         masm.as_extsh(valueTemp, oldval);
         masm.as_extsh(output, output);
@@ -2255,7 +2397,20 @@ static void CompareExchange(MacroAssembler& masm,
   if (nbytes == 1) {
     masm.as_stbcx(newval, r0, scratch);
   } else {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // Byte-reverse the replacement to native (rlwinm+rlwimi keeps it in
+    // offsetTemp, leaving newval intact for retries); sthcx stores low 16 bits.
+    // JS atomics (access == nullptr) are native byte order, so store as-is.
+    if (access) {
+      masm.as_rlwinm(offsetTemp, newval, 8, 16, 23);
+      masm.as_rlwimi(offsetTemp, newval, 24, 24, 31);
+      masm.as_sthcx(offsetTemp, r0, scratch);
+    } else {
+      masm.as_sthcx(newval, r0, scratch);
+    }
+#else
     masm.as_sthcx(newval, r0, scratch);
+#endif
   }
   masm.ma_b(Assembler::NotEqual, &again);
 
@@ -2280,6 +2435,20 @@ static void CompareExchange64(MacroAssembler& masm,
 
   masm.memoryBarrierBefore(sync);
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // wasm atomic memory is little-endian. Byte-reverse the replacement to native
+  // once before the loop, and the loaded value to LE inside the loop (compared
+  // against the little-endian expect and returned). The byte-reversal mutates
+  // replace in place; preserve the caller's register across it via the ABI
+  // protected zone below SP (this input may be a coalesced copy of a value
+  // that is still live after the op; no call happens here). JS atomics
+  // (access == nullptr) are native byte order, so no swap.
+  if (access) {
+    masm.storePtr(replace.reg, Address(StackPointer, -8));
+    masm.byteSwap64(replace);
+  }
+#endif
+
   masm.bind(&tryAgain);
 
   if (access) {
@@ -2290,6 +2459,14 @@ static void CompareExchange64(MacroAssembler& masm,
 
   masm.as_ldarx(output.reg, r0, scratch);
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // In-loop swap between ldarx and stdcx: byteSwap64 is register-only on
+  // every ISA level, so the reservation is preserved.
+  if (access) {
+    masm.byteSwap64(output);
+  }
+#endif
+
   masm.ma_cmp(output.reg, expect.reg, Assembler::NotEqual);
   masm.ma_b(Assembler::NotEqual, &exit);
   masm.as_stdcx(replace.reg, r0, scratch);
@@ -2298,6 +2475,11 @@ static void CompareExchange64(MacroAssembler& masm,
   masm.memoryBarrierAfter(sync);
 
   masm.bind(&exit);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  if (access) {
+    masm.loadPtr(Address(StackPointer, -8), replace.reg);
+  }
+#endif
 }
 
 template <typename T>
@@ -2331,6 +2513,22 @@ static void AtomicExchange(MacroAssembler& masm,
 
   if (nbytes == 4) {
     masm.memoryBarrierBefore(sync);
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // wasm atomic memory is little-endian. Byte-reverse the to-be-stored value
+    // to native once before the loop (it is constant across retries) and the
+    // loaded old value to LE after the loop. The byte-reversal mutates value
+    // in place; preserve the caller's register across it via the ABI
+    // protected zone below SP (this input may be a coalesced copy of a value
+    // that is still live after the op; no call happens here). JS atomics
+    // (access == nullptr) are native byte order, so no swap.
+    if (access) {
+      masm.storePtr(value, Address(StackPointer, -8));
+      masm.as_rldicl(value, value, 0, 32);
+      masm.byteSwap32(value);
+    }
+#endif
+
     masm.bind(&again);
 
     if (access) {
@@ -2344,6 +2542,13 @@ static void AtomicExchange(MacroAssembler& masm,
     masm.ma_b(Assembler::NotEqual, &again);
 
     masm.memoryBarrierAfter(sync);
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    if (access) {
+      masm.byteSwap32(output);
+      masm.loadPtr(Address(StackPointer, -8), value);
+    }
+#endif
     // lwarx zero-extends; sign-extend for 32-bit canonical form.
     masm.as_extsw(output, output);
 
@@ -2372,7 +2577,24 @@ static void AtomicExchange(MacroAssembler& masm,
     masm.as_stbcx(value, r0, memTemp);
   } else {
     masm.as_lharx(output, r0, memTemp);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // wasm atomic memory is little-endian: store value byte-reversed to native
+    // (rlwinm+rlwimi keeps it in offsetTemp, leaving value intact for retries)
+    // and byte-reverse the loaded old value to LE. JS atomics (access ==
+    // nullptr) are native byte order, so store/return as-is.
+    if (access) {
+      masm.as_rlwinm(offsetTemp, value, 8, 16, 23);
+      masm.as_rlwimi(offsetTemp, value, 24, 24, 31);
+      masm.as_sthcx(offsetTemp, r0, memTemp);
+      masm.as_rlwinm(offsetTemp, output, 8, 16, 23);
+      masm.as_rlwimi(offsetTemp, output, 24, 24, 31);
+      masm.as_or_(output, offsetTemp, offsetTemp);
+    } else {
+      masm.as_sthcx(value, r0, memTemp);
+    }
+#else
     masm.as_sthcx(value, r0, memTemp);
+#endif
   }
   masm.ma_b(Assembler::NotEqual, &again);
 
@@ -2403,6 +2625,20 @@ static void AtomicExchange64(MacroAssembler& masm,
 
   masm.memoryBarrierBefore(sync);
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // wasm atomic memory is little-endian. Byte-reverse the to-be-stored value to
+  // native once before the loop and the loaded old value to LE after. The
+  // byte-reversal mutates value in place; preserve the caller's register
+  // across it via the ABI protected zone below SP (this input may be a
+  // coalesced copy of a value that is still live after the op; no call
+  // happens here). JS atomics (access == nullptr) are native byte order, so
+  // no swap.
+  if (access) {
+    masm.storePtr(value.reg, Address(StackPointer, -8));
+    masm.byteSwap64(value);
+  }
+#endif
+
   masm.bind(&tryAgain);
 
   if (access) {
@@ -2417,6 +2653,13 @@ static void AtomicExchange64(MacroAssembler& masm,
   masm.ma_b(Assembler::NotEqual, &tryAgain);
 
   masm.memoryBarrierAfter(sync);
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  if (access) {
+    masm.byteSwap64(output);
+    masm.loadPtr(Address(StackPointer, -8), value.reg);
+  }
+#endif
 }
 
 template <typename T>
@@ -2462,6 +2705,18 @@ static void AtomicFetchOp(MacroAssembler& masm,
 
     masm.as_lwarx(output, r0, memTemp);
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // wasm atomic memory is little-endian, but lwarx read the value natively.
+    // Byte-reverse it to LE before the op (and the result before stwcx). The
+    // scratch pool is exhausted by memTemp/scratch, so use the r0-based
+    // helper (no GPR acquisition, no memory access, which would clear the
+    // reservation). output then holds the LE old value to return. JS atomics
+    // (access == nullptr) are native byte order, so no swap.
+    if (access) {
+      ReverseWordBytesForAtomics(masm, output);
+    }
+#endif
+
     switch (op) {
       case AtomicOp::Add:
         masm.as_add(scratch, output, value);
@@ -2482,11 +2737,22 @@ static void AtomicFetchOp(MacroAssembler& masm,
         MOZ_CRASH();
     }
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // Byte-reverse the LE result back to native for the store. Mask the high
+    // 32 bits first (an Add/Sub may have carried into bit 32) so the swap
+    // operates only on the 32-bit result.
+    if (access) {
+      masm.as_rldicl(scratch, scratch, 0, 32);
+      ReverseWordBytesForAtomics(masm, scratch);
+    }
+#endif
+
     masm.as_stwcx(scratch, r0, memTemp);
     masm.ma_b(Assembler::NotEqual, &again);
 
     masm.memoryBarrierAfter(sync);
-    // lwarx zero-extends; sign-extend for 32-bit canonical form.
+    // output already holds the (byte-reversed) little-endian old value;
+    // sign-extend for 32-bit canonical form.
     masm.as_extsw(output, output);
 
     return;
@@ -2517,6 +2783,17 @@ static void AtomicFetchOp(MacroAssembler& masm,
     masm.as_lharx(output, r0, memTemp);
   }
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  if (nbytes == 2 && access) {
+    // wasm atomic memory is little-endian; byte-reverse the loaded halfword
+    // before the op (and the result before sthcx). offsetTemp is unused here.
+    // JS atomics (access == nullptr) are native byte order, so no swap.
+    masm.as_rlwinm(offsetTemp, output, 8, 16, 23);
+    masm.as_rlwinm(output, output, 24, 24, 31);
+    masm.as_or_(output, output, offsetTemp);
+  }
+#endif
+
   switch (op) {
     case AtomicOp::Add:
       masm.as_add(valueTemp, output, value);
@@ -2536,6 +2813,16 @@ static void AtomicFetchOp(MacroAssembler& masm,
     default:
       MOZ_CRASH();
   }
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  if (nbytes == 2 && access) {
+    // Byte-reverse the little-endian result back to native; sthcx stores the
+    // low 16 bits.
+    masm.as_rlwinm(offsetTemp, valueTemp, 8, 16, 23);
+    masm.as_rlwinm(valueTemp, valueTemp, 24, 24, 31);
+    masm.as_or_(valueTemp, valueTemp, offsetTemp);
+  }
+#endif
 
   if (nbytes == 1) {
     masm.as_stbcx(valueTemp, r0, memTemp);
@@ -2581,6 +2868,16 @@ static void AtomicFetchOp64(MacroAssembler& masm,
 
   masm.as_ldarx(output.reg, r0, scratch);
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // wasm atomic memory is little-endian; byte-reverse the natively-loaded
+  // value to LE before the op (and the result before stdcx). byteSwap64 is
+  // register-only on every ISA level, so the reservation is preserved. JS
+  // atomics (access == nullptr) are native byte order, so no swap.
+  if (access) {
+    masm.byteSwap64(output);
+  }
+#endif
+
   switch (op) {
     case AtomicOp::Add:
       masm.as_add(temp.reg, output.reg, value.reg);
@@ -2600,6 +2897,12 @@ static void AtomicFetchOp64(MacroAssembler& masm,
     default:
       MOZ_CRASH();
   }
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  if (access) {
+    masm.byteSwap64(temp);
+  }
+#endif
 
   masm.as_stdcx(temp.reg, r0, scratch);
   masm.ma_b(Assembler::NotEqual, &tryAgain);
@@ -2648,6 +2951,15 @@ static void AtomicEffectOp(MacroAssembler& masm,
 
     masm.as_lwarx(scratch2, r0, scratch);
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // wasm atomic memory is little-endian; byte-reverse the loaded value to LE
+    // before the op and the result back to native before stwcx (VSX scratch).
+    // JS atomics (access == nullptr) are native byte order, so no swap.
+    if (access) {
+      ReverseWordBytesForAtomics(masm, scratch2);
+    }
+#endif
+
     switch (op) {
       case AtomicOp::Add:
         masm.as_add(scratch2, scratch2, value);
@@ -2667,6 +2979,13 @@ static void AtomicEffectOp(MacroAssembler& masm,
       default:
         MOZ_CRASH();
     }
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    if (access) {
+      masm.as_rldicl(scratch2, scratch2, 0, 32);
+      ReverseWordBytesForAtomics(masm, scratch2);
+    }
+#endif
 
     masm.as_stwcx(scratch2, r0, scratch);
     masm.ma_b(Assembler::NotEqual, &again);
@@ -2700,6 +3019,17 @@ static void AtomicEffectOp(MacroAssembler& masm,
     masm.as_lharx(scratch2, r0, scratch);
   }
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  if (nbytes == 2 && access) {
+    // wasm atomic memory is little-endian; byte-reverse the loaded halfword
+    // before the op and the result before sthcx. offsetTemp is unused here.
+    // JS atomics (access == nullptr) are native byte order, so no swap.
+    masm.as_rlwinm(offsetTemp, scratch2, 8, 16, 23);
+    masm.as_rlwinm(scratch2, scratch2, 24, 24, 31);
+    masm.as_or_(scratch2, scratch2, offsetTemp);
+  }
+#endif
+
   switch (op) {
     case AtomicOp::Add:
       masm.as_add(scratch2, scratch2, value);
@@ -2719,6 +3049,14 @@ static void AtomicEffectOp(MacroAssembler& masm,
     default:
       MOZ_CRASH();
   }
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  if (nbytes == 2 && access) {
+    masm.as_rlwinm(offsetTemp, scratch2, 8, 16, 23);
+    masm.as_rlwinm(scratch2, scratch2, 24, 24, 31);
+    masm.as_or_(scratch2, scratch2, offsetTemp);
+  }
+#endif
 
   if (nbytes == 1) {
     masm.as_stbcx(scratch2, r0, scratch);
@@ -3149,6 +3487,28 @@ void MacroAssemblerPPC64Compat::wasmProbeLastByte(
   as_lbzx(probeAddr, memoryBase, probeAddr);
 }
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+void MacroAssemblerPPC64Compat::byteReverseSimd128(FloatRegister src,
+                                                   FloatRegister dest) {
+  if (HasPOWER9()) {
+    as_xxbrq(dest, src);
+    return;
+  }
+  // POWER8: vperm with a full-reverse control vector. Expressed in wasm
+  // lanes the control is the identity {0..15}: the canonical constant load
+  // places lane K at big-endian register byte 15-K, which is exactly the
+  // descending byte selector the reversal needs. vperm reads all of its
+  // inputs before writing, so |dest| may alias |src| or the control (v0).
+  MOZ_ASSERT(src != ScratchSimd128Reg, "control in v0 would clobber src");
+  static const int8_t lanes[16] = {0, 1, 2,  3,  4,  5,  6,  7,
+                                   8, 9, 10, 11, 12, 13, 14, 15};
+  ScratchSimd128Scope ctl(asMasm());
+  asMasm().loadConstantSimd128(SimdConstant::CreateX16(lanes), ctl);
+  as_vperm(dest.encoding() & 31, src.encoding() & 31, src.encoding() & 31,
+           ctl.encoding() & 31);
+}
+#endif
+
 void MacroAssemblerPPC64Compat::wasmLoadImpl(
     const wasm::MemoryAccessDesc& access, Register memoryBase, Register ptr,
     Register ptrScratch, AnyRegister output) {
@@ -3181,14 +3541,28 @@ void MacroAssemblerPPC64Compat::wasmLoadImpl(
       as_lbzx(output.gpr(), memoryBase, ptr);
       break;
     case Scalar::Int16:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      // wasm memory is little-endian; load byte-reversed then sign-extend.
+      as_lhbrx(output.gpr(), memoryBase, ptr);
+      as_extsh(output.gpr(), output.gpr());
+#else
       as_lhax(output.gpr(), memoryBase, ptr);
+#endif
       break;
     case Scalar::Uint16:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_lhbrx(output.gpr(), memoryBase, ptr);
+#else
       as_lhzx(output.gpr(), memoryBase, ptr);
+#endif
       break;
     case Scalar::Int32:
     case Scalar::Uint32:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_lwbrx(output.gpr(), memoryBase, ptr);
+#else
       as_lwzx(output.gpr(), memoryBase, ptr);
+#endif
       as_extsw(output.gpr(), output.gpr());
       break;
     case Scalar::Float64:
@@ -3199,6 +3573,18 @@ void MacroAssemblerPPC64Compat::wasmLoadImpl(
         // through ScratchDoubleReg (FPR f0, encoding 0).
         ScratchDoubleScope dscratch(asMasm());
         as_lfdx(dscratch, memoryBase, ptr);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+        // wasm memory is little-endian, so reload the 8 bytes byte-reversed
+        // (the lfdx above is overwritten on big-endian but keeps the trap
+        // site). mtvsrd places the value in dw0 exactly like lfdx, so the
+        // xxpermdi shuffles below are unchanged.
+        {
+          UseScratchRegisterScope temps(asMasm());
+          Register tmp = temps.Acquire();
+          as_ldbrx(tmp, memoryBase, ptr);
+          as_mtvsrd(dscratch, tmp);
+        }
+#endif
         if (access.isZeroExtendSimd128Load()) {
           // Loaded value goes to BE dw1 (= LE dw0 = lane 0); BE dw0 = 0.
           as_xxlxor(ScratchSimd128Reg, ScratchSimd128Reg, ScratchSimd128Reg);
@@ -3232,15 +3618,29 @@ void MacroAssemblerPPC64Compat::wasmLoadImpl(
           }
         }
       } else {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+        // wasm memory is little-endian: load 8 bytes byte-reversed into a GPR,
+        // then move into the FPR (matches what lfdx would place in dw0).
+        UseScratchRegisterScope temps(asMasm());
+        Register tmp = temps.Acquire();
+        as_ldbrx(tmp, memoryBase, ptr);
+        as_mtvsrd(output.fpu(), tmp);
+#else
         as_lfdx(output.fpu(), memoryBase, ptr);
+#endif
       }
       break;
     case Scalar::Float32:
       if (access.isZeroExtendSimd128Load()) {
-        // v128.load32_zero: load 32 raw bits into lane 0, zero the rest.
+        // v128.load32_zero: load 32 bits into lane 0, zero the rest. wasm
+        // memory is little-endian, so the scalar load is byte-reversed.
         UseScratchRegisterScope temps(asMasm());
         Register tmp = temps.Acquire();
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+        as_lwbrx(tmp, memoryBase, ptr);
+#else
         as_lwzx(tmp, memoryBase, ptr);
+#endif
         as_xxlxor(output.fpu(), output.fpu(), output.fpu());
         if (HasPOWER9()) {
           as_mtvsrws(ScratchSimd128Reg, tmp);
@@ -3253,15 +3653,44 @@ void MacroAssemblerPPC64Compat::wasmLoadImpl(
           as_xxpermdi(output.fpu(), output.fpu(), ScratchSimd128Reg, 0);
         }
       } else {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+        // wasm memory is little-endian: load the 4 single-precision bytes
+        // byte-reversed into a GPR, then reinterpret into the FPR (matching
+        // what lfsx would place, including the single->double conversion).
+        // Inline the reinterpret with the one scratch already held here:
+        // moveGPRToFloat32's POWER8 branch would acquire a second scratch
+        // and empty the pool when the outer codegen holds one too.
+        UseScratchRegisterScope temps(asMasm());
+        Register tmp = temps.Acquire();
+        as_lwbrx(tmp, memoryBase, ptr);
+        x_sldi(tmp, tmp, 32);
+        as_mtvsrd(output.fpu(), tmp);
+        as_xscvspdpn(output.fpu(), output.fpu());
+#else
         as_lfsx(output.fpu(), memoryBase, ptr);
+#endif
       }
       break;
     case Scalar::Simd128:
       if (HasPOWER9()) {
         as_lxvx(output.fpu(), memoryBase, ptr);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+        // wasm v128 memory is little-endian: byte-reverse the 16 bytes so the
+        // register matches the canonical LE layout the VSX lane/element ops
+        // use. (lxvb16x is endian-normalizing and a no-op on BE; xxbrq is an
+        // absolute register byte-reverse.)
+        as_xxbrq(output.fpu(), output.fpu());
+#endif
       } else {
         as_lxvd2x(output.fpu(), memoryBase, ptr);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+        // lxvd2x is an identity load on big-endian; byte-reverse to the
+        // canonical LE register layout. The pool load this emits comes
+        // after the faulting lxvd2x, so the trap site is unaffected.
+        byteReverseSimd128(output.fpu(), output.fpu());
+#else
         as_xxpermdi(output.fpu(), output.fpu(), output.fpu(), 2);
+#endif
       }
       break;
     default:
@@ -3290,7 +3719,21 @@ void MacroAssemblerPPC64Compat::wasmStoreImpl(
   // store, the faulting instruction (stxvd2x) is after a byte-swap
   // (xxpermdi), so we defer the trap site recording.
   // Flush pool first; see comment in wasmLoadImpl.
-  if (access.type() != Scalar::Simd128 || HasPOWER9()) {
+  bool deferTrapSite = (access.type() == Scalar::Simd128 && !HasPOWER9());
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // On BE, an f32/f64 store moves FP->GPR before the byte-reversed store, so
+  // the faulting store is not the first emitted instruction; defer the
+  // trap-site record to just before the store (as the P8 Simd128 path does).
+  if (access.type() == Scalar::Float64 || access.type() == Scalar::Float32) {
+    deferTrapSite = true;
+  }
+  // On BE the P9 Simd128 store byte-reverses (xxbrq) into a scratch before the
+  // faulting stxvx, so its trap site is deferred too (like the P8 path).
+  if (access.type() == Scalar::Simd128) {
+    deferTrapSite = true;
+  }
+#endif
+  if (!deferTrapSite) {
     m_buffer.flushPool();
     append(access,
            wasm::TrapMachineInsnForStore(Scalar::byteSize(access.type())),
@@ -3304,26 +3747,86 @@ void MacroAssemblerPPC64Compat::wasmStoreImpl(
       break;
     case Scalar::Int16:
     case Scalar::Uint16:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      // wasm memory is little-endian; store byte-reversed.
+      as_sthbrx(value.gpr(), memoryBase, ptr);
+#else
       as_sthx(value.gpr(), memoryBase, ptr);
+#endif
       break;
     case Scalar::Int32:
     case Scalar::Uint32:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_stwbrx(value.gpr(), memoryBase, ptr);
+#else
       as_stwx(value.gpr(), memoryBase, ptr);
+#endif
       break;
     case Scalar::Int64:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_stdbrx(value.gpr(), memoryBase, ptr);
+#else
       as_stdx(value.gpr(), memoryBase, ptr);
+#endif
       break;
     case Scalar::Float64:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    {
+      // wasm memory is little-endian: move the f64 bits to a GPR and store
+      // byte-reversed. Record the trap site at the faulting stdbrx.
+      UseScratchRegisterScope temps(asMasm());
+      Register tmp = temps.Acquire();
+      as_mfvsrd(tmp, value.fpu());
+      m_buffer.flushPool();
+      append(access, wasm::TrapMachineInsnForStore(8),
+             FaultingCodeOffset(currentOffset()));
+      as_stdbrx(tmp, memoryBase, ptr);
+    }
+#else
       as_stfdx(value.fpu(), memoryBase, ptr);
+#endif
       break;
     case Scalar::Float32:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    {
+      // wasm memory is little-endian: reinterpret the f32 into its single
+      // bits in a GPR and store byte-reversed. Trap site at the faulting store.
+      UseScratchRegisterScope temps(asMasm());
+      Register tmp = temps.Acquire();
+      asMasm().moveFloat32ToGPR(value.fpu(), tmp);
+      m_buffer.flushPool();
+      append(access, wasm::TrapMachineInsnForStore(4),
+             FaultingCodeOffset(currentOffset()));
+      as_stwbrx(tmp, memoryBase, ptr);
+    }
+#else
       as_stfsx(value.fpu(), memoryBase, ptr);
+#endif
       break;
     case Scalar::Simd128:
       if (HasPOWER9()) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+        // wasm v128 memory is little-endian: byte-reverse (xxbrq) into a
+        // scratch, then store. Record the trap site at the faulting stxvx.
+        as_xxbrq(ScratchSimd128Reg, value.fpu());
+        m_buffer.flushPool();
+        append(access,
+               wasm::TrapMachineInsnForStore(Scalar::byteSize(access.type())),
+               FaultingCodeOffset(currentOffset()));
+        as_stxvx(ScratchSimd128Reg, memoryBase, ptr);
+#else
         as_stxvx(value.fpu(), memoryBase, ptr);
+#endif
       } else {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+        // Byte-reverse the canonical value into the scratch and store it
+        // raw (stxvd2x is an identity store on big-endian). The reversal's
+        // pool load precedes the flushPool, keeping the trap site at the
+        // faulting stxvd2x.
+        byteReverseSimd128(value.fpu(), ScratchSimd128Reg);
+#else
         as_xxpermdi(ScratchSimd128Reg, value.fpu(), value.fpu(), 2);
+#endif
         m_buffer.flushPool();  // see comment in wasmLoadImpl
         append(access,
                wasm::TrapMachineInsnForStore(Scalar::byteSize(access.type())),
@@ -3365,21 +3868,42 @@ void MacroAssemblerPPC64Compat::wasmLoadI64Impl(
       as_lbzx(output.reg, memoryBase, ptr);
       break;
     case Scalar::Int16:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_lhbrx(output.reg, memoryBase, ptr);
+      as_extsh(output.reg, output.reg);
+#else
       as_lhax(output.reg, memoryBase, ptr);
+#endif
       break;
     case Scalar::Uint16:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_lhbrx(output.reg, memoryBase, ptr);
+#else
       as_lhzx(output.reg, memoryBase, ptr);
+#endif
       break;
     case Scalar::Int32:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_lwbrx(output.reg, memoryBase, ptr);
+#else
       as_lwzx(output.reg, memoryBase, ptr);
+#endif
       as_extsw(output.reg, output.reg);
       break;
     case Scalar::Uint32:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_lwbrx(output.reg, memoryBase, ptr);  // zero-extended
+#else
       as_lwzx(output.reg, memoryBase, ptr);
       // Zero-extended by lwzx already
+#endif
       break;
     case Scalar::Int64:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_ldbrx(output.reg, memoryBase, ptr);
+#else
       as_ldx(output.reg, memoryBase, ptr);
+#endif
       break;
     default:
       MOZ_CRASH("unexpected array type");
@@ -3413,14 +3937,26 @@ void MacroAssemblerPPC64Compat::wasmStoreI64Impl(
       break;
     case Scalar::Int16:
     case Scalar::Uint16:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_sthbrx(value.reg, memoryBase, ptr);
+#else
       as_sthx(value.reg, memoryBase, ptr);
+#endif
       break;
     case Scalar::Int32:
     case Scalar::Uint32:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_stwbrx(value.reg, memoryBase, ptr);
+#else
       as_stwx(value.reg, memoryBase, ptr);
+#endif
       break;
     case Scalar::Int64:
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      as_stdbrx(value.reg, memoryBase, ptr);
+#else
       as_stdx(value.reg, memoryBase, ptr);
+#endif
       break;
     default:
       MOZ_CRASH("unexpected array type");

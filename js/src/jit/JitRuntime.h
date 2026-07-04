@@ -139,6 +139,17 @@ class JitRuntime {
   // Trampoline for entering JIT code.
   WriteOnceData<uint32_t> enterJITOffset_{0};
 
+#if defined(JS_CODEGEN_PPC64) && defined(_CALL_ELF) && _CALL_ELF == 1
+  // ELFv1 function descriptor for this runtime's enterJIT trampoline; see
+  // enterJit().
+  struct alignas(8) EnterJitDescriptor {
+    void* entry = nullptr;
+    void* toc = nullptr;
+    void* env = nullptr;
+  };
+  mutable EnterJitDescriptor enterJitDesc_;
+#endif
+
   // Generic bailout table; used if the bailout table overflows.
   WriteOnceData<uint32_t> bailoutHandlerOffset_{0};
 
@@ -378,8 +389,30 @@ class JitRuntime {
   }
 
   EnterJitCode enterJit() const {
+#if defined(JS_CODEGEN_PPC64) && defined(_CALL_ELF) && _CALL_ELF == 1
+    // PPC64 ELFv1: a function pointer is a 24-byte descriptor
+    // {entry, toc, env}, not a raw entry. GCC compiles every
+    // function-pointer call as `ld r12, 0(p); ld r2, 8(p); mtctr r12;
+    // bctrl`, so passing a raw JIT entry would dereference the JIT
+    // prologue bytes as the descriptor. Build a synthetic descriptor
+    // pointing at the trampoline; capture libmozjs's TOC on first use
+    // so the trampoline can call back into libmozjs C++ with r2 valid.
+    // The descriptor is a member, not a function-local static: each
+    // runtime (workers included) has its own trampoline code, and a
+    // process-wide descriptor would keep pointing at the first
+    // initializing runtime's trampoline after that runtime dies.
+    if (!enterJitDesc_.entry) {
+      void* toc;
+      asm volatile("mr %0, 2" : "=r"(toc));
+      enterJitDesc_.toc = toc;
+      enterJitDesc_.env = nullptr;
+      enterJitDesc_.entry = trampolineCode(enterJITOffset_).value;
+    }
+    return reinterpret_cast<EnterJitCode>(&enterJitDesc_);
+#else
     return JS_DATA_TO_FUNC_PTR(EnterJitCode,
                                trampolineCode(enterJITOffset_).value);
+#endif
   }
 
   // Return the registers from the native caller frame of the given JIT frame.

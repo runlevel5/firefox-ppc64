@@ -556,6 +556,17 @@ void MacroAssembler::byteSwap16ZeroExtend(Register reg) {
   as_or_(reg, reg, scratch);
 }
 
+// POWER8/9 rotate-with-insert byte-reversal of the low 32 bits of |src| into
+// |dst| (which must differ from |src|). The high 32 bits of |dst| are left
+// holding rotate artifacts; callers that need a canonical 32-bit result follow
+// with extsw. Used where the single-instruction reversals are unavailable
+// (brw/brd are POWER10) or unusable inside a larx/stcx reservation window.
+static void ByteReverseLow32(MacroAssembler& masm, Register dst, Register src) {
+  masm.as_rlwinm(dst, src, 8, 0, 31);    // dst = rotl32(src, 8)
+  masm.as_rlwimi(dst, src, 24, 0, 7);    // insert src byte 0 -> dst byte 3
+  masm.as_rlwimi(dst, src, 24, 16, 23);  // insert src byte 2 -> dst byte 1
+}
+
 void MacroAssembler::byteSwap32(Register reg) {
   if (HasPOWER10()) {
     // brw byte-reverses both 32-bit halves; extsw drops the upper half
@@ -564,14 +575,10 @@ void MacroAssembler::byteSwap32(Register reg) {
     as_extsw(reg, reg);
     return;
   }
-  // POWER8/9: rotate-with-insert synthesis (4 insns).
+  // POWER8/9: rotate-with-insert synthesis, then sign-extend to 64 bits.
   UseScratchRegisterScope temps(asMasm());
   Register scratch = temps.Acquire();
-  // scratch = rotate reg left 8, mask bytes 0,3
-  as_rlwinm(scratch, reg, 8, 0, 31);    // rotl32 by 8
-  as_rlwimi(scratch, reg, 24, 0, 7);    // insert byte 0
-  as_rlwimi(scratch, reg, 24, 16, 23);  // insert byte 2
-  // Sign-extend to 64 bits (as 32-bit value).
+  ByteReverseLow32(*this, scratch, reg);
   as_extsw(reg, scratch);
 }
 
@@ -584,23 +591,21 @@ void MacroAssembler::byteSwap64(Register64 reg64) {
     as_xxbrd(ScratchDoubleReg, ScratchDoubleReg);
     as_mfvsrd(reg64.reg, ScratchDoubleReg);
   } else {
-    // POWER8: byte-swap via stack using stwbrx (word byte-reverse store).
-    // stwbrx RS,RA,RB stores RS byte-reversed at RA+RB.
-    // For 64-bit swap: store high word reversed at addr+0, low word at addr+4.
+    // POWER8: register-only synthesis. (A stwbrx/ld stack round-trip only
+    // assembles bswap64 on little-endian, and a memory round-trip would
+    // also lose a larx reservation when called between larx/stcx pairs.)
+    // bswap64(hi||lo) = bswap32(lo) || bswap32(hi): byte-reverse each 32-bit
+    // half into tmp and r0 respectively, then recombine with the halves
+    // exchanged. r0 is safe as a computational temp here (rlwinm/rlwimi/rldimi
+    // have no base-register zero semantics; see movePtr).
     Register r = reg64.reg;
     UseScratchRegisterScope temps(*this);
     Register tmp = temps.Acquire();
-    as_stdu(StackPointer, StackPointer, -16);
-    // Store low 32 bits byte-reversed at SP+12.
-    as_addi(tmp, StackPointer, 12);
-    as_stwbrx(r, r0, tmp);  // r0 as RA = 0, so addr = tmp
-    // Store high 32 bits byte-reversed at SP+8.
+    ByteReverseLow32(*this, tmp, r);  // tmp = bswap32(low 32 bits of r)
     x_srdi(r, r, 32);
-    as_addi(tmp, StackPointer, 8);
-    as_stwbrx(r, r0, tmp);  // addr = tmp
-    // Load reversed 64-bit value from SP+8.
-    as_ld(r, StackPointer, 8);
-    as_addi(StackPointer, StackPointer, 16);
+    ByteReverseLow32(*this, r0, r);  // r0 = bswap32(high 32 bits of r)
+    as_rldimi(r0, tmp, 32, 0);       // r0 = bswap32(low) || bswap32(high)
+    xs_mr(r, r0);
   }
 }
 
@@ -3254,7 +3259,8 @@ void MacroAssembler::wasmMulI64WideHI64(Register lhs, Register rhs,
 //}}} check_macroassembler_style
 
 void MacroAssemblerPPC64Compat::incrementInt32Value(const Address& addr) {
-  asMasm().add32(Imm32(1), addr);
+  // Increment the int32 payload, which on big-endian is at +4 within the Value.
+  asMasm().add32(Imm32(1), valuePayload(addr));
 }
 
 void MacroAssemblerPPC64Compat::retn(Imm32 n) {
@@ -3364,6 +3370,8 @@ FaultingCodeOffset MacroAssembler::loadUnalignedSimd128(const Address& src,
     return FaultingCodeOffset(as_lxvx(dest, src.base, scratch).getOffset());
   }
   // POWER8: lxvd2x loads with doubleword swap on LE. Fix with xxpermdi.
+  // On big-endian lxvd2x is an identity 16-byte load (same contract as the
+  // POWER9 lxvx above), so no fixup.
   Register scratch = temps.Acquire();
   FaultingCodeOffset fco;
   if (src.offset == 0) {
@@ -3372,7 +3380,9 @@ FaultingCodeOffset MacroAssembler::loadUnalignedSimd128(const Address& src,
     movePtr(ImmWord(src.offset), scratch);
     fco = FaultingCodeOffset(as_lxvd2x(dest, src.base, scratch).getOffset());
   }
+#if !(defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
   as_xxpermdi(dest, dest, dest, 2);
+#endif
   return fco;
 }
 
@@ -3390,7 +3400,9 @@ FaultingCodeOffset MacroAssembler::loadUnalignedSimd128(const BaseIndex& src,
     return FaultingCodeOffset(as_lxvx(dest, r0, scratch).getOffset());
   }
   FaultingCodeOffset fco(as_lxvd2x(dest, r0, scratch).getOffset());
+#if !(defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
   as_xxpermdi(dest, dest, dest, 2);
+#endif
   return fco;
 }
 
@@ -3415,18 +3427,24 @@ FaultingCodeOffset MacroAssembler::storeUnalignedSimd128(FloatRegister src,
     movePtr(ImmWord(dest.offset), scratch);
     return FaultingCodeOffset(as_stxvx(src, dest.base, scratch).getOffset());
   }
-  // POWER8: stxvd2x stores with doubleword swap on LE.
-  // Swap before store, then swap back to restore the register.
+  // POWER8: stxvd2x stores with doubleword swap on LE, so swap into a
+  // scratch first. On big-endian stxvd2x is an identity 16-byte store
+  // (same contract as the POWER9 stxvx above), so store src directly.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  FloatRegister toStore = src;
+#else
   ScratchSimd128Scope scratch128(*this);
   as_xxpermdi(scratch128, src, src, 2);
+  FloatRegister toStore = scratch128;
+#endif
   Register scratch = temps.Acquire();
   FaultingCodeOffset fco;
   if (dest.offset == 0) {
-    fco = FaultingCodeOffset(as_stxvd2x(scratch128, r0, dest.base).getOffset());
+    fco = FaultingCodeOffset(as_stxvd2x(toStore, r0, dest.base).getOffset());
   } else {
     movePtr(ImmWord(dest.offset), scratch);
     fco = FaultingCodeOffset(
-        as_stxvd2x(scratch128, dest.base, scratch).getOffset());
+        as_stxvd2x(toStore, dest.base, scratch).getOffset());
   }
   return fco;
 }
@@ -3442,9 +3460,14 @@ FaultingCodeOffset MacroAssembler::storeUnalignedSimd128(
   if (HasPOWER9()) {
     return FaultingCodeOffset(as_stxvx(src, r0, scratch).getOffset());
   }
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // stxvd2x is an identity 16-byte store on big-endian.
+  return FaultingCodeOffset(as_stxvd2x(src, r0, scratch).getOffset());
+#else
   ScratchSimd128Scope scratch128(*this);
   as_xxpermdi(scratch128, src, src, 2);
   return FaultingCodeOffset(as_stxvd2x(scratch128, r0, scratch).getOffset());
+#endif
 }
 
 // ===============================================================
@@ -3642,6 +3665,9 @@ void MacroAssembler::loadConstantSimd128(const SimdConstant& v,
   }
   // Load 128-bit constant from inline constant pool.
   // Clobbers SecondScratchReg (r12).
+  // On big-endian the pool bytes are stored pre-reversed (see
+  // loadFromPoolSimd128), so the raw load already yields the canonical LE
+  // register layout the VSX lane/element ops expect.
   loadFromPoolSimd128(dest, v);
 }
 
