@@ -14,6 +14,10 @@
 
 #include "js/Utility.h"
 
+#if defined(_CALL_ELF) && _CALL_ELF == 1
+#  error "The PPC64 JIT supports only the ELFv2 ABI"
+#endif
+
 namespace js {
 namespace jit {
 

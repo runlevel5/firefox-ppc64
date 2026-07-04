@@ -2128,11 +2128,16 @@ bool BaseCompiler::callIndirect(uint32_t funcTypeIndex, uint32_t tableIndex,
     // therefore we only need WasmTableCallIndexReg.
   } else {
     loadI32(indexVal, RegI32(WasmTableCallIndexReg));
-    masm.branch32(
-        Assembler::Condition::BelowOrEqual,
-        Address(InstanceReg, wasm::Instance::offsetInData(
-                                 callee.tableLengthInstanceDataOffset())),
-        WasmTableCallIndexReg, oob->entry());
+    // The table length is a uint64_t; a 32-bit load must read its low word,
+    // which is at +4 on big-endian.
+    uint32_t lengthOffset = wasm::Instance::offsetInData(
+        callee.tableLengthInstanceDataOffset());
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    lengthOffset += sizeof(uint32_t);
+#endif
+    masm.branch32(Assembler::Condition::BelowOrEqual,
+                  Address(InstanceReg, lengthOffset), WasmTableCallIndexReg,
+                  oob->entry());
   }
 
   Label* nullCheckFailed = nullptr;
@@ -2928,9 +2933,9 @@ Address BaseCompiler::addressOfTableField(uint32_t tableIndex,
 
 void BaseCompiler::loadTableLength(uint32_t tableIndex, RegPtr instance,
                                    RegI32 length) {
-  masm.load32(addressOfTableField(
-                  tableIndex, offsetof(TableInstanceData, length), instance),
-              length);
+  masm.load32(
+      addressOfTableField(tableIndex, TableLength32ByteOffset(), instance),
+      length);
 }
 
 void BaseCompiler::loadTableElements(uint32_t tableIndex, RegPtr instance,
@@ -6359,6 +6364,12 @@ bool BaseCompiler::emitGetGlobal() {
       RegV128 rv = needV128();
       ScratchPtr tmp(*this);
       masm.loadUnalignedSimd128(addressOfGlobalVar(global, tmp), rv);
+#if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
+    __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      // The global cell holds the little-endian image; byte-reverse to the
+      // canonical SIMD register order.
+      masm.byteReverseSimd128(rv, rv);
+#endif
       pushV128(rv);
       break;
     }
@@ -6433,6 +6444,12 @@ bool BaseCompiler::emitSetGlobal() {
     case ValType::V128: {
       RegV128 rv = popV128();
       ScratchPtr tmp(*this);
+#if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
+    __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      // The global cell holds the little-endian image; byte-reverse the
+      // canonical SIMD register before storing. rv is dead after the store.
+      masm.byteReverseSimd128(rv, rv);
+#endif
       masm.storeUnalignedSimd128(rv, addressOfGlobalVar(global, tmp));
       freeV128(rv);
       break;
@@ -7329,8 +7346,7 @@ void BaseCompiler::emitTableBoundsCheck(uint32_t tableIndex, RegI32 address,
   Label ok;
   masm.wasmBoundsCheck32(
       Assembler::Condition::Below, address,
-      addressOfTableField(tableIndex, offsetof(TableInstanceData, length),
-                          instance),
+      addressOfTableField(tableIndex, TableLength32ByteOffset(), instance),
       &ok);
   trap(wasm::Trap::OutOfBounds);
   masm.bind(&ok);

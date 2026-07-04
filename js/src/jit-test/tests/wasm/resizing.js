@@ -81,7 +81,8 @@ assertEq(exports2.test(), 111);
 // Test for coherent length/contents
 
 var mem = new Memory({initial:1});
-new Int32Array(mem.buffer)[0] = 42;
+// Wasm memory is little-endian, so access it with explicit byte order.
+new DataView(mem.buffer).setInt32(0, 42, true);
 var mod = new Module(wasmTextToBinary(`(module
     (import "" "mem" (memory 1))
     (func $gm (param i32) (result i32) (memory.grow (local.get 0)))
@@ -101,7 +102,7 @@ assertEq(exp2.current_memory(), 1);
 assertEq(exp2.load(0), 42);
 mem.grow(1);
 assertEq(mem.buffer.byteLength, 2*64*1024);
-new Int32Array(mem.buffer)[64*1024/4] = 13;
+new DataView(mem.buffer).setInt32(64*1024, 13, true);
 assertEq(exp1.current_memory(), 2);
 assertEq(exp1.load(0), 42);
 assertEq(exp1.load(64*1024), 13);
@@ -114,7 +115,7 @@ exp1.store(3*64*1024, 99);
 assertEq(exp2.current_memory(), 4);
 assertEq(exp2.load(3*64*1024), 99);
 assertEq(mem.buffer.byteLength, 4*64*1024);
-assertEq(new Int32Array(mem.buffer)[3*64*1024/4], 99);
+assertEq(new DataView(mem.buffer).getInt32(3*64*1024, true), 99);
 
 // Fail at maximum
 

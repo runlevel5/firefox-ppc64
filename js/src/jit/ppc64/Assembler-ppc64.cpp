@@ -1140,7 +1140,8 @@ DEF_MEMx(lbzx) DEF_MEMx(lhax) DEF_MEMx(lhzx) DEF_MEMx(lwax)
         DEF_MEMx(lharx) DEF_MEMx(ldx) DEF_MEMx(ldarx) DEF_MEMx(stbx)
             DEF_MEMx(stbcx) DEF_MEMx(stwx) DEF_MEMx(stwbrx) DEF_MEMx(sthx)
                 DEF_MEMx(sthcx) DEF_MEMx(stdx) DEF_MEMx(stdcx)
-                    DEF_MEMx(stwcx)
+                    DEF_MEMx(stwcx) DEF_MEMx(lhbrx) DEF_MEMx(lwbrx)
+                        DEF_MEMx(ldbrx) DEF_MEMx(sthbrx) DEF_MEMx(stdbrx)
 #undef DEF_MEMx
 
 // --- Integer select ---
@@ -1310,6 +1311,11 @@ BufferOffset Assembler::as_mtvsrwz(FloatRegister xt, Register ra) {
 BufferOffset Assembler::as_xxbrd(FloatRegister xt, FloatRegister xb) {
   spew("xxbrd\t%3s,%3s", xt.name(), xb.name());
   return writeInst(XX2Form(PPC_xxbrd, xt.encoding(), xb.encoding()));
+}
+
+BufferOffset Assembler::as_xxbrq(FloatRegister xt, FloatRegister xb) {
+  spew("xxbrq\t%3s,%3s", xt.name(), xb.name());
+  return writeInst(XX2Form(PPC_xxbrq, xt.encoding(), xb.encoding()));
 }
 
 BufferOffset Assembler::as_xscvdpspn(FloatRegister xt, FloatRegister xb) {
@@ -2642,7 +2648,15 @@ bool Assembler::PatchConstantPoolLoad(void* loadAddr, void* constPoolAddr,
     constexpr uint32_t kTX = 1u;
     constexpr uint32_t kAxBxTx_xxpermdi = (1u << 2) | (1u << 1) | 1u;
 
-    if (HasPOWER10()) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // Route POWER10 through the POWER9 (lxvx) path on big-endian: the pool
+    // bytes are stored pre-reversed (see loadFromPoolSimd128) so a raw
+    // native-order load yields the canonical LE register layout directly.
+    const bool kUsePlxv = false;
+#else
+    const bool kUsePlxv = HasPOWER10();
+#endif
+    if (kUsePlxv) {
       // Place plxv prefix at the highest 4-byte-aligned offset within
       // the 5 reserved slots that doesn't straddle a 64-byte block.
       // The alignment decision must use the LOGICAL buffer offset: the final
@@ -2696,7 +2710,9 @@ bool Assembler::PatchConstantPoolLoad(void* loadAddr, void* constPoolAddr,
                 ((Dhi >> 6) & 0x3FF) << 6 | (2u << 1) | (Dhi & 1u);
       // [1] addi r16, r16, lo
       inst[1] = PPC_addi | (baseReg << 21) | (baseReg << 16) | uint16_t(lo);
-      // [2] lxvx vsD, 0, r16  (XT[0:4] in bits 21-25, TX at bit 0)
+      // [2] lxvx vsD, 0, r16  (XT[0:4] in bits 21-25, TX at bit 0). On BE the
+      // pool bytes are stored pre-reversed, so the raw native-order load
+      // yields the canonical LE register layout directly.
       inst[2] = PPC_lxvx | (destReg << 21) | (baseReg << 11) | kTX;
     } else {
       // P8 fallback: bcl + mflr + addi + lxvd2x + xxpermdi (5 slots).
@@ -2708,9 +2724,15 @@ bool Assembler::PatchConstantPoolLoad(void* loadAddr, void* constPoolAddr,
                 (displacement & 0xFFFF);
       // lxvd2x XT, RA=0, RB=r16 — loads in BE order on LE.
       inst[3] = PPC_lxvd2x | (destReg << 21) | (baseReg << 11) | kTX;
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      // On big-endian lxvd2x is an identity 16-byte load and the pool bytes
+      // are stored pre-reversed (canonical LE layout); nothing to fix up.
+      inst[4] = NopInst;
+#else
       // xxpermdi XT, XT, XT, 2 — swap doublewords for LE byte order.
       inst[4] = PPC_xxpermdi | (destReg << 21) | (destReg << 16) |
                 (destReg << 11) | (2u << 8) | kAxBxTx_xxpermdi;
+#endif
     }
   } else {
     MOZ_CRASH("PatchConstantPoolLoad: unsupported load type");
@@ -2868,9 +2890,16 @@ void Assembler::WriteLoad64Instructions(Instruction* inst0, Register reg,
     i5->setData(PPC_b | (12 & 0x03FFFFFC));
   }
 
-  // [6..7] .quad VALUE (low 32 at lower addr, high 32 at higher addr).
+  // [6..7] .quad VALUE. The trailing `ld` is a native 64-bit load, so the two
+  // 32-bit halves must be laid out in target byte order: high half at the lower
+  // address (slot [6]) on big-endian, low half there on little-endian.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  i6->setData((uint32_t)(value >> 32));
+  i7->setData((uint32_t)(value & 0xFFFFFFFF));
+#else
   i6->setData((uint32_t)(value & 0xFFFFFFFF));
   i7->setData((uint32_t)(value >> 32));
+#endif
 }
 
 /* static */
@@ -2884,9 +2913,13 @@ uint64_t Assembler::ExtractLoad64Value(Instruction* inst0) {
   Instruction* i6 = inst0 + 6;
   Instruction* i7 = inst0 + 7;
 
-  uint64_t lo = (uint64_t)i6->encode();  // low 32 at lower addr
-  uint64_t hi = (uint64_t)i7->encode();  // high 32 at higher addr
-  return (hi << 32) | lo;
+  // Mirror WriteLoad64Quad's byte order: high half at the lower address
+  // (slot [6]) on big-endian, low half there on little-endian.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  return ((uint64_t)i6->encode() << 32) | (uint64_t)i7->encode();
+#else
+  return ((uint64_t)i7->encode() << 32) | (uint64_t)i6->encode();
+#endif
 }
 
 /* static */
@@ -2907,8 +2940,14 @@ void Assembler::UpdateLoad64Value(Instruction* inst0, uint64_t value) {
   Instruction* i6 = inst0 + 6;
   Instruction* i7 = inst0 + 7;
 
-  i6->setData((uint32_t)(value & 0xFFFFFFFF));  // low 32 at lower addr
-  i7->setData((uint32_t)(value >> 32));         // high 32 at higher addr
+  // Match WriteLoad64Quad: high half at the lower address on big-endian.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  i6->setData((uint32_t)(value >> 32));
+  i7->setData((uint32_t)(value & 0xFFFFFFFF));
+#else
+  i6->setData((uint32_t)(value & 0xFFFFFFFF));
+  i7->setData((uint32_t)(value >> 32));
+#endif
 }
 
 // ========================================================================

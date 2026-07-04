@@ -808,7 +808,6 @@ class MacroAssembler : public MacroAssemblerSpecific {
   inline void callWithABI(Register fun, ABIType result = ABIType::General);
   inline void callWithABI(const Address& fun,
                           ABIType result = ABIType::General);
-
   CodeOffset callWithABI(wasm::BytecodeOffset offset, wasm::SymbolicAddress fun,
                          mozilla::Maybe<int32_t> instanceOffset,
                          ABIType result = ABIType::General);
