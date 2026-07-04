@@ -188,6 +188,23 @@ using FillSeq_t = decltype(FillLESeq<N, Value>());
 static_assert(std::is_same_v<FillSeq_t<4, 2>,
                              std::integer_sequence<uint8_t, 2, 0, 0, 0>>);
 
+// Same as FillLESeq, using Big Endian ordering of bytes.
+template <size_t N, uint64_t Value, uint8_t... Rest>
+constexpr auto FillBESeq() {
+  if constexpr (N == 0) {
+    return std::integer_sequence<uint8_t, Rest...>{};
+  } else {
+    return FillBESeq<N - 1, Value, Rest...,
+                     uint8_t((Value >> (8 * (N - 1))) & 0xff)>();
+  }
+}
+
+template <size_t N, uint64_t Value>
+using FillBESeq_t = decltype(FillBESeq<N, Value>());
+
+static_assert(std::is_same_v<FillBESeq_t<4, 2>,
+                             std::integer_sequence<uint8_t, 0, 0, 0, 2>>);
+
 // Given a list of template parameters, generate an std::integer_sequence of
 // size_t, where each element is 1 larger than the previous one. The generated
 // sequence starts at 0.
@@ -348,6 +365,29 @@ class ABITypeSequence {};
 template <typename... Args>
 using ArgsABITypes_t = ABITypeSequence<TypeToABIType<Args>()...>;
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+constexpr bool kBigEndianTarget = true;
+#else
+constexpr bool kBigEndianTarget = false;
+#endif
+
+// The bytes of one argument value followed (or, on big-endian targets,
+// preceded) by its 0x55 back padding. The MoveOperand loads a whole word for
+// every type except float, so on big-endian targets the value has to sit at
+// the end of the word for the callee to see it in the low bits, whereas a
+// float is loaded with a 4-byte load from the start of the slot.
+template <typename Arg, uint64_t Val>
+using ArgSlot_t = std::conditional_t<
+    kBigEndianTarget && !std::is_same_v<Arg, float>,
+    Concat_t<CstSeq_t<BackPadBytes<Arg>(), 0x55>,
+             FillBESeq_t<ActualSizeOf<Arg>(), Val>>,
+    std::conditional_t<
+        kBigEndianTarget,
+        Concat_t<FillBESeq_t<ActualSizeOf<Arg>(), Val>,
+                 CstSeq_t<BackPadBytes<Arg>(), 0x55>>,
+        Concat_t<FillSeq_t<ActualSizeOf<Arg>(), Val>,
+                 CstSeq_t<BackPadBytes<Arg>(), 0x55>>>>;
+
 // Generate an std::integer_sequence which corresponds to a buffer containing
 // values which are spread at the location where each arguments type would be
 // stored in a buffer.
@@ -362,8 +402,7 @@ struct ArgsBuffer<std::integer_sequence<uint8_t, Buffer...>,
   using type = typename ArgsBuffer<
       Concat_t<std::integer_sequence<uint8_t, Buffer...>,
                Concat_t<PadSeq_t<ActualAlignOf<Arg>(), sizeof...(Buffer)>,
-                        Concat_t<FillSeq_t<ActualSizeOf<Arg>(), Val>,
-                                 CstSeq_t<BackPadBytes<Arg>(), 0x55>>>>,
+                        ArgSlot_t<Arg, Val>>>,
       std::integer_sequence<uint64_t, Values...>, Args...>::type;
 };
 
@@ -378,7 +417,21 @@ using ArgsBuffer_t =
 
 // NOTE: The representation of the boolean might be surprising in this test
 // case, see AtLeastSize function for an explanation.
-#ifdef JS_64BIT
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+static_assert(sizeof(uintptr_t) == 8);
+static_assert(
+    std::is_same_v<
+        ArgsBuffer_t<std::integer_sequence<uint64_t, 42, 51>, uint64_t, bool>,
+        std::integer_sequence<uint8_t, 0, 0, 0, 0, 0, 0, 0, 42, 0x55, 0x55,
+                              0x55, 0x55, 0x55, 0x55, 0x55, 51>>);
+static_assert(
+    std::is_same_v<
+        ArgsBuffer_t<std::integer_sequence<uint64_t, 0xffffffff, 0xffffffff>,
+                     uint8_t, uint16_t>,
+        std::integer_sequence<uint8_t, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+                              0x55, 0xff, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+                              0xff, 0xff>>);
+#elif defined(JS_64BIT)
 static_assert(sizeof(uintptr_t) == 8);
 static_assert(
     std::is_same_v<

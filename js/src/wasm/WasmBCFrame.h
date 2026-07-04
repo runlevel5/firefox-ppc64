@@ -879,7 +879,15 @@ class BaseStackFrame final : public BaseStackFrameAllocator {
   }
 
   void loadStackI32(int32_t offset, RegI32 dest) {
+    // An i32 is spilled into a pointer-sized (8-byte) stack slot by pushGPR, so
+    // on big-endian its value occupies the high-address low word at +4. Reading
+    // at +0 would pick up the always-zero high word.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    masm.load32(Address(sp_, stackOffset(offset) + int32_t(sizeof(int32_t))),
+                dest);
+#else
     masm.load32(Address(sp_, stackOffset(offset)), dest);
+#endif
   }
 
   void loadStackI64(int32_t offset, RegI64 dest) {
@@ -1076,7 +1084,14 @@ class BaseStackFrame final : public BaseStackFrameAllocator {
     if (StackSizeOfFloat == 4) {
       store32BitsToStack(bits.i32, destHeight, temp);
     } else {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      // Readers load the f32 from the slot's first four bytes; place the
+      // value bits there.
+      store64BitsToStack(int64_t(uint64_t(uint32_t(bits.i32)) << 32),
+                         destHeight, temp);
+#else
       store64BitsToStack(uint32_t(bits.i32), destHeight, temp);
+#endif
     }
   }
 
@@ -1098,6 +1113,17 @@ class BaseStackFrame final : public BaseStackFrameAllocator {
     } bits{};
     static_assert(sizeof(bits) == 16);
     memcpy(bits.bytes, imm.bytes, 16);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // imm.bytes is the little-endian v128 image, but the stack results area
+    // holds the raw register byte order that storeUnalignedSimd128 writes, which
+    // on big-endian is the full byte-reverse of that image. Reverse all 16 bytes
+    // so the immediate matches the computed (register-spilled) result path.
+    for (unsigned i = 0; i < 8; i++) {
+      uint8_t t = bits.bytes[i];
+      bits.bytes[i] = bits.bytes[15 - i];
+      bits.bytes[15 - i] = t;
+    }
+#endif
     for (unsigned i = 0; i < 4; i++) {
       store32BitsToStack(bits.i32[i], destHeight - i * sizeof(int32_t), temp);
     }
