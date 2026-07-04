@@ -34,8 +34,8 @@ function insAndMemUnop(op, memtype, resultmemtype, inputs) {
       (${op} (local.get $a)))
 
     ${expandConstantUnopInputs(op, memtype, inputs)})`);
-    var mem = new memtype(ins.exports.mem.buffer);
-    var resultmem = !resultmemtype || memtype == resultmemtype ? mem : new resultmemtype(ins.exports.mem.buffer);
+    var mem = memView(memtype, ins.exports.mem.buffer);
+    var resultmem = !resultmemtype || memtype == resultmemtype ? mem : memView(resultmemtype, ins.exports.mem.buffer);
     return [ins, mem, resultmem];
 }
 
@@ -84,8 +84,8 @@ for ( let [op, memtype, rop, resultmemtype] of
     let len = 16/memtype.BYTES_PER_ELEMENT;
     let xs = iota(len);
     let zero = xs.map(_ => 0);
-    let bitsForF32 = memtype == Float32Array ? new Uint32Array(mem.buffer) : null;
-    let bitsForF64 = memtype == Float64Array ? new BigInt64Array(mem.buffer) : null;
+    let bitsForF32 = memtype == Float32Array ? memView(Uint32Array, mem.buffer) : null;
+    let bitsForF64 = memtype == Float64Array ? memView(BigInt64Array, mem.buffer) : null;
 
     function testIt(a, r) {
         set(mem, len, a);

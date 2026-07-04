@@ -808,6 +808,11 @@ class MacroAssembler : public MacroAssemblerSpecific {
   inline void callWithABI(Register fun, ABIType result = ABIType::General);
   inline void callWithABI(const Address& fun,
                           ABIType result = ABIType::General);
+  // Like callWithABI(Register), but the target is raw JIT code implementing
+  // the C ABI rather than a C++ function, so on ELFv1 it must not be
+  // dereferenced as a function descriptor.
+  void callWithABIJitCode(Register fun, ABIType result = ABIType::General)
+      DEFINED_ON(ppc64);
 
   CodeOffset callWithABI(wasm::BytecodeOffset offset, wasm::SymbolicAddress fun,
                          mozilla::Maybe<int32_t> instanceOffset,

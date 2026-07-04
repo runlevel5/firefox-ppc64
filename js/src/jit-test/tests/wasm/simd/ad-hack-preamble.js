@@ -1,6 +1,8 @@
 // |jit-test| skip-if: true
 
 // Common code for the ad-hack test cases.
+// (memView, for big-endian portability of typed-array views over wasm memory,
+// lives in lib/wasm.js which is loaded before this preamble.)
 
 function get(arr, loc, len) {
     let res = [];
