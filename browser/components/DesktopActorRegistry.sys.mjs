@@ -387,6 +387,22 @@ let JSWINDOWACTORS = {
     remoteTypes: ["parent", "privilegedabout"],
   },
 
+  BigEndianWarning: {
+    parent: {
+      esModuleURI: "resource:///actors/BigEndianWarningParent.sys.mjs",
+    },
+    child: {
+      esModuleURI: "resource:///actors/BigEndianWarningChild.sys.mjs",
+      events: {
+        MozBigEndianUnsupported: {},
+      },
+    },
+
+    messageManagerGroups: ["browsers"],
+    allFrames: true,
+    safeForUntrustedWebProcess: true,
+  },
+
   BlockedSite: {
     parent: {
       esModuleURI: "resource:///actors/BlockedSiteParent.sys.mjs",

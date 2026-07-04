@@ -643,10 +643,13 @@ void RemoteWorkerChild::ErrorPropagationOnMainThread(
     ErrorData data(
         aReport->mIsWarning, aReport->mLineNumber, aReport->mColumnNumber,
         aReport->mMessage, aReport->mFilename,
-        TransformIntoNewArray(aReport->mNotes, [](const WorkerErrorNote& note) {
-          return ErrorDataNote(note.mLineNumber, note.mColumnNumber,
-                               note.mMessage, note.mFilename);
-        }));
+        TransformIntoNewArray(aReport->mNotes,
+                              [](const WorkerErrorNote& note) {
+                                return ErrorDataNote(
+                                    note.mLineNumber, note.mColumnNumber,
+                                    note.mMessage, note.mFilename);
+                              }),
+        aReport->mErrorNumber);
     value = data;
   } else {
     value = void_t();
