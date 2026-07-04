@@ -192,6 +192,18 @@ struct TableInstanceData {
   void* elements;
 };
 
+// Byte offset of the low 32 bits of TableInstanceData::length, for the 32-bit
+// loads used to bounds-check 32-bit tables. The field is a uint64_t whose value
+// fits in 32 bits, so the low word holds it -- and that word is at +4 on a
+// big-endian host.
+inline constexpr size_t TableLength32ByteOffset() {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  return offsetof(TableInstanceData, length) + sizeof(uint32_t);
+#else
+  return offsetof(TableInstanceData, length);
+#endif
+}
+
 // TagInstanceData describes the instance state associated with a tag.
 
 struct TagInstanceData {

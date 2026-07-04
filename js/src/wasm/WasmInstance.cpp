@@ -235,9 +235,29 @@ static bool UnpackResults(JSContext* cx, const ValTypeVector& resultTypes,
     }
 #endif
     char* loc = stackResultsArea.value() + result.stackOffset();
-    if (!ToWebAssemblyValue(cx, rval, result.type(), loc, result_size == 8)) {
+    bool mustWrite64 = result_size == 8;
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // The wasm caller reads an i32 stack result from the low word of its
+    // pointer-sized slot, at byte offset +4. ToWebAssemblyValue's mustWrite64
+    // widening assumes little-endian layout, so write the 32-bit value
+    // directly at the right offset instead.
+    if (result.type().kind() == ValType::I32) {
+      loc += sizeof(int32_t);
+      mustWrite64 = false;
+    }
+#endif
+    if (!ToWebAssemblyValue(cx, rval, result.type(), loc, mustWrite64)) {
       return false;
     }
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // The baseline compiler pops the whole slot and asserts it holds a
+    // canonical sign-extended value, so widen in place.
+    if (result.type().kind() == ValType::I32 && result_size == 8) {
+      char* slot = loc - sizeof(int32_t);
+      int64_t wide = *reinterpret_cast<int32_t*>(loc);
+      memcpy(slot, &wide, sizeof(wide));
+    }
+#endif
   }
 
   return true;
@@ -1578,6 +1598,18 @@ static bool ArrayCopyFromData(JSContext* cx, Handle<WasmArrayObject*> arrayObj,
     MOZ_RELEASE_ASSERT(seg);
     memcpy(&arrayObj->data_[dstByteOffset], &seg->bytes[segByteOffset],
            size_t(numBytesToCopy.value()));
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // Data segments hold little-endian element values, but scalar array
+    // elements are stored native-endian. (v128 elements keep the
+    // little-endian image, like linear memory.)
+    if (elemSize == 2 || elemSize == 4 || elemSize == 8) {
+      uint8_t* data = &arrayObj->data_[dstByteOffset];
+      for (uint32_t i = 0; i < numElements; i++) {
+        uint8_t* elem = data + size_t(i) * elemSize;
+        std::reverse(elem, elem + elemSize);
+      }
+    }
+#endif
   }
 
   return true;
@@ -3586,6 +3618,13 @@ bool wasm::ResultsToJSValue(JSContext* cx, ResultType type,
     const ABIResult& result = iter.cur();
     if (result.onStack()) {
       char* loc = stackResultsLoc.value() + result.stackOffset();
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      // An i32 stack result occupies a pointer-sized slot and is written as a
+      // 64-bit store, so its value is the low word at byte offset +4.
+      if (result.type().kind() == ValType::I32) {
+        loc += sizeof(int32_t);
+      }
+#endif
       if (!ToJSValue<DebugCodegenVal>(cx, loc, result.type(), &tmp, level)) {
         return false;
       }
@@ -4114,7 +4153,14 @@ bool Instance::callExport(JSContext* cx, uint32_t funcIndex,
     JitActivation activation(cx);
 
     // Call the per-exported-function trampoline created by GenerateEntry.
+#if defined(JS_CODEGEN_PPC64) && defined(_CALL_ELF) && _CALL_ELF == 1
+    // PPC64 ELFv1: interpEntry is a raw JIT entry, not a function descriptor.
+    // See MakeELFv1Call.
+    js::jit::ELFv1FunctionDescriptor desc;
+    auto funcPtr = js::jit::MakeELFv1Call<ExportFuncPtr>(interpEntry, &desc);
+#else
     auto funcPtr = JS_DATA_TO_FUNC_PTR(ExportFuncPtr, interpEntry);
+#endif
     if (!CALL_GENERATED_2(funcPtr, exportArgs.begin(), this)) {
       return false;
     }

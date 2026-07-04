@@ -1397,8 +1397,13 @@ class CacheIRStubInfo {
   }
 
   int32_t getStubRawInt32(const uint8_t* stubData, uint32_t offset) const {
-    MOZ_ASSERT(uintptr_t(stubData + offset) % sizeof(int32_t) == 0);
-    return *reinterpret_cast<const int32_t*>(stubData + offset);
+    MOZ_ASSERT(uintptr_t(stubData + offset) % sizeof(uintptr_t) == 0);
+    // A RawInt32 stub field occupies a full word slot (copyStubData stores it
+    // via InitWordStubField), with the 32-bit value in the low bits of the
+    // word. Read the word and truncate so the result is correct on both
+    // endiannesses; a 32-bit load at `offset` would read the high half (zero)
+    // on big-endian.
+    return int32_t(*reinterpret_cast<const uintptr_t*>(stubData + offset));
   }
 
   int32_t getStubRawInt32(ICCacheIRStub* stub, uint32_t offset) const {

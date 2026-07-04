@@ -151,7 +151,15 @@ static EnterJitStatus JS_HAZ_JSNATIVE_CALLER EnterJit(JSContext* cx,
 bool js::jit::EnterInterpreterEntryTrampoline(uint8_t* code, JSContext* cx,
                                               RunState* state) {
   using EnterTrampolineCodePtr = bool (*)(JSContext* cx, RunState*);
+#if defined(JS_CODEGEN_PPC64) && defined(_CALL_ELF) && _CALL_ELF == 1
+  // PPC64 ELFv1: |code| is a raw JIT entry, not a function descriptor. The
+  // descriptor is per-call (the entry differs per script and runtimes run
+  // concurrently), so it lives on the stack. See MakeELFv1Call.
+  ELFv1FunctionDescriptor desc;
+  auto funcPtr = MakeELFv1Call<EnterTrampolineCodePtr>(code, &desc);
+#else
   auto funcPtr = JS_DATA_TO_FUNC_PTR(EnterTrampolineCodePtr, code);
+#endif
   return CALL_GENERATED_2(funcPtr, cx, state);
 }
 
