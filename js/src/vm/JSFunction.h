@@ -458,7 +458,19 @@ class JSFunction : public js::NativeObject {
   }
 
  public:
+  // flagsAndArgCount is stored as the payload of a PrivateUint32Value. JIT code
+  // reads the packed uint32 with a 32-bit load, so this returns the byte offset
+  // of that payload: on big-endian it is at +4 within the 8-byte slot (the tag
+  // word occupies +0). Use offsetOfFlagsAndArgCountSlot() to address the whole
+  // Value (e.g. to copy or guard it).
   static constexpr size_t offsetOfFlagsAndArgCount() {
+    return getFixedSlotOffset(FlagsAndArgCountSlot)
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+           + sizeof(uint32_t)
+#endif
+        ;
+  }
+  static constexpr size_t offsetOfFlagsAndArgCountSlot() {
     return getFixedSlotOffset(FlagsAndArgCountSlot);
   }
   static size_t offsetOfEnvironment() { return offsetOfNativeOrEnv(); }

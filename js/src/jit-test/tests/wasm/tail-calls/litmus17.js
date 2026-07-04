@@ -21,5 +21,7 @@ let ins2 = wasmEvalText(`
   (func $g (result i32)
     (return_call $memref)))`, {mod1: ins1.exports});
 
-(new Int32Array(ins1.exports.mem.buffer))[0] = 1337;
+// Wasm memory is little-endian; write with explicit byte order so the test
+// is endian-neutral.
+new DataView(ins1.exports.mem.buffer).setInt32(0, 1337, true);
 assertEq(ins2.exports.run(), 1337);

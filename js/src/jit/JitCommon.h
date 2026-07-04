@@ -48,4 +48,39 @@
 
 #endif
 
+#if defined(JS_CODEGEN_PPC64) && defined(_CALL_ELF) && _CALL_ELF == 1
+namespace js {
+namespace jit {
+
+// PPC64 ELFv1 function descriptor: {entry, toc, env}. See MakeELFv1Call.
+struct ELFv1FunctionDescriptor {
+  void* entry;
+  void* toc;
+  void* env;
+};
+
+// Fill |desc| with a synthetic ELFv1 descriptor for calling raw JIT code
+// |entry| as a C function pointer, and return it typed as |Fn|. On ELFv1 a
+// function pointer is the address of such a descriptor, not a code entry, and
+// the compiler emits every indirect call as a descriptor dereference
+// (ld r12,0(p); ld r2,8(p); mtctr r12; bctrl); a raw entry would be read as
+// descriptor data. The captured TOC (r2) is libmozjs's, shared by all its
+// functions, so the callee can reach C++ data. The trailing inline-asm memory
+// clobber forces the descriptor stores to retire before the compiler emits the
+// indirect call from the returned pointer. |desc| must outlive the call.
+template <typename Fn>
+inline Fn MakeELFv1Call(void* entry, ELFv1FunctionDescriptor* desc) {
+  void* toc;
+  asm volatile("mr %0, 2" : "=r"(toc));
+  desc->entry = entry;
+  desc->toc = toc;
+  desc->env = nullptr;
+  asm volatile("" : : "r"(desc) : "memory");
+  return reinterpret_cast<Fn>(desc);
+}
+
+}  // namespace jit
+}  // namespace js
+#endif
+
 #endif  // jit_JitCommon_h
