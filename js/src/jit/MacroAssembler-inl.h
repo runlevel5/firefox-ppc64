@@ -333,8 +333,8 @@ void MacroAssembler::PushFrameDescriptorForJitCall(FrameType type,
 
 void MacroAssembler::branchIfNotActivationEntryFrame(Register scratch,
                                                      Label* notEntryFrame) {
-  load32(Address(FramePointer, CommonFrameLayout::offsetOfDescriptor()),
-         scratch);
+  loadPtr(Address(FramePointer, CommonFrameLayout::offsetOfDescriptor()),
+          scratch);
   and32(Imm32(FrameDescriptor::TypeMask), scratch);
   if (JitOptions.emitInterpreterEntryTrampoline) {
     // A frame entered through a per-script entry trampoline is still the
@@ -347,7 +347,12 @@ void MacroAssembler::branchIfNotActivationEntryFrame(Register scratch,
              notEntryFrame);
     loadPtr(Address(FramePointer, CommonFrameLayout::offsetOfCallerFramePtr()),
             scratch);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // The descriptor is pointer-sized; its low word is at +4 on big-endian.
+    loadPtr(Address(scratch, CommonFrameLayout::offsetOfDescriptor()), scratch);
+#else
     load32(Address(scratch, CommonFrameLayout::offsetOfDescriptor()), scratch);
+#endif
     and32(Imm32(FrameDescriptor::TypeMask), scratch);
     branch32(Assembler::NotEqual, scratch,
              Imm32(uint32_t(FrameType::CppToJSJit)), notEntryFrame);

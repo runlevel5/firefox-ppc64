@@ -1,7 +1,8 @@
 function savedFrameWithColumn(column) {
   const scope = {scope: "DifferentProcess"};
   const clone = serialize(null, undefined, scope);
-  clone.clonebuffer = new BigUint64Array([
+  // The clone buffer is a sequence of little-endian 64-bit words.
+  const words = [
     0xfff1000000000002n,
     0xffff0016ffff0018n,
     0xffff000200000000n,
@@ -12,7 +13,10 @@ function savedFrameWithColumn(column) {
     0xffff000000000000n,
     0xffff000000000000n,
     0xffff001300000000n
-  ]).buffer;
+  ];
+  const view = new DataView(new ArrayBuffer(words.length * 8));
+  words.forEach((word, i) => view.setBigUint64(i * 8, word, true));
+  clone.clonebuffer = view.buffer;
   return deserialize(clone, scope);
 }
 

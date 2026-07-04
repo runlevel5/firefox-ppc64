@@ -36,10 +36,11 @@ const { mem, f } = wasmEvalText(`(module
     (i32x4.extract_lane 0 (i32x4.add (local.get $v0) (local.get $v5)))))`)
   .exports;
 
-const words = new Uint32Array(mem.buffer);
-for (let i = 0; i < words.length; i += 2) {
-  words[i] = lo;
-  words[i + 1] = hi;
+// Wasm memory is little-endian whatever the host byte order.
+const view = new DataView(mem.buffer);
+for (let i = 0; i < view.byteLength; i += 8) {
+  view.setUint32(i, lo, true);
+  view.setUint32(i + 4, hi, true);
 }
 
 assertEq(f(0), (lo + lo) | 0);
