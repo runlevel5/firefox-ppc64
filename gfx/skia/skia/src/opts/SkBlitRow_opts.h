@@ -280,7 +280,10 @@ inline void blit_row_s32a_opaque(SkPMColor* dst, const SkPMColor* src, int len, 
 #endif
 
     while (len --> 0) {
-        *dst = SkPMSrcOver(*src, *dst);
+        // These rows are device pixels, so they are in memory order. The blend
+        // itself is per-byte-lane and so order agnostic, but the source alpha
+        // SkPMSrcOver reads is not.
+        *dst = BE_CONVERT(SkPMSrcOver(BE_CONVERT(*src), BE_CONVERT(*dst)));
         src++;
         dst++;
     }
@@ -306,7 +309,10 @@ inline void blit_row_color32(SkPMColor* dst, int count, SkPMColor color) {
         // to color to get the result.
         U8 s = sk_bit_cast<U8>(src),
            a = U8(invA);
-        U16 c = skvx::cast<uint16_t>(sk_bit_cast<U8>(U32(color))),
+        // The byte view of src is the in-memory order, so the additive color
+        // term must be converted to the same order on big-endian. The alpha
+        // extraction above uses the unconverted value.
+        U16 c = skvx::cast<uint16_t>(sk_bit_cast<U8>(U32(BE_CONVERT(color)))),
             r = (mull(s,a) >> 8) + c;
         return sk_bit_cast<U32>(skvx::cast<uint8_t>(r));
     };
