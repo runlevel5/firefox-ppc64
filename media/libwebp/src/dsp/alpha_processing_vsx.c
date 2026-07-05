@@ -1,4 +1,4 @@
-// Copyright 2014 Google Inc. All Rights Reserved.
+// Copyright 2026 Google Inc. All Rights Reserved.
 //
 // Use of this source code is governed by a BSD-style license
 // that can be found in the COPYING file in the root of the source
@@ -7,7 +7,9 @@
 // be found in the AUTHORS file in the root of the source tree.
 // -----------------------------------------------------------------------------
 //
-// VSX (PowerPC) version of alpha processing functions.
+// VSX (PowerPC64) version of alpha processing functions.
+//
+// Authors: Trung Lê (8@tle.id.au)
 
 #include "src/dsp/dsp.h"
 
@@ -25,9 +27,22 @@ typedef __vector signed short i16x8;
 typedef __vector unsigned int u32x4;
 typedef __vector signed int i32x4;
 
+// Widening merge that keeps the little-endian lane order on both endiannesses by
+// swapping operands on big-endian (see dec_vsx.c).
+#if (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+#define WMERGEH(a, b) vec_mergeh((b), (a))
+#define WMERGEL(a, b) vec_mergel((b), (a))
+#else
+#define WMERGEH(a, b) vec_mergeh((a), (b))
+#define WMERGEL(a, b) vec_mergel((a), (b))
+#endif
+
 //------------------------------------------------------------------------------
 // Alpha dispatch / extraction.
 
+// Writes the alpha byte into a fixed pixel byte position, which differs by
+// endianness; kept little-endian only and left to the scalar reference on BE.
+#if (__BYTE_ORDER__ != __ORDER_BIG_ENDIAN__)
 static int DispatchAlpha_VSX(const uint8_t* WEBP_RESTRICT alpha,
                              int alpha_stride, int width, int height,
                              uint8_t* WEBP_RESTRICT dst, int dst_stride) {
@@ -73,6 +88,7 @@ static int DispatchAlpha_VSX(const uint8_t* WEBP_RESTRICT alpha,
   }
   return (alpha_and != 0xff);
 }
+#endif  // !__ORDER_BIG_ENDIAN__
 
 static void DispatchAlphaToGreen_VSX(const uint8_t* WEBP_RESTRICT alpha,
                                      int alpha_stride, int width, int height,
@@ -81,17 +97,19 @@ static void DispatchAlphaToGreen_VSX(const uint8_t* WEBP_RESTRICT alpha,
   int i, j;
   const u8x16 zero = vec_splats((unsigned char)0);
   const u16x8 z16 = vec_splats((unsigned short)0);
+  const u32x4 sh8 = vec_splats((unsigned int)8);
   const int limit = width & ~15;
   for (j = 0; j < height; ++j) {
     for (i = 0; i < limit; i += 16) {
       const u8x16 a0 = vec_xl(0, (unsigned char*)&alpha[i]);
-      // Place each alpha byte into the green slot (<< 8) of a 32-bit lane.
-      const u16x8 a1_lo = (u16x8)vec_mergeh(zero, a0);  // note the 'zero' first
-      const u16x8 a1_hi = (u16x8)vec_mergel(zero, a0);
-      const u32x4 g0 = (u32x4)vec_mergeh(a1_lo, z16);
-      const u32x4 g1 = (u32x4)vec_mergel(a1_lo, z16);
-      const u32x4 g2 = (u32x4)vec_mergeh(a1_hi, z16);
-      const u32x4 g3 = (u32x4)vec_mergel(a1_hi, z16);
+      // Build the 32-bit value (alpha << 8) per lane, then store: zero-extend
+      // to the low lane (endian-neutral value) and shift into the green slot.
+      const u16x8 a1_lo = (u16x8)WMERGEH(a0, zero);
+      const u16x8 a1_hi = (u16x8)WMERGEL(a0, zero);
+      const u32x4 g0 = vec_sl((u32x4)WMERGEH(a1_lo, z16), sh8);
+      const u32x4 g1 = vec_sl((u32x4)WMERGEL(a1_lo, z16), sh8);
+      const u32x4 g2 = vec_sl((u32x4)WMERGEH(a1_hi, z16), sh8);
+      const u32x4 g3 = vec_sl((u32x4)WMERGEL(a1_hi, z16), sh8);
       vec_xst(g0, 0, &dst[i + 0]);
       vec_xst(g1, 0, &dst[i + 4]);
       vec_xst(g2, 0, &dst[i + 8]);
@@ -109,14 +127,23 @@ static int ExtractAlpha_VSX(const uint8_t* WEBP_RESTRICT argb, int argb_stride,
   uint32_t alpha_and = 0xff;
   int i, j, k;
   const u32x4 a_mask = vec_splats((uint32_t)0xff);  // keeps the low byte
+  // The extracted byte lives at pixel byte offset 0, i.e. the value's low byte
+  // on LE but its high byte on BE; shift it down first so the mask picks it.
+#if (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+  const u32x4 a_shift = vec_splats((unsigned int)24);
+#else
+  const u32x4 a_shift = vec_splats((unsigned int)0);
+#endif
   u8x16 all_and = vec_splats((unsigned char)0xff);
   const int limit = width & ~7;
 
   for (j = 0; j < height; ++j) {
     const uint32_t* src = (const uint32_t*)argb;
     for (i = 0; i < limit; i += 8) {
-      const u32x4 a0 = vec_and(vec_xl(0, (uint32_t*)(src + 0)), a_mask);
-      const u32x4 a1 = vec_and(vec_xl(0, (uint32_t*)(src + 4)), a_mask);
+      const u32x4 a0 =
+          vec_and(vec_sr(vec_xl(0, (uint32_t*)(src + 0)), a_shift), a_mask);
+      const u32x4 a1 =
+          vec_and(vec_sr(vec_xl(0, (uint32_t*)(src + 4)), a_shift), a_mask);
       const i16x8 c0 = vec_packs((i32x4)a0, (i32x4)a1);
       const u8x16 d0 = vec_packsu(c0, c0);  // 8 alpha bytes in the low half
       memcpy(&alpha[i], &d0, 8);
@@ -164,6 +191,10 @@ static void ExtractGreen_VSX(const uint32_t* WEBP_RESTRICT argb,
 //------------------------------------------------------------------------------
 // Premultiply.
 
+// The premultiply kernel spreads the alpha byte across the r/g/b channels via
+// fixed byte-position permute controls; kept little-endian only, with the
+// scalar reference used on big-endian.
+#if (__BYTE_ORDER__ != __ORDER_BIG_ENDIAN__)
 #define MULTIPLIER(a) ((a) * 32897U)
 #define PREMULTIPLY(x, m) (((x) * (m)) >> 23)
 
@@ -226,14 +257,19 @@ static void ApplyAlphaMultiply_VSX(uint8_t* rgba, int alpha_first, int w, int h,
 
 #undef MULTIPLIER
 #undef PREMULTIPLY
+#endif  // !__ORDER_BIG_ENDIAN__
 
 //------------------------------------------------------------------------------
 
 extern void WebPInitAlphaProcessingVSX(void);
 
 WEBP_TSAN_IGNORE_FUNCTION void WebPInitAlphaProcessingVSX(void) {
+  // ApplyAlphaMultiply and DispatchAlpha depend on little-endian pixel byte
+  // order; leave them on the scalar reference for big-endian.
+#if (__BYTE_ORDER__ != __ORDER_BIG_ENDIAN__)
   WebPApplyAlphaMultiply = ApplyAlphaMultiply_VSX;
   WebPDispatchAlpha = DispatchAlpha_VSX;
+#endif
   WebPDispatchAlphaToGreen = DispatchAlphaToGreen_VSX;
   WebPExtractAlpha = ExtractAlpha_VSX;
   WebPExtractGreen = ExtractGreen_VSX;

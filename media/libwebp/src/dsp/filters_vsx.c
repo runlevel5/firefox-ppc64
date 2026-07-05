@@ -1,4 +1,4 @@
-// Copyright 2015 Google Inc. All Rights Reserved.
+// Copyright 2026 Google Inc. All Rights Reserved.
 //
 // Use of this source code is governed by a BSD-style license
 // that can be found in the COPYING file in the root of the source
@@ -7,7 +7,9 @@
 // be found in the AUTHORS file in the root of the source tree.
 // -----------------------------------------------------------------------------
 //
-// VSX (PowerPC) version of filtering functions.
+// VSX (PowerPC64) version of the alpha (un)filters.
+//
+// Authors: Trung Lê (8@tle.id.au)
 
 #include "src/dsp/dsp.h"
 
@@ -26,17 +28,27 @@ typedef __vector signed short i16x8;
 typedef __vector unsigned long long u64x2;
 
 // Byte-wise shifts of the whole 128-bit register, matching the little-endian
-// semantics of _mm_slli_si128 / _mm_srli_si128. 'n' must be a literal.
+// semantics of _mm_slli_si128 / _mm_srli_si128. 'n' must be a literal. vec_sld
+// shifts in register-element order, reversed between endiannesses, so the
+// operand pairing flips on big-endian. WMERGEH keeps the little-endian lane
+// order of a widening merge on both.
+#if (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+#define SLLI(x, n) vec_sld(zero, (x), 16 - (n))
+#define SRLI(x, n) vec_sld((x), zero, (n))
+#define WMERGEH(a, b) vec_mergeh((b), (a))
+#else
 #define SLLI(x, n) vec_sld((x), zero, (n))
 #define SRLI(x, n) vec_sld(zero, (x), 16 - (n))
+#define WMERGEH(a, b) vec_mergeh((a), (b))
+#endif
 
 // Loads 8 bytes from 'p' into the low half of a vector (high half undefined).
 static WEBP_INLINE u8x16 Load8(const uint8_t* p) {
   uint64_t v;
   memcpy(&v, p, 8);
-  // Cast to unsigned long long so clang picks the right vec_splats overload:
-  // uint64_t is unsigned long under LP64, which is ambiguous between the
-  // unsigned long long and unsigned __int128 overloads.
+  // uint64_t is 'unsigned long' under LP64, which is ambiguous between the
+  // 'unsigned long long' and 'unsigned __int128' vec_splats() overloads on
+  // clang; cast to an exact-match type.
   return (u8x16)vec_splats((unsigned long long)v);
 }
 
@@ -62,7 +74,13 @@ static void HorizontalUnfilter_VSX(const uint8_t* prev, const uint8_t* in,
     const u8x16 A6 = SLLI(A5, 4);
     const u8x16 A7 = vec_add(A5, A6);
     memcpy(out + i, &A7, 8);
-    last = (u8x16)vec_sr((u64x2)A7, sh56);  // broadcast out[i + 7] to byte 0
+    // Broadcast out[i + 7] (byte 7) to byte 0. It is the u64's most-significant
+    // byte on LE and least-significant on BE, so the shift direction flips.
+#if (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+    last = (u8x16)vec_sl((u64x2)A7, sh56);
+#else
+    last = (u8x16)vec_sr((u64x2)A7, sh56);
+#endif
   }
   for (; i < width; ++i) out[i] = (uint8_t)(in[i] + out[i - 1]);
 }
@@ -107,8 +125,8 @@ static void GradientPredictInverse_VSX(const uint8_t* in, const uint8_t* top,
     for (i = 0; i < max_pos; i += 8) {
       const u8x16 t0 = Load8(top + i);
       const u8x16 t1 = Load8(top + i - 1);
-      const u16x8 B = (u16x8)vec_mergeh(t0, zero);
-      const u16x8 C = (u16x8)vec_mergeh(t1, zero);
+      const u16x8 B = (u16x8)WMERGEH(t0, zero);
+      const u16x8 C = (u16x8)WMERGEH(t1, zero);
       const u8x16 D = Load8(in + i);  // base input
       const u16x8 E = vec_sub(B, C);  // unclipped gradient basis b - c
       u8x16 out = zero;               // accumulator for output
@@ -121,9 +139,9 @@ static void GradientPredictInverse_VSX(const uint8_t* in, const uint8_t* top,
         A = vec_and(tmp5, mask_hi);  // keep new sample
         out = vec_or(out, A);        // accumulate output
         if (--k == 0) break;
-        A = SLLI(A, 1);                  // rotate left sample
-        mask_hi = SLLI(mask_hi, 1);      // rotate mask
-        A = (u8x16)vec_mergeh(A, zero);  // convert 8b -> 16b
+        A = SLLI(A, 1);              // rotate left sample
+        mask_hi = SLLI(mask_hi, 1);  // rotate mask
+        A = (u8x16)WMERGEH(A, zero);  // convert 8b -> 16b
       }
       A = SRLI(A, 7);  // prepare left sample for next iteration
       memcpy(row + i, &out, 8);
