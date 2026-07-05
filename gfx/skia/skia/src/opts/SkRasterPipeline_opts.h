@@ -2035,7 +2035,20 @@ SI void from_4444(U16 _4444, F* r, F* g, F* b, F* a) {
     *b = cast(wide & (15<< 4)) * (1.0f / (15<< 4));
     *a = cast(wide & (15<< 0)) * (1.0f / (15<< 0));
 }
+// The 8888 stages address a pixel's channels by their byte offset in memory,
+// but load and store it as a native uint32_t. On big-endian that puts memory
+// byte 0 in the top bits, so swap bytes around the load and the store.
+template <typename V>
+SI V swap_8888_bytes(V v) {
+#ifdef SK_CPU_BENDIAN
+    return (v >> 24) | ((v >> 8) & 0x0000ff00) | ((v << 8) & 0x00ff0000) | (v << 24);
+#else
+    return v;
+#endif
+}
+
 SI void from_8888(U32 _8888, F* r, F* g, F* b, F* a) {
+    _8888 = swap_8888_bytes(_8888);
     *r = cast((_8888      ) & 0xff) * (1/255.0f);
     *g = cast((_8888 >>  8) & 0xff) * (1/255.0f);
     *b = cast((_8888 >> 16) & 0xff) * (1/255.0f);
@@ -2625,7 +2638,7 @@ HIGHP_STAGE(luminosity, NoCtx) {
 HIGHP_STAGE(srcover_rgba_8888, const SkRasterPipelineContexts::MemoryCtx* ctx) {
     auto ptr = ptr_at_xy<uint32_t>(ctx, dx,dy);
 
-    U32 dst = load<U32>(ptr);
+    U32 dst = swap_8888_bytes(load<U32>(ptr));
     dr = cast((dst      ) & 0xff);
     dg = cast((dst >>  8) & 0xff);
     db = cast((dst >> 16) & 0xff);
@@ -2644,7 +2657,7 @@ HIGHP_STAGE(srcover_rgba_8888, const SkRasterPipelineContexts::MemoryCtx* ctx) {
         | to_unorm(g, /*scale=*/1, /*bias=*/0.f, /*maxI=*/255) <<  8
         | to_unorm(b, /*scale=*/1, /*bias=*/0.f, /*maxI=*/255) << 16
         | to_unorm(a, /*scale=*/1, /*bias=*/0.f, /*maxI=*/255) << 24;
-    store(ptr, dst);
+    store(ptr, swap_8888_bytes(dst));
 }
 
 SI F clamp_01_(F v) { return min(max(0.0f, v), 1.0f); }
@@ -3200,7 +3213,7 @@ HIGHP_STAGE(store_8888, const SkRasterPipelineContexts::MemoryCtx* ctx) {
            | to_unorm(g, 255) <<  8
            | to_unorm(b, 255) << 16
            | to_unorm(a, 255) << 24;
-    store(ptr, px);
+    store(ptr, swap_8888_bytes(px));
 }
 
 HIGHP_STAGE(load_rg88, const SkRasterPipelineContexts::MemoryCtx* ctx) {
@@ -6352,6 +6365,7 @@ SI void store(T* ptr, V v) {
 // ~~~~~~ 32-bit memory loads and stores ~~~~~~ //
 
 SI void from_8888(U32 rgba, U16* r, U16* g, U16* b, U16* a) {
+    rgba = swap_8888_bytes(rgba);
 #if defined(SKRP_CPU_ML4)
     // Turns [0xAABBGGRR, 0xAABBGGRR, 0xAABBGGRR, ... 13 more times] to
     //       [0xGGRR, 0xGGRR, 0xGGRR, ...]
@@ -6465,8 +6479,8 @@ SI void store_8888_(uint32_t* ptr, U16 r, U16 g, U16 b, U16 a) {
     }};
     vst4_u8((uint8_t*)(ptr), rgba);
 #else
-    store(ptr, cast<U32>(r | (g<<8)) <<  0
-             | cast<U32>(b | (a<<8)) << 16);
+    store(ptr, swap_8888_bytes(cast<U32>(r | (g<<8)) <<  0
+                              | cast<U32>(b | (a<<8)) << 16));
 #endif
 #endif
 }
