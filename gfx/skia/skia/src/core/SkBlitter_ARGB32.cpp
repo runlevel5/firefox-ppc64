@@ -1631,7 +1631,8 @@ static inline SkPMColor blend_lcd16_opaque(int srcR, int srcG, int srcB,
         srcA = SkAlpha255To256(srcA);
 
         for (int i = 0; i < width; i++) {
-            dst[i] = blend_lcd16(srcA, srcR, srcG, srcB, dst[i], mask[i]);
+            dst[i] = BE_CONVERT(
+                blend_lcd16(srcA, srcR, srcG, srcB, BE_CONVERT(dst[i]), mask[i]));
         }
     }
 
@@ -1643,7 +1644,9 @@ static inline SkPMColor blend_lcd16_opaque(int srcR, int srcG, int srcB,
         int srcB = SkColorGetB(src);
 
         for (int i = 0; i < width; i++) {
-            dst[i] = blend_lcd16_opaque(srcR, srcG, srcB, dst[i], mask[i], opaqueDst);
+            dst[i] = BE_CONVERT(blend_lcd16_opaque(srcR, srcG, srcB,
+                                                   BE_CONVERT(dst[i]), mask[i],
+                                                   opaqueDst));
         }
     }
 
@@ -1765,17 +1768,17 @@ void SkARGB32_Blitter::blitAntiH2(int x, int y, U8CPU a0, U8CPU a1) {
     uint32_t* device = fDevice.writable_addr32(x, y);
     SkDEBUGCODE((void)fDevice.writable_addr32(x + 1, y);)
 
-    device[0] = SkBlendARGB32(fPMColor, device[0], a0);
-    device[1] = SkBlendARGB32(fPMColor, device[1], a1);
+    device[0] = BE_CONVERT(SkBlendARGB32(fPMColor, BE_CONVERT(device[0]), a0));
+    device[1] = BE_CONVERT(SkBlendARGB32(fPMColor, BE_CONVERT(device[1]), a1));
 }
 
 void SkARGB32_Blitter::blitAntiV2(int x, int y, U8CPU a0, U8CPU a1) {
     uint32_t* device = fDevice.writable_addr32(x, y);
     SkDEBUGCODE((void)fDevice.writable_addr32(x, y + 1);)
 
-    device[0] = SkBlendARGB32(fPMColor, device[0], a0);
+    device[0] = BE_CONVERT(SkBlendARGB32(fPMColor, BE_CONVERT(device[0]), a0));
     device = (uint32_t*)((char*)device + fDevice.rowBytes());
-    device[0] = SkBlendARGB32(fPMColor, device[0], a1);
+    device[0] = BE_CONVERT(SkBlendARGB32(fPMColor, BE_CONVERT(device[0]), a1));
 }
 
 //////////////////////////////////////////////////////////////////////////////////////
@@ -1794,7 +1797,7 @@ void SkARGB32_Blitter::blitAntiV2(int x, int y, U8CPU a0, U8CPU a1) {
 
 #define SK_BLITBWMASK_NAME                  SkARGB32_BlitBW
 #define SK_BLITBWMASK_ARGS                  , SkPMColor color
-#define SK_BLITBWMASK_BLIT8(mask, dst)      solid_8_pixels(mask, dst, color)
+#define SK_BLITBWMASK_BLIT8(mask, dst)      solid_8_pixels(mask, dst, BE_CONVERT(color))
 #define SK_BLITBWMASK_GETADDR               writable_addr32
 #define SK_BLITBWMASK_DEVTYPE               uint32_t
 #include "src/core/SkBlitBWMaskTemplate.h"
@@ -1813,7 +1816,7 @@ void SkARGB32_Blitter::blitAntiV2(int x, int y, U8CPU a0, U8CPU a1) {
 
 #define SK_BLITBWMASK_NAME                  SkARGB32_BlendBW
 #define SK_BLITBWMASK_ARGS                  , uint32_t sc, unsigned dst_scale
-#define SK_BLITBWMASK_BLIT8(mask, dst)      blend_8_pixels(mask, dst, sc, dst_scale)
+#define SK_BLITBWMASK_BLIT8(mask, dst)      blend_8_pixels(mask, dst, BE_CONVERT(sc), dst_scale)
 #define SK_BLITBWMASK_GETADDR               writable_addr32
 #define SK_BLITBWMASK_DEVTYPE               uint32_t
 #include "src/core/SkBlitBWMaskTemplate.h"
@@ -1878,7 +1881,7 @@ void SkARGB32_Opaque_Blitter::blitAntiH(int x,
         }
         SkAlpha aa = antialias[0];
         if (aa == 255) {
-            SkOpts::memset32(device, fPMColor, count);
+            SkOpts::memset32(device, BE_CONVERT(fPMColor), count);
         } else if (aa > 0) {
             SkPMColor sc = SkAlphaMulQ(fPMColor, SkAlpha255To256(aa));
             SkBlitRow::Color32(device, count, sc);
@@ -1893,21 +1896,21 @@ void SkARGB32_Opaque_Blitter::blitAntiH2(int x, int y, U8CPU a0, U8CPU a1) {
     uint32_t* device = fDevice.writable_addr32(x, y);
     SkDEBUGCODE((void)fDevice.writable_addr32(x + 1, y);)
 
-    device[0] = SkFastFourByteInterp(fPMColor, device[0], a0);
-    device[1] = SkFastFourByteInterp(fPMColor, device[1], a1);
+    device[0] = BE_CONVERT(SkFastFourByteInterp(fPMColor, BE_CONVERT(device[0]), a0));
+    device[1] = BE_CONVERT(SkFastFourByteInterp(fPMColor, BE_CONVERT(device[1]), a1));
 }
 
 void SkARGB32_Opaque_Blitter::blitAntiV2(int x, int y, U8CPU a0, U8CPU a1) {
     uint32_t* device = fDevice.writable_addr32(x, y);
     SkDEBUGCODE((void)fDevice.writable_addr32(x, y + 1);)
 
-    device[0] = SkFastFourByteInterp(fPMColor, device[0], a0);
+    device[0] = BE_CONVERT(SkFastFourByteInterp(fPMColor, BE_CONVERT(device[0]), a0));
     device = (uint32_t*)((char*)device + fDevice.rowBytes());
-    device[0] = SkFastFourByteInterp(fPMColor, device[0], a1);
+    device[0] = BE_CONVERT(SkFastFourByteInterp(fPMColor, BE_CONVERT(device[0]), a1));
 }
 
 std::optional<SkBlitter::DirectBlit> SkARGB32_Opaque_Blitter::canDirectBlit() {
-    return {{ fDevice, fPMColor }};
+    return {{ fDevice, BE_CONVERT(fPMColor) }};
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1927,7 +1930,7 @@ void SkARGB32_Blitter::blitV(int x, int y, int height, SkAlpha alpha) {
     const unsigned dst_scale = SkAlpha255To256(255 - SkGetPackedA32(color));
     const size_t rowBytes = fDevice.rowBytes();
     while (--height >= 0) {
-        device[0] = color + SkAlphaMulQ(device[0], dst_scale);
+        device[0] = BE_CONVERT(color + SkAlphaMulQ(BE_CONVERT(device[0]), dst_scale));
         device = (uint32_t*)((char*)device + rowBytes);
     }
 }
@@ -1943,7 +1946,7 @@ void SkARGB32_Blitter::blitRect(int x, int y, int width, int height) {
     const size_t rowBytes = fDevice.rowBytes();
 
     if (SkGetPackedA32(fPMColor) == 0xFF) {
-        SkOpts::rect_memset32(device, fPMColor, width, rowBytes, height);
+        SkOpts::rect_memset32(device, BE_CONVERT(fPMColor), width, rowBytes, height);
     } else {
         while (height --> 0) {
             SkBlitRow::Color32(device, width, fPMColor);
@@ -1972,14 +1975,14 @@ void SkARGB32_Black_Blitter::blitAntiH(int x, int y, const SkAlpha antialias[],
         unsigned aa = antialias[0];
         if (aa) {
             if (aa == 255) {
-                SkOpts::memset32(device, kBlack, count);
+                SkOpts::memset32(device, BE_CONVERT(kBlack), count);
             } else {
                 const SkPMColor src = aa << SK_A32_SHIFT;
                 const unsigned dst_scale = SkAlpha255To256(255 - aa);
                 int n = count;
                 do {
                     --n;
-                    device[n] = src + SkAlphaMulQ(device[n], dst_scale);
+                    device[n] = BE_CONVERT(src + SkAlphaMulQ(BE_CONVERT(device[n]), dst_scale));
                 } while (n > 0);
             }
         }
@@ -1993,17 +1996,17 @@ void SkARGB32_Black_Blitter::blitAntiH2(int x, int y, U8CPU a0, U8CPU a1) {
     uint32_t* device = fDevice.writable_addr32(x, y);
     SkDEBUGCODE((void)fDevice.writable_addr32(x + 1, y);)
 
-    device[0] = (a0 << SK_A32_SHIFT) + SkAlphaMulQ(device[0], 256 - a0);
-    device[1] = (a1 << SK_A32_SHIFT) + SkAlphaMulQ(device[1], 256 - a1);
+    device[0] = BE_CONVERT((a0 << SK_A32_SHIFT) + SkAlphaMulQ(BE_CONVERT(device[0]), 256 - a0));
+    device[1] = BE_CONVERT((a1 << SK_A32_SHIFT) + SkAlphaMulQ(BE_CONVERT(device[1]), 256 - a1));
 }
 
 void SkARGB32_Black_Blitter::blitAntiV2(int x, int y, U8CPU a0, U8CPU a1) {
     uint32_t* device = fDevice.writable_addr32(x, y);
     SkDEBUGCODE((void)fDevice.writable_addr32(x, y + 1);)
 
-    device[0] = (a0 << SK_A32_SHIFT) + SkAlphaMulQ(device[0], 256 - a0);
+    device[0] = BE_CONVERT((a0 << SK_A32_SHIFT) + SkAlphaMulQ(BE_CONVERT(device[0]), 256 - a0));
     device = (uint32_t*)((char*)device + fDevice.rowBytes());
-    device[0] = (a1 << SK_A32_SHIFT) + SkAlphaMulQ(device[0], 256 - a1);
+    device[0] = BE_CONVERT((a1 << SK_A32_SHIFT) + SkAlphaMulQ(BE_CONVERT(device[0]), 256 - a1));
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -2184,8 +2187,8 @@ static void blend_row_lcd16(SkPMColor* dst, const void* vmask, const SkPMColor* 
             continue;
         }
 
-        SkPMColor s = src[i];
-        SkPMColor d = dst[i];
+        SkPMColor s = BE_CONVERT(src[i]);
+        SkPMColor d = BE_CONVERT(dst[i]);
 
         int srcA = SkGetPackedA32(s);
         int srcR = SkGetPackedR32(s);
@@ -2205,10 +2208,11 @@ static void blend_row_lcd16(SkPMColor* dst, const void* vmask, const SkPMColor* 
         maskB = upscale_31_to_255(maskB);
 
         // This LCD blit routine only works if the destination is opaque.
-        dst[i] = SkPackARGB32(0xFF,
-                              src_alpha_blend(srcR, SkGetPackedR32(d), srcA, maskR),
-                              src_alpha_blend(srcG, SkGetPackedG32(d), srcA, maskG),
-                              src_alpha_blend(srcB, SkGetPackedB32(d), srcA, maskB));
+        dst[i] = BE_CONVERT(SkPackARGB32(
+                0xFF,
+                src_alpha_blend(srcR, SkGetPackedR32(d), srcA, maskR),
+                src_alpha_blend(srcG, SkGetPackedG32(d), srcA, maskG),
+                src_alpha_blend(srcB, SkGetPackedB32(d), srcA, maskB)));
     }
 }
 
@@ -2221,8 +2225,8 @@ static void blend_row_LCD16_opaque(SkPMColor* dst, const void* vmask, const SkPM
             continue;
         }
 
-        SkPMColor s = src[i];
-        SkPMColor d = dst[i];
+        SkPMColor s = BE_CONVERT(src[i]);
+        SkPMColor d = BE_CONVERT(dst[i]);
 
         int srcR = SkGetPackedR32(s);
         int srcG = SkGetPackedG32(s);
@@ -2239,10 +2243,10 @@ static void blend_row_LCD16_opaque(SkPMColor* dst, const void* vmask, const SkPM
         maskB = upscale_31_to_32(maskB);
 
         // This LCD blit routine only works if the destination is opaque.
-        dst[i] = SkPackARGB32(0xFF,
-                              blend_32(srcR, SkGetPackedR32(d), maskR),
-                              blend_32(srcG, SkGetPackedG32(d), maskG),
-                              blend_32(srcB, SkGetPackedB32(d), maskB));
+        dst[i] = BE_CONVERT(SkPackARGB32(0xFF,
+                                         blend_32(srcR, SkGetPackedR32(d), maskR),
+                                         blend_32(srcG, SkGetPackedG32(d), maskG),
+                                         blend_32(srcB, SkGetPackedB32(d), maskB)));
     }
 }
 
