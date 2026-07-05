@@ -108,13 +108,12 @@ enum class SurfaceFormat : int8_t {
 
   // The following values are endian-independent synonyms. The _UINT32 suffix
   // indicates that the name reflects the layout when viewed as a uint32_t
-  // value.
-  A8R8G8B8_UINT32 = std::endian::native == std::endian::little
-                        ? B8G8R8A8
-                        : A8R8G8B8,  // 0xAARRGGBB
-  X8R8G8B8_UINT32 = std::endian::native == std::endian::little
-                        ? B8G8R8X8
-                        : X8R8G8B8,  // 0x00RRGGBB
+  // value on little-endian. Skia and the rest of the pixel pipeline only
+  // handle the little-endian layouts, so big-endian uses the same in-memory
+  // byte order and swizzles at the OS boundary instead of flipping formats
+  // here.
+  A8R8G8B8_UINT32 = B8G8R8A8,  // 0xAARRGGBB
+  X8R8G8B8_UINT32 = B8G8R8X8,  // 0x00RRGGBB
 
   // The following values are OS and endian-independent synonyms.
   //
@@ -269,11 +268,12 @@ enum class SurfaceFormatBit : uint32_t {
   R8G8B8A8_B = std::endian::native == std::endian::little ? 16 : 8,
   R8G8B8A8_A = std::endian::native == std::endian::little ? 24 : 0,
 
-  // The following values are endian-independent for A8R8G8B8_UINT32.
-  A8R8G8B8_UINT32_B = 0,
-  A8R8G8B8_UINT32_G = 8,
-  A8R8G8B8_UINT32_R = 16,
-  A8R8G8B8_UINT32_A = 24,
+  // Shifts to access the channels of an A8R8G8B8_UINT32 (B8G8R8A8 memory
+  // order) pixel when loaded as a native-endian uint32_t.
+  A8R8G8B8_UINT32_B = std::endian::native == std::endian::little ? 0 : 24,
+  A8R8G8B8_UINT32_G = std::endian::native == std::endian::little ? 8 : 16,
+  A8R8G8B8_UINT32_R = std::endian::native == std::endian::little ? 16 : 8,
+  A8R8G8B8_UINT32_A = std::endian::native == std::endian::little ? 24 : 0,
 
   // The following values are OS and endian-independent.
   //

@@ -4,6 +4,7 @@
 
 #include "nsCRT.h"
 #include "mozilla/EndianUtils.h"
+#include "mozilla/gfx/Types.h"
 #include "mozilla/UniquePtrExtensions.h"
 #include "nsBMPEncoder.h"
 #include "nsString.h"
@@ -432,19 +433,19 @@ void nsBMPEncoder::ConvertHostARGBRow(const uint8_t* aSrc,
       const uint32_t& pixelIn = ((const uint32_t*)(aSrc))[x];
       uint8_t* pixelOut = &aDest[x * bytes];
 
-      pixelOut[0] = (pixelIn & 0x00ff0000) >> 16;
-      pixelOut[1] = (pixelIn & 0x0000ff00) >> 8;
-      pixelOut[2] = (pixelIn & 0x000000ff) >> 0;
-      pixelOut[3] = (pixelIn & 0xff000000) >> 24;
+      pixelOut[0] = (pixelIn >> gfx::SurfaceFormatBit::OS_R) & 0xff;
+      pixelOut[1] = (pixelIn >> gfx::SurfaceFormatBit::OS_G) & 0xff;
+      pixelOut[2] = (pixelIn >> gfx::SurfaceFormatBit::OS_B) & 0xff;
+      pixelOut[3] = (pixelIn >> gfx::SurfaceFormatBit::OS_A) & 0xff;
     }
   } else {
     for (uint32_t x = 0; x < aPixelWidth; x++) {
       const uint32_t& pixelIn = ((const uint32_t*)(aSrc))[x];
       uint8_t* pixelOut = &aDest[x * bytes];
 
-      pixelOut[0] = (pixelIn & 0xff0000) >> 16;
-      pixelOut[1] = (pixelIn & 0x00ff00) >> 8;
-      pixelOut[2] = (pixelIn & 0x0000ff) >> 0;
+      pixelOut[0] = (pixelIn >> gfx::SurfaceFormatBit::OS_R) & 0xff;
+      pixelOut[1] = (pixelIn >> gfx::SurfaceFormatBit::OS_G) & 0xff;
+      pixelOut[2] = (pixelIn >> gfx::SurfaceFormatBit::OS_B) & 0xff;
     }
   }
 }
