@@ -933,18 +933,21 @@ void nsPNGEncoder::ConvertHostARGBRow(const uint8_t* aSrc, uint8_t* aDest,
     const uint32_t& pixelIn = ((const uint32_t*)(aSrc))[x];
     uint8_t* pixelOut = &aDest[x * pixelStride];
 
-    uint8_t alpha = (pixelIn & 0xff000000) >> 24;
+    uint8_t alpha = (pixelIn >> gfx::SurfaceFormatBit::OS_A) & 0xff;
+    uint8_t red = (pixelIn >> gfx::SurfaceFormatBit::OS_R) & 0xff;
+    uint8_t green = (pixelIn >> gfx::SurfaceFormatBit::OS_G) & 0xff;
+    uint8_t blue = (pixelIn >> gfx::SurfaceFormatBit::OS_B) & 0xff;
     pixelOut[pixelStride - 1] = alpha;  // overwritten below if pixelStride == 3
     if (alpha == 255) {
-      pixelOut[0] = (pixelIn & 0xff0000) >> 16;
-      pixelOut[1] = (pixelIn & 0x00ff00) >> 8;
-      pixelOut[2] = (pixelIn & 0x0000ff);
+      pixelOut[0] = red;
+      pixelOut[1] = green;
+      pixelOut[2] = blue;
     } else if (alpha == 0) {
       pixelOut[0] = pixelOut[1] = pixelOut[2] = 0;
     } else {
-      pixelOut[0] = (((pixelIn & 0xff0000) >> 16) * 255 + alpha / 2) / alpha;
-      pixelOut[1] = (((pixelIn & 0x00ff00) >> 8) * 255 + alpha / 2) / alpha;
-      pixelOut[2] = (((pixelIn & 0x0000ff)) * 255 + alpha / 2) / alpha;
+      pixelOut[0] = (red * 255 + alpha / 2) / alpha;
+      pixelOut[1] = (green * 255 + alpha / 2) / alpha;
+      pixelOut[2] = (blue * 255 + alpha / 2) / alpha;
     }
   }
 }

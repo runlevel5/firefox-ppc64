@@ -321,16 +321,6 @@ nsresult ConvertYCbCrToRGB(const layers::PlanarYCbCrData& aData,
     return result;
   }
 
-  if constexpr (std::endian::native == std::endian::big) {
-    // libyuv makes endian-correct result, which needs to be swapped to BGRX
-    if (aDestFormat != SurfaceFormat::R5G6B5_UINT16) {
-      if (!gfx::SwizzleData(aDestBuffer, aStride, gfx::SurfaceFormat::X8R8G8B8,
-                            aDestBuffer, aStride, gfx::SurfaceFormat::B8G8R8X8,
-                            aDestSize)) {
-        return NS_ERROR_UNEXPECTED;
-      }
-    }
-  }
   return NS_OK;
 }
 
@@ -338,7 +328,6 @@ void FillAlphaToRGBA(const uint8_t* aAlpha, const int32_t aAlphaStride,
                      uint8_t* aBuffer, const int32_t aWidth,
                      const int32_t aHeight, const gfx::SurfaceFormat& aFormat) {
   MOZ_ASSERT(aAlphaStride >= aWidth);
-  // required for SurfaceFormatBit::OS_A
   MOZ_ASSERT(aFormat == SurfaceFormat::B8G8R8A8 ||
              aFormat == SurfaceFormat::R8G8B8A8);
 
@@ -346,7 +335,8 @@ void FillAlphaToRGBA(const uint8_t* aAlpha, const int32_t aAlphaStride,
   const size_t rgbaStride = aWidth * bpp;
   const uint8_t* src = aAlpha;
   for (int32_t h = 0; h < aHeight; ++h) {
-    size_t offset = static_cast<size_t>(SurfaceFormatBit::OS_A) / 8;
+    // Alpha is the last byte of both formats in memory.
+    size_t offset = 3;
     for (int32_t w = 0; w < aWidth; ++w) {
       aBuffer[offset] = src[w];
       offset += bpp;
@@ -405,15 +395,6 @@ nsresult ConvertYCbCrToRGB32(const layers::PlanarYCbCrData& aData,
     }
   }
 
-  if constexpr (std::endian::native == std::endian::big) {
-    // libyuv makes endian-correct result, which needs to be reversed to BGR* or
-    // RGB*.
-    if (!gfx::SwizzleData(aDestBuffer, aStride, gfx::SurfaceFormat::X8R8G8B8,
-                          aDestBuffer, aStride, gfx::SurfaceFormat::B8G8R8X8,
-                          aData.mPictureRect.Size())) {
-      return NS_ERROR_UNEXPECTED;
-    }
-  }
   return NS_OK;
 }
 
@@ -427,14 +408,6 @@ nsresult ConvertI420AlphaToARGB(const uint8_t* aSrcY, const uint8_t* aSrcU,
       aSrcStrideUV, aDstStrideARGB);
   if (NS_FAILED(result)) {
     return result;
-  }
-  if constexpr (std::endian::native == std::endian::big) {
-    // libyuv makes endian-correct result, which needs to be swapped to BGRA
-    if (!gfx::SwizzleData(aDstARGB, aDstStrideARGB, gfx::SurfaceFormat::A8R8G8B8,
-                          aDstARGB, aDstStrideARGB, gfx::SurfaceFormat::B8G8R8A8,
-                          IntSize(aWidth, aHeight))) {
-      return NS_ERROR_UNEXPECTED;
-    }
   }
   return NS_OK;
 }
