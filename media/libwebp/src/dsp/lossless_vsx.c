@@ -1,4 +1,4 @@
-// Copyright 2014 Google Inc. All Rights Reserved.
+// Copyright 2026 Google Inc. All Rights Reserved.
 //
 // Use of this source code is governed by a BSD-style license
 // that can be found in the COPYING file in the root of the source
@@ -7,7 +7,9 @@
 // be found in the AUTHORS file in the root of the source tree.
 // -----------------------------------------------------------------------------
 //
-// VSX (PowerPC) version of lossless functions.
+// VSX (PowerPC64) version of the lossless decoding functions.
+//
+// Authors: Trung Lê (8@tle.id.au)
 
 #include "src/dsp/dsp.h"
 
@@ -43,9 +45,16 @@ static WEBP_INLINE i16x8 MulHiS16(i16x8 a, i16x8 b) {
 static void AddGreenToBlueAndRed_VSX(const uint32_t* src, int num_pixels,
                                      uint32_t* dst) {
   const u8x16 zero = vec_splats((unsigned char)0);
-  // Replicate the green byte (offset 1 of each pixel) into the blue/red slots.
+  // Replicate the green byte of each pixel into the blue/red slots. Green sits
+  // at byte offset 1 on LE (B,G,R,A) but 2 on BE (A,R,G,B); the blue/red slots
+  // flip likewise.
+#if (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+  const u8x16 kSpreadGreen = {16, 2, 16, 2,  16, 6,  16, 6,
+                              16, 10, 16, 10, 16, 14, 16, 14};
+#else
   const u8x16 kSpreadGreen = {1, 16, 1, 16, 5,  16, 5,  16,
                               9, 16, 9, 16, 13, 16, 13, 16};
+#endif
   int i;
   for (i = 0; i + 4 <= num_pixels; i += 4) {
     const u8x16 in = (u8x16)vec_xl(0, (uint32_t*)&src[i]);
@@ -60,6 +69,13 @@ static void AddGreenToBlueAndRed_VSX(const uint32_t* src, int num_pixels,
 static void TransformColorInverse_VSX(const VP8LMultipliers* const m,
                                       const uint32_t* src, int num_pixels,
                                       uint32_t* dst) {
+#if (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+  // This routine is a direct port of the SSE2 kernel and works in terms of
+  // little-endian pixel byte order (masks, per-lane shifts and the packed
+  // multiplier pairs all assume it). Rather than maintain a mirrored
+  // big-endian variant, defer to the scalar reference there.
+  VP8LTransformColorInverse_C(m, src, num_pixels, dst);
+#else
 // sign-extended multiplying constants, pre-shifted by 5 (see lossless_sse2.c).
 #define CST(X) (((int16_t)((m->X) << 8)) >> 5)
   const i16x8 mults_rb =
@@ -93,6 +109,7 @@ static void TransformColorInverse_VSX(const VP8LMultipliers* const m,
   if (i != num_pixels) {
     VP8LTransformColorInverse_C(m, src + i, num_pixels - i, dst + i);
   }
+#endif  // __ORDER_BIG_ENDIAN__
 }
 
 //------------------------------------------------------------------------------
@@ -100,8 +117,13 @@ static void TransformColorInverse_VSX(const VP8LMultipliers* const m,
 
 static void ConvertBGRAToRGBA_VSX(const uint32_t* WEBP_RESTRICT src,
                                   int num_pixels, uint8_t* WEBP_RESTRICT dst) {
-  // Swap the blue (offset 0) and red (offset 2) bytes of each pixel.
+  // BGRA -> RGBA. ARGB pixels are stored little-endian in memory (B,G,R,A) on
+  // LE but big-endian (A,R,G,B) on BE, so the byte gather differs by endian.
+#if (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+  const u8x16 kSwapBR = {1, 2, 3, 0, 5, 6, 7, 4, 9, 10, 11, 8, 13, 14, 15, 12};
+#else
   const u8x16 kSwapBR = {2, 1, 0, 3, 6, 5, 4, 7, 10, 9, 8, 11, 14, 13, 12, 15};
+#endif
   int i;
   for (i = 0; i + 4 <= num_pixels; i += 4) {
     const u8x16 in = (u8x16)vec_xl(0, (uint32_t*)&src[i]);
@@ -114,8 +136,13 @@ static void ConvertBGRAToRGBA_VSX(const uint32_t* WEBP_RESTRICT src,
 
 static void ConvertBGRAToRGB_VSX(const uint32_t* WEBP_RESTRICT src,
                                  int num_pixels, uint8_t* WEBP_RESTRICT dst) {
-  // BGRA -> RGB: gather R,G,B (offsets 2,1,0) of each pixel, drop alpha.
+  // BGRA -> RGB: gather R,G,B of each pixel, drop alpha (byte offsets differ by
+  // endian; ARGB pixels are B,G,R,A in memory on LE, A,R,G,B on BE).
+#if (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+  const u8x16 kToRGB = {1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15, 0, 0, 0, 0};
+#else
   const u8x16 kToRGB = {2, 1, 0, 6, 5, 4, 10, 9, 8, 14, 13, 12, 0, 0, 0, 0};
+#endif
   int i;
   for (i = 0; i + 4 <= num_pixels; i += 4) {
     const u8x16 in = (u8x16)vec_xl(0, (uint32_t*)&src[i]);
@@ -129,8 +156,13 @@ static void ConvertBGRAToRGB_VSX(const uint32_t* WEBP_RESTRICT src,
 
 static void ConvertBGRAToBGR_VSX(const uint32_t* WEBP_RESTRICT src,
                                  int num_pixels, uint8_t* WEBP_RESTRICT dst) {
-  // BGRA -> BGR: gather B,G,R (offsets 0,1,2) of each pixel, drop alpha.
+  // BGRA -> BGR: gather B,G,R of each pixel, drop alpha (byte offsets differ by
+  // endian; ARGB pixels are B,G,R,A in memory on LE, A,R,G,B on BE).
+#if (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+  const u8x16 kToBGR = {3, 2, 1, 7, 6, 5, 11, 10, 9, 15, 14, 13, 0, 0, 0, 0};
+#else
   const u8x16 kToBGR = {0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14, 0, 0, 0, 0};
+#endif
   int i;
   for (i = 0; i + 4 <= num_pixels; i += 4) {
     const u8x16 in = (u8x16)vec_xl(0, (uint32_t*)&src[i]);
@@ -145,10 +177,22 @@ static void ConvertBGRAToBGR_VSX(const uint32_t* WEBP_RESTRICT src,
 //------------------------------------------------------------------------------
 // Predictor transform.
 
+static const u8x16 kZero = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 // Byte-wise shifts of the whole register (little-endian _mm_s{l,r}li_si128).
+// vec_sld shifts in register-element order, reversed between endiannesses, so
+// the operand pairing flips on big-endian. WMERGEH/WMERGEL likewise keep the
+// little-endian lane order of a *widening* merge on both.
+#if (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+#define SLLI(x, n) vec_sld(kZero, (x), 16 - (n))
+#define SRLI(x, n) vec_sld((x), kZero, (n))
+#define WMERGEH(a, b) vec_mergeh((b), (a))
+#define WMERGEL(a, b) vec_mergel((b), (a))
+#else
 #define SLLI(x, n) vec_sld((x), kZero, (n))
 #define SRLI(x, n) vec_sld(kZero, (x), 16 - (n))
-static const u8x16 kZero = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+#define WMERGEH(a, b) vec_mergeh((a), (b))
+#define WMERGEL(a, b) vec_mergel((a), (b))
+#endif
 
 // Per-byte floor average (a + b) >> 1, matching the C Average2().
 static WEBP_INLINE u8x16 Average2_u8(u8x16 a, u8x16 b) {
@@ -164,7 +208,7 @@ static WEBP_INLINE u32x4 Lane0(uint32_t v) {
 
 // Single-pixel helpers operating on the low 32-bit lane only.
 static WEBP_INLINE u16x8 Unpack16(uint32_t a) {
-  return (u16x8)vec_mergeh((u8x16)Lane0(a), kZero);
+  return (u16x8)WMERGEH((u8x16)Lane0(a), kZero);
 }
 
 static WEBP_INLINE uint32_t Average2_VSX(uint32_t a0, uint32_t a1) {
@@ -184,22 +228,6 @@ static WEBP_INLINE uint32_t Average3_VSX(uint32_t a0, uint32_t a1,
   return vec_extract((u32x4)vec_packsu((i16x8)avg2, (i16x8)avg2), 0);
 }
 
-static WEBP_INLINE uint32_t Average4_VSX(uint32_t a0, uint32_t a1, uint32_t a2,
-                                         uint32_t a3) {
-  const u16x8 one = vec_splats((unsigned short)1);
-  const u16x8 avg1 = Average2_16(a0, a1);
-  const u16x8 avg2 = Average2_16(a2, a3);
-  const u16x8 avg3 = vec_sr(vec_add(avg1, avg2), one);
-  return vec_extract((u32x4)vec_packsu((i16x8)avg3, (i16x8)avg3), 0);
-}
-
-static WEBP_INLINE uint32_t ClampedAddSubtractFull_VSX(uint32_t c0, uint32_t c1,
-                                                       uint32_t c2) {
-  const i16x8 v =
-      vec_sub((i16x8)vec_add(Unpack16(c0), Unpack16(c1)), (i16x8)Unpack16(c2));
-  return vec_extract((u32x4)vec_packsu(v, v), 0);
-}
-
 static WEBP_INLINE uint32_t ClampedAddSubtractHalf_VSX(uint32_t c0, uint32_t c1,
                                                        uint32_t c2) {
   const u16x8 one = vec_splats((unsigned short)1);
@@ -213,17 +241,6 @@ static WEBP_INLINE uint32_t ClampedAddSubtractHalf_VSX(uint32_t c0, uint32_t c1,
   const i16x8 A3 = vec_sra(A2, one);
   const i16x8 A4 = vec_add((i16x8)A0, A3);
   return vec_extract((u32x4)vec_packsu(A4, A4), 0);
-}
-
-static WEBP_INLINE uint32_t Select_VSX(uint32_t a, uint32_t b, uint32_t c) {
-  const u8x16 A = (u8x16)Lane0(a);
-  const u8x16 B = (u8x16)Lane0(b);
-  const u8x16 C = (u8x16)Lane0(c);
-  const u32x4 sa = vec_sum4s(vec_or(vec_subs(A, C), vec_subs(C, A)),
-                             vec_splats((unsigned int)0));
-  const u32x4 sb = vec_sum4s(vec_or(vec_subs(B, C), vec_subs(C, B)),
-                             vec_splats((unsigned int)0));
-  return vec_extract((u32x4)vec_cmpgt(sb, sa), 0) ? b : a;
 }
 
 static uint32_t Predictor5_VSX(const uint32_t* const left,
@@ -379,7 +396,7 @@ static void PredictorAdd11_VSX(const uint32_t* in, const uint32_t* upper,
     const i16x8 all = vec_add((i16x8)L, (DIFF));          \
     const u8x16 res = vec_add(src, vec_packsu(all, all)); \
     out[i + out_idx++] = vec_extract((u32x4)res, 0);      \
-    L = (u16x8)vec_mergeh(res, kZero);                    \
+    L = (u16x8)WMERGEH(res, kZero);                       \
   } while (0)
 
 static void PredictorAdd12_VSX(const uint32_t* in, const uint32_t* upper,
@@ -393,9 +410,9 @@ static void PredictorAdd12_VSX(const uint32_t* in, const uint32_t* upper,
     const u8x16 TL = (u8x16)vec_xl(0, (uint32_t*)&upper[i - 1]);
     // 16-bit gradient basis T - TL for the four pixels (low and high halves).
     i16x8 diff_lo =
-        vec_sub((i16x8)vec_mergeh(T, kZero), (i16x8)vec_mergeh(TL, kZero));
+        vec_sub((i16x8)WMERGEH(T, kZero), (i16x8)WMERGEH(TL, kZero));
     i16x8 diff_hi =
-        vec_sub((i16x8)vec_mergel(T, kZero), (i16x8)vec_mergel(TL, kZero));
+        vec_sub((i16x8)WMERGEL(T, kZero), (i16x8)WMERGEL(TL, kZero));
     DO_PRED12(diff_lo);
     diff_lo = (i16x8)SRLI((u8x16)diff_lo, 8);
     src = SRLI(src, 4);
