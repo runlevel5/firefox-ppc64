@@ -155,13 +155,11 @@
 #endif
 
 //------------------------------------------------------------------------------
-// PPC64 / Power VSX (ISA 2.07 / POWER8 baseline).
-//
-// Little-endian only: the VSX kernels assume the ppc64le vector-register byte
-// order, so big-endian falls back to the portable C paths.
+// PPC64 / Power VSX (ISA 2.07 / POWER8 baseline). Works on both endians: the
+// VSX kernels keep the little-endian vector lane order on big-endian via the
+// WMERGEH/WMERGEL widening-merge wrappers.
 
-#if defined(__powerpc64__) && defined(__VSX__) && \
-    defined(__BYTE_ORDER__) && (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+#if defined(__powerpc64__) && defined(__VSX__)
 #define WEBP_USE_VSX
 #endif
 
