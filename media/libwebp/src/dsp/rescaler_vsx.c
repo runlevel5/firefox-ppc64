@@ -1,4 +1,4 @@
-// Copyright 2015 Google Inc. All Rights Reserved.
+// Copyright 2026 Google Inc. All Rights Reserved.
 //
 // Use of this source code is governed by a BSD-style license
 // that can be found in the COPYING file in the root of the source
@@ -7,7 +7,9 @@
 // be found in the AUTHORS file in the root of the source tree.
 // -----------------------------------------------------------------------------
 //
-// VSX (PowerPC) version of rescaling functions.
+// VSX (PowerPC64) version of rescaling functions.
+//
+// Authors: Trung Lê (8@tle.id.au)
 
 #include "src/dsp/dsp.h"
 
@@ -35,6 +37,17 @@ typedef __vector unsigned long long u64x2;
 #error "MULT_FIX/WEBP_RESCALER_RFIX need some more work"
 #endif
 
+// After a >>32 of the 32x32->64 products, the meaningful low 32 bits of each
+// 64-bit lane sit in the even u32 element on little-endian but the odd element
+// on big-endian; recombine the even/odd lane results accordingly.
+static WEBP_INLINE u32x4 PackLo32_VSX(u64x2 e, u64x2 o) {
+#if (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+  return vec_mergeo((u32x4)e, (u32x4)o);
+#else
+  return vec_mergee((u32x4)e, (u32x4)o);
+#endif
+}
+
 // Returns (x * scale + ROUNDER) >> 32 for each of the four 32-bit lanes.
 static WEBP_INLINE u32x4 MultFix_VSX(u32x4 x, uint32_t scale) {
   const u64x2 rounder = vec_splats((unsigned long long)ROUNDER);
@@ -46,7 +59,7 @@ static WEBP_INLINE u32x4 MultFix_VSX(u32x4 x, uint32_t scale) {
   u64x2 o = vec_add(vec_mulo(x, s), rounder);
   e = vec_sr(e, shift);
   o = vec_sr(o, shift);
-  return vec_mergee((u32x4)e, (u32x4)o);
+  return PackLo32_VSX(e, o);
 }
 
 // Returns (x * scale) >> 32 for each lane (no rounding).
@@ -55,7 +68,7 @@ static WEBP_INLINE u32x4 MultFixFloor_VSX(u32x4 x, uint32_t scale) {
   const u32x4 s = vec_splats(scale);
   u64x2 e = vec_sr(vec_mule(x, s), shift);
   u64x2 o = vec_sr(vec_mulo(x, s), shift);
-  return vec_mergee((u32x4)e, (u32x4)o);
+  return PackLo32_VSX(e, o);
 }
 
 // Returns (A * frow + B * irow + ROUNDER) >> 32 for each lane.
@@ -72,7 +85,7 @@ static WEBP_INLINE u32x4 Interpolate_VSX(const rescaler_t* WEBP_RESTRICT frow,
   u64x2 o = vec_add(vec_mulo(f, va), vec_mulo(ir, vb));
   e = vec_sr(vec_add(e, rounder), shift);
   o = vec_sr(vec_add(o, rounder), shift);
-  return vec_mergee((u32x4)e, (u32x4)o);
+  return PackLo32_VSX(e, o);
 }
 
 // Saturated pack of two 32-bit lane vectors (8 values) into 8 bytes at dst.
