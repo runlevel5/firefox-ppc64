@@ -10,14 +10,11 @@
 
 namespace mozilla::gfx {
 
-const ptrdiff_t B8G8R8A8_COMPONENT_BYTEOFFSET_B =
-    static_cast<ptrdiff_t>(mozilla::gfx::SurfaceFormatBit::OS_B) / 8;
-const ptrdiff_t B8G8R8A8_COMPONENT_BYTEOFFSET_G =
-    static_cast<ptrdiff_t>(mozilla::gfx::SurfaceFormatBit::OS_G) / 8;
-const ptrdiff_t B8G8R8A8_COMPONENT_BYTEOFFSET_R =
-    static_cast<ptrdiff_t>(mozilla::gfx::SurfaceFormatBit::OS_R) / 8;
-const ptrdiff_t B8G8R8A8_COMPONENT_BYTEOFFSET_A =
-    static_cast<ptrdiff_t>(mozilla::gfx::SurfaceFormatBit::OS_A) / 8;
+// Byte offsets of the channels of a B8G8R8A8 pixel in memory.
+const ptrdiff_t B8G8R8A8_COMPONENT_BYTEOFFSET_B = 0;
+const ptrdiff_t B8G8R8A8_COMPONENT_BYTEOFFSET_G = 1;
+const ptrdiff_t B8G8R8A8_COMPONENT_BYTEOFFSET_R = 2;
+const ptrdiff_t B8G8R8A8_COMPONENT_BYTEOFFSET_A = 3;
 
 class FilterProcessing {
  public:
