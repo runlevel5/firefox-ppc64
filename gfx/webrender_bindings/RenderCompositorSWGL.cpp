@@ -5,7 +5,10 @@
 #include "RenderCompositorSWGL.h"
 
 #include "mozilla/gfx/Logging.h"
+#include "mozilla/gfx/Swizzle.h"
 #include "mozilla/widget/CompositorWidget.h"
+
+#include <bit>
 
 #ifdef MOZ_WIDGET_GTK
 #  include "mozilla/WidgetUtilsGtk.h"
@@ -212,6 +215,26 @@ void RenderCompositorSWGL::CommitMappedBuffer(bool aDirty) {
   wr_swgl_init_default_framebuffer(mContext, 0, 0, 0, 0, 0, nullptr);
   // If we have a draw target at this point, mapping must have succeeded.
   MOZ_ASSERT(mMappedData != nullptr);
+  if (aDirty && std::endian::native != std::endian::little) {
+    // SWGL resolves pixels in the little-endian B8G8R8A8 memory layout, but
+    // the window surface consumes native-endian 32-bit pixel values, so on
+    // big-endian rewrite to the A8R8G8B8 memory layout. Only the dirty
+    // region was rendered this frame; pixels outside it were converted when
+    // they were last drawn.
+    LayoutDeviceIntRect bufferBounds = mDirtyRegion.GetBounds();
+    if (!mSurface && mDT->GetSize() != bufferBounds.Size().ToUnknownSize()) {
+      bufferBounds.ExpandToEnclose(LayoutDeviceIntPoint(0, 0));
+    }
+    for (auto iter = mDirtyRegion.RectIter(); !iter.Done(); iter.Next()) {
+      gfx::IntRect rect =
+          (iter.Get() - bufferBounds.TopLeft()).ToUnknownRect();
+      uint8_t* data =
+          mMappedData + rect.y * size_t(mMappedStride) + rect.x * 4;
+      gfx::SwizzleData(data, mMappedStride, gfx::SurfaceFormat::B8G8R8A8,
+                       data, mMappedStride, gfx::SurfaceFormat::A8R8G8B8,
+                       rect.Size());
+    }
+  }
   if (mSurface) {
     // If we're using a data surface, unmap it and draw it to the DT if there
     // are any supplied dirty rects.
