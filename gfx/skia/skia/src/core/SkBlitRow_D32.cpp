@@ -628,7 +628,10 @@ static void blit_row_s32_opaque(SkPMColor* dst,
     static void blit_row_s32a_blend(SkPMColor* dst, const SkPMColor* src, int count, U8CPU alpha) {
         SkASSERT(alpha <= 255);
         while (count --> 0) {
-            *dst = SkBlendARGB32(*src, *dst, alpha);
+            // See blit_row_s32a_opaque: the source alpha SkBlendARGB32 reads
+            // has to come from the packed order. blit_row_s32_blend above
+            // needs no conversion because SkPMLerp reads no channel.
+            *dst = BE_CONVERT(SkBlendARGB32(BE_CONVERT(*src), BE_CONVERT(*dst), alpha));
             src++;
             dst++;
         }
@@ -651,8 +654,10 @@ SkBlitRow::Proc32 SkBlitRow::Factory32(unsigned flags) {
 
 void SkBlitRow::Color32(SkPMColor dst[], int count, SkPMColor color) {
     switch (SkGetPackedA32(color)) {
-        case   0: /* Nothing to do */                  return;
-        case 255: SkOpts::memset32(dst, color, count); return;
+        case   0: /* Nothing to do */                              return;
+        case 255: SkOpts::memset32(dst, BE_CONVERT(color), count); return;
     }
+    // blit_row_color32 handles the big-endian conversion internally; it needs
+    // the unconverted value for the alpha extraction.
     return SkOpts::blit_row_color32(dst, count, color);
 }
