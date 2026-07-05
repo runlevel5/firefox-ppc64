@@ -306,7 +306,10 @@ inline void blit_row_color32(SkPMColor* dst, int count, SkPMColor color) {
         // to color to get the result.
         U8 s = sk_bit_cast<U8>(src),
            a = U8(invA);
-        U16 c = skvx::cast<uint16_t>(sk_bit_cast<U8>(U32(color))),
+        // The byte view of src is the in-memory order, so the additive color
+        // term must be converted to the same order on big-endian. The alpha
+        // extraction above uses the unconverted value.
+        U16 c = skvx::cast<uint16_t>(sk_bit_cast<U8>(U32(BE_CONVERT(color)))),
             r = (mull(s,a) >> 8) + c;
         return sk_bit_cast<U32>(skvx::cast<uint8_t>(r));
     };
