@@ -24,6 +24,7 @@
 #undef GP_PLAT_mips64_linux
 #undef GP_PLAT_loongarch64_linux
 #undef GP_PLAT_riscv64_linux
+#undef GP_PLAT_ppc64_linux
 #undef GP_PLAT_amd64_darwin
 #undef GP_PLAT_arm64_darwin
 #undef GP_PLAT_x86_windows
@@ -40,6 +41,7 @@
 #undef GP_ARCH_mips64
 #undef GP_ARCH_loongarch64
 #undef GP_ARCH_riscv64
+#undef GP_ARCH_ppc64
 #undef GP_ARCH_unknown
 
 #undef GP_OS_android
@@ -105,6 +107,9 @@
 #elif defined(__linux__) && defined(__riscv) && (__riscv_xlen == 64)
 #  define GP_PLAT_riscv64_linux 1
 #  define GP_ARCH_riscv64 1
+#elif defined(__linux__) && defined(__powerpc64__)
+#  define GP_PLAT_ppc64_linux 1
+#  define GP_ARCH_ppc64 1
 #  define GP_OS_linux 1
 
 #elif defined(__APPLE__) && defined(__aarch64__)
