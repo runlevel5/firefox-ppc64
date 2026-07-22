@@ -1139,6 +1139,9 @@ static const char* const kMainThreadName = "GeckoMain";
     defined(GP_PLAT_arm64_freebsd) || defined(GP_ARCH_arm64) ||         \
     defined(__aarch64__)
 #  define UNWINDING_REGS_HAVE_LR_R11
+#elif defined(GP_PLAT_ppc64_linux) || defined(GP_ARCH_ppc64) || \
+    defined(__powerpc64__)
+#  define UNWINDING_REGS_HAVE_LR
 #endif
 
 // The registers used for stack unwinding and a few other sampling purposes.
@@ -1167,6 +1170,8 @@ class Registers {
 #elif defined(UNWINDING_REGS_HAVE_LR_R11)
   Address mLR{nullptr};   // ARM link register, or temp for return address.
   Address mR11{nullptr};  // Temp for frame pointer.
+#elif defined(UNWINDING_REGS_HAVE_LR)
+  Address mLR{nullptr};  // PPC64 link register.
 #endif
 
 #if defined(GP_OS_linux) || defined(GP_OS_android) || defined(GP_OS_freebsd)
@@ -1487,6 +1492,7 @@ static void DoPeriodicSample(PSLockRef aLock,
 #undef UNWINDING_REGS_HAVE_R10_R12
 #undef UNWINDING_REGS_HAVE_LR_R7
 #undef UNWINDING_REGS_HAVE_LR_R11
+#undef UNWINDING_REGS_HAVE_LR
 
 // END sampling/unwinding code
 ////////////////////////////////////////////////////////////////////////
