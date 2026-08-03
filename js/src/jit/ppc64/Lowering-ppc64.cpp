@@ -522,9 +522,13 @@ void LIRGenerator::visitCompareExchangeTypedArrayElement(
   if (Scalar::byteSize(ins->arrayType()) < 4) {
     // PPC64 sub-word CAS uses lbarx/lharx + stbcx./sthcx. (POWER7+); only
     // valueTemp is needed, to hold the extsb/extsh-canonicalised oldval
-    // for the 32-bit cmpw. offsetTemp/maskTemp are unused (no round-down
-    // + bit-isolate dance), and remain BogusTemp.
+    // for the 32-bit cmpw. The pre-VSX tier (no lbarx/lharx) runs the
+    // masked-word dance instead and needs all three temps.
     valueTemp = temp();
+    if (!HasVSX()) {
+      offsetTemp = temp();
+      maskTemp = temp();
+    }
   }
 
   LCompareExchangeTypedArrayElement* lir = new (alloc())
@@ -568,9 +572,13 @@ void LIRGenerator::visitAtomicExchangeTypedArrayElement(
   }
 
   // PPC64 sub-word atomic exchange uses lbarx/lharx + stbcx./sthcx. directly
-  // (POWER7+); valueTemp/offsetTemp/maskTemp are never read by the
-  // implementation (see MacroAssembler-ppc64.cpp's AtomicExchange template).
-  // Leave them as BogusTemp.
+  // (POWER7+) and reads no temps. The pre-VSX tier's masked-word dance
+  // needs all three.
+  if (Scalar::byteSize(ins->arrayType()) < 4 && !HasVSX()) {
+    valueTemp = temp();
+    offsetTemp = temp();
+    maskTemp = temp();
+  }
 
   LAtomicExchangeTypedArrayElement* lir =
       new (alloc()) LAtomicExchangeTypedArrayElement(
@@ -615,10 +623,19 @@ void LIRGenerator::visitAtomicTypedArrayElementBinop(
   // PPC64 sub-word atomic-binop uses lbarx/lharx + stbcx./sthcx. (POWER7+).
   // The fetch-op variant needs valueTemp to hold the post-op value being
   // condition-stored (MacroAssembler-ppc64.cpp's AtomicFetchOp); the
-  // for-effect variant uses an internal scratch and needs no temps at
-  // all. offsetTemp/maskTemp are unused in either path.
-  if (Scalar::byteSize(ins->arrayType()) < 4 && !ins->isForEffect()) {
-    valueTemp = temp();
+  // for-effect variant uses an internal scratch. The pre-VSX tier's
+  // masked-word dance needs all three temps in both variants.
+  if (Scalar::byteSize(ins->arrayType()) < 4) {
+    if (!ins->isForEffect()) {
+      valueTemp = temp();
+    }
+    if (!HasVSX()) {
+      if (ins->isForEffect()) {
+        valueTemp = temp();
+      }
+      offsetTemp = temp();
+      maskTemp = temp();
+    }
   }
 
   if (ins->isForEffect()) {
@@ -769,10 +786,14 @@ void LIRGenerator::visitWasmCompareExchangeHeap(MWasmCompareExchangeHeap* ins) {
   LDefinition maskTemp = LDefinition::BogusTemp();
 
   // PPC64 sub-word wasm CAS uses lbarx/lharx + stbcx./sthcx. (POWER7+);
-  // valueTemp holds the extsb/extsh-canonicalised oldval for cmpw, while
-  // offsetTemp/maskTemp are unused (no round-down + bit-isolate dance).
+  // valueTemp holds the extsb/extsh-canonicalised oldval for cmpw. The
+  // pre-VSX tier's masked-word dance needs all three temps.
   if (ins->access().byteSize() < 4) {
     valueTemp = temp();
+    if (!HasVSX()) {
+      offsetTemp = temp();
+      maskTemp = temp();
+    }
   }
 
   auto* lir = new (alloc())
@@ -797,12 +818,16 @@ void LIRGenerator::visitWasmAtomicExchangeHeap(MWasmAtomicExchangeHeap* ins) {
   }
 
   // PPC64 sub-word wasm atomic exchange uses lbarx/lharx + stbcx./sthcx.
-  // (POWER7+); valueTemp/offsetTemp/maskTemp are never read by the
-  // implementation (see MacroAssembler-ppc64.cpp's AtomicExchange template).
-  // Pass BogusTemp for all three.
+  // (POWER7+) and reads no temps. The pre-VSX tier's masked-word dance
+  // needs all three.
   LDefinition valueTemp = LDefinition::BogusTemp();
   LDefinition offsetTemp = LDefinition::BogusTemp();
   LDefinition maskTemp = LDefinition::BogusTemp();
+  if (ins->access().byteSize() < 4 && !HasVSX()) {
+    valueTemp = temp();
+    offsetTemp = temp();
+    maskTemp = temp();
+  }
 
   auto* lir = new (alloc())
       LWasmAtomicExchangeHeap(useRegister(base), useRegister(ins->value()),
@@ -831,10 +856,19 @@ void LIRGenerator::visitWasmAtomicBinopHeap(MWasmAtomicBinopHeap* ins) {
   // PPC64 sub-word wasm atomic-binop uses lbarx/lharx + stbcx./sthcx.
   // (POWER7+). The fetch-op variant needs valueTemp for the post-op value
   // being condition-stored; the for-effect variant uses an internal
-  // scratch and needs no temps at all. offsetTemp/maskTemp are unused
-  // in either path.
-  if (ins->access().byteSize() < 4 && ins->hasUses()) {
-    valueTemp = temp();
+  // scratch. The pre-VSX tier's masked-word dance needs all three temps
+  // in both variants.
+  if (ins->access().byteSize() < 4) {
+    if (ins->hasUses()) {
+      valueTemp = temp();
+    }
+    if (!HasVSX()) {
+      if (!ins->hasUses()) {
+        valueTemp = temp();
+      }
+      offsetTemp = temp();
+      maskTemp = temp();
+    }
   }
 
   if (!ins->hasUses()) {
