@@ -421,6 +421,87 @@ void SMRegExpMacroAssembler::EmitSkipUntilBitInTableSimd(
   FloatRegister loNibbles = floatRegs.takeAny().asSimd128();
   FloatRegister bitmask = floatRegs.takeAny().asSimd128();
 
+#  if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
+      __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  if (!js::jit::HasVSX()) {
+    // Pre-VSX PowerPC (970): the same algorithm in AltiVec. Bytes stay in
+    // memory order, which vperm indexes directly, and a match is detected
+    // through CR6, so the loop never moves vector data to a GPR.
+    const js::jit::Register zero = js::jit::r0;  // RA=0 reads as literal 0.
+    uint8_t vTable = nibbleTable.encoding() & 31;
+    uint8_t vMask = nibbleMask.encoding() & 31;
+    uint8_t vHi = hiLookup.encoding() & 31;
+    uint8_t vIn = inputVec.encoding() & 31;
+    uint8_t vA = loNibbles.encoding() & 31;
+    uint8_t vB = bitmask.encoding() & 31;
+    uint8_t vFour = floatRegs.takeAny().asSimd128().encoding() & 31;
+
+    // dest = the 16 bytes at addr, which need not be aligned. Both aligned
+    // loads stay within the quadwords holding addr and addr + 15.
+    auto loadUnaligned = [&](js::jit::Register addr, uint8_t dest) {
+      masm_.as_lvsl(vA, zero, addr);
+      masm_.as_lvx(dest, zero, addr);
+      masm_.as_addi(temp1_, addr, 15);
+      masm_.as_lvx(vB, zero, temp1_);
+      masm_.as_vperm(dest, dest, vB, vA);
+    };
+
+    masm_.movePtr(ImmPtr(nibble_table->data()), temp0_);
+    loadUnaligned(temp0_, vTable);
+    masm_.as_vspltisb(vMask, 15);
+    masm_.as_vspltisb(vFour, 4);
+    // vHi = {1 << (i % 8)}: vslb shifts by the low three bits of each byte
+    // of lvsl(0) = {0, 1, ..., 15}.
+    masm_.as_vspltisb(vHi, 1);
+    masm_.movePtr(ImmWord(0), temp0_);
+    masm_.as_lvsl(vA, zero, temp0_);
+    masm_.as_vslb(vHi, vHi, vA);
+
+    js::jit::Label vmxLoop, vmxAdvance, secondHalf;
+    masm_.bind(&vmxLoop);
+    masm_.computeEffectiveAddress(
+        BaseIndex(input_end_pointer_, current_position_, js::jit::TimesOne,
+                  cp_offset),
+        temp0_);
+    loadUnaligned(temp0_, vIn);
+    masm_.as_vand(vA, vIn, vMask);           // low nibbles
+    masm_.as_vsrb(vB, vIn, vFour);           // high nibbles
+    masm_.as_vperm(vA, vTable, vTable, vA);  // row
+    masm_.as_vperm(vB, vHi, vHi, vB);        // bit
+    masm_.as_vand(vA, vA, vB);
+    masm_.as_vcmpequb_rc(vA, vA, vB);
+    masm_.as_cror(2, 26, 26);  // CR0.EQ = CR6.EQ (no byte matched)
+    masm_.ma_b(Assembler::Equal, &vmxAdvance);
+
+    // Find the first match: spill the compare result to an aligned slot in
+    // the red zone; on big-endian the first byte is the most significant.
+    masm_.as_addi(temp1_, js::jit::StackPointer, -32);
+    masm_.as_rldicr(temp1_, temp1_, 0, 59);
+    masm_.as_stvx(vA, zero, temp1_);
+    masm_.as_ld(temp0_, temp1_, 0);
+    masm_.branchTestPtr(Assembler::Zero, temp0_, temp0_, &secondHalf);
+    masm_.as_cntlzd(temp0_, temp0_);
+    masm_.rshiftPtr(Imm32(3), temp0_);
+    masm_.addPtr(temp0_, current_position_);
+    masm_.jump(LabelOrBacktrack(on_match));
+    masm_.bind(&secondHalf);
+    masm_.as_ld(temp0_, temp1_, 8);
+    masm_.as_cntlzd(temp0_, temp0_);
+    masm_.rshiftPtr(Imm32(3), temp0_);
+    masm_.addPtr(Imm32(8), temp0_);
+    masm_.addPtr(temp0_, current_position_);
+    masm_.jump(LabelOrBacktrack(on_match));
+
+    masm_.bind(&vmxAdvance);
+    masm_.addPtr(Imm32(VectorSize), current_position_);
+    CheckPosition(cp_offset + ExtraCharsPerVector, &scalarFallback);
+    masm_.jump(&vmxLoop);
+
+    masm_.bind(scalarFallback.inner());
+    return;
+  }
+#  endif
+
   // Hoist constants outside the loop.
   // nibbleTable: 16-byte Boyer-Moore nibble table from regexp data.
   masm_.movePtr(ImmPtr(nibble_table->data()), temp0_);
@@ -531,6 +612,14 @@ bool SMRegExpMacroAssembler::SkipUntilBitInTableUseSimd(int advance_by) {
   if (!js::jit::Assembler::HasLSX()) {
     return false;
   }
+#  elif defined(JS_CODEGEN_PPC64)
+#    if !(defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+  // Pre-VSX PowerPC (970) has no unaligned 128-bit loads. Big-endian uses
+  // the AltiVec loop in EmitSkipUntilBitInTableSimd instead.
+  if (!js::jit::HasVSX()) {
+    return false;
+  }
+#    endif
 #  endif
   // V8 found that using SIMD instead of the scalar version was only
   // faster when we are advancing by 1 byte per iteration.

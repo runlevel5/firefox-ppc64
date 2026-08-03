@@ -386,7 +386,7 @@ class SingleLinkedList {
   }
 };
 
-static const size_t LIFO_ALLOC_ALIGN = 8;
+static const size_t LIFO_ALLOC_ALIGN = 16;
 
 MOZ_ALWAYS_INLINE
 uint8_t* AlignPtr(uint8_t* orig) {
