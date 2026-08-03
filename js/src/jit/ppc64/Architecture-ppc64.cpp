@@ -93,6 +93,11 @@ uint32_t FloatRegister::getRegisterDumpOffsetInBytes() {
 
 static bool sPOWER9Detected = false;
 static bool sPOWER10Detected = false;
+// VSX (ISA 2.06+) is the POWER8 floor this backend normally requires. It is
+// absent only on the pre-VSX tier (970/G5, POWER5/6), where the JIT falls back
+// to scalar sequences. Defaults true so the simulator and any path that skips
+// Init() keeps the VSX-capable behaviour.
+static bool sVSXDetected = true;
 static bool sCPUFlagsComputed = false;
 
 #ifndef JS_SIMULATOR
@@ -107,7 +112,11 @@ void PPC64Flags::Init() {
     return;
   }
 #ifndef JS_SIMULATOR
+  unsigned long hwcap = getauxval(AT_HWCAP);
   unsigned long hwcap2 = getauxval(AT_HWCAP2);
+  // PPC_FEATURE_HAS_VSX = 0x00000080 (ISA 2.06+; present on POWER7 and later,
+  // absent on the 970/G5 and POWER5/6 pre-VSX tier).
+  sVSXDetected = (hwcap & 0x00000080) != 0;
   // PPC_FEATURE2_ARCH_3_00 = 0x00800000 (ISA 3.0 / POWER9)
   sPOWER9Detected = (hwcap2 & 0x00800000) != 0;
   // PPC_FEATURE2_ARCH_3_1 = 0x00040000 (ISA 3.1 / POWER10)
@@ -142,6 +151,17 @@ void PPC64Flags::Init() {
     sPOWER10Detected = true;
     sPOWER9Detected = true;
   }
+  // MOZ_PPC64_FORCE_970 forces the pre-VSX tier: no VSX, and therefore no P9
+  // or P10 fast paths either (both are strict supersets of VSX). This lets the
+  // scalar fallbacks be exercised on VSX-capable silicon, which runs both the
+  // scalar and the VSX encodings correctly. Applied last so it overrides any
+  // FORCE_POWER8/9/10 above.
+  const char* force970 = getenv("MOZ_PPC64_FORCE_970");
+  if (force970 && force970[0] == '1') {
+    sVSXDetected = false;
+    sPOWER9Detected = false;
+    sPOWER10Detected = false;
+  }
   sCPUFlagsComputed = true;
 }
 
@@ -153,6 +173,11 @@ bool HasPOWER9() {
 bool HasPOWER10() {
   MOZ_ASSERT(sCPUFlagsComputed);
   return sPOWER10Detected;
+}
+
+bool HasVSX() {
+  MOZ_ASSERT(sCPUFlagsComputed);
+  return sVSXDetected;
 }
 
 bool CPUFlagsHaveBeenComputed() { return sCPUFlagsComputed; }

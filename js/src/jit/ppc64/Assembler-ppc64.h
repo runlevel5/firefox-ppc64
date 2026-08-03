@@ -469,6 +469,7 @@ enum PPCOpcodes {
   PPC_fmr = 0xFC000090,
   PPC_fmul = 0xFC000032,
   PPC_fmuls = 0xEC000032,
+  PPC_fnabs = 0xFC000110,
   PPC_fneg = 0xFC000050,
   PPC_frim = 0xFC0003D0,
   PPC_frip = 0xFC000390,
@@ -516,12 +517,14 @@ enum PPCOpcodes {
   PPC_stdbrx = 0x7C000528,  // XO=660 (POWER7+)
   PPC_mcrxrx = 0x7C000480,
   PPC_mcrfs = 0xFC000080,
+  PPC_mfcr = 0x7C000026,
   PPC_mfocrf = 0x7C100026,
   PPC_mffs = 0xFC00048E,
   PPC_mfspr = 0x7C0002A6,
   PPC_mfvsrd = 0x7C000066,
   PPC_mtcrf = 0x7C000120,
   PPC_mtfsb0 = 0xFC00008C,
+  PPC_mtfsfi = 0xFC00010C,
   PPC_mtvsrd = 0x7C000166,
   // POWER8+ (ISA 2.07). VSR[XT].dw[0] = sign_ext_64(RA[32:63]).
   // XO=211 at bits 21-30. Combines extsw + mtvsrd into one insn.
@@ -1426,6 +1429,7 @@ class Assembler : public AssemblerShared {
   BufferOffset as_cror(uint8_t t, uint8_t a, uint8_t b);
   BufferOffset as_crorc(uint8_t t, uint8_t a, uint8_t b);
   BufferOffset as_mtcrf(uint32_t mask, Register rs);
+  BufferOffset as_mfcr(Register rd);
   BufferOffset as_mfocrf(Register rd, CRegisterID crfs);
   BufferOffset as_mcrxrx(CRegisterID crt);
 
@@ -1611,6 +1615,7 @@ class Assembler : public AssemblerShared {
   // FP unary.
   BufferOffset as_fabs(FloatRegister rd, FloatRegister rs);
   BufferOffset as_fneg(FloatRegister rd, FloatRegister rs);
+  BufferOffset as_fnabs(FloatRegister rd, FloatRegister rs);
   BufferOffset as_fmr(FloatRegister rd, FloatRegister rs);
   BufferOffset as_fsqrt(FloatRegister rd, FloatRegister rs);
   BufferOffset as_fsqrts(FloatRegister rd, FloatRegister rs);
@@ -1650,6 +1655,7 @@ class Assembler : public AssemblerShared {
 
   // FPSCR operations.
   BufferOffset as_mtfsb0(uint8_t bt);
+  BufferOffset as_mtfsfi(uint8_t bf, uint8_t u);
   BufferOffset as_mcrfs(CRegisterID bf, uint8_t bfa);
 
   // VSX (FPR-only subset).
@@ -1997,17 +2003,26 @@ class Assembler : public AssemblerShared {
 
   // --- Static capability queries.
   static bool SupportsFloatingPoint() { return true; }
-  static bool SupportsWasmSimd() { return true; }
+  // Wasm SIMD is VSX-based; the pre-VSX tier (970/G5) has no v128 support
+  // (VMX alone lacks the 2x64 lanes and unaligned loads the port relies on).
+  static bool SupportsWasmSimd() { return HasVSX(); }
   static bool SupportsUnalignedAccesses() { return true; }
-  static bool SupportsFastUnalignedFPAccesses() { return true; }
+  // Also the runtime gate for the 16-byte (v128) tier of the inline wasm
+  // memory.copy/init expansion; the pre-VSX tier has no v128 loads/stores,
+  // and its unaligned scalar FP accesses are not reliably fast either.
+  static bool SupportsFastUnalignedFPAccesses() { return HasVSX(); }
   // POWER9 has scalar FP16 hardware (xscvdphp/xscvhpdp); POWER8 doesn't.
   // Runtime-gate like x86's SupportsFloat32To16 (which keys off F16C).
   static bool SupportsFloat64To16() { return HasPOWER9(); }
   static bool SupportsFloat32To16() { return HasPOWER9(); }
-  static bool HasRoundInstruction(RoundingMode) {
+  static bool HasRoundInstruction(RoundingMode mode) {
     // friz, frip and frim are exact. frin rounds ties away from zero, so
-    // ties-to-even uses VSX xsrdpic, which rounds in the FPSCR mode.
-    return true;
+    // ties-to-even needs VSX xsrdpic, which rounds in the FPSCR mode.
+    if (mode == RoundingMode::NearestTiesToEven) {
+      return HasVSX();
+    }
+    return mode == RoundingMode::TowardsZero || mode == RoundingMode::Up ||
+           mode == RoundingMode::Down;
   }
 
  protected:
