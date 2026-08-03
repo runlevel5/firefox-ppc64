@@ -575,6 +575,14 @@ class PPC64Flags final {
 bool HasPOWER9();
 bool HasPOWER10();
 
+// True when the CPU implements VSX (ISA 2.06+, i.e. POWER7 and later, and in
+// practice the POWER8 floor this backend targets). False on the pre-VSX tier
+// (PowerPC 970/G5, POWER5/6), where the JIT must use scalar fallbacks for
+// every operation that would otherwise emit a VSX instruction, and wasm SIMD
+// is unavailable. Forced false by MOZ_PPC64_FORCE_970 for testing the tier on
+// VSX-capable silicon (which executes both the VSX and the scalar paths).
+bool HasVSX();
+
 }  // namespace jit
 }  // namespace js
 

@@ -522,6 +522,7 @@ enum PPCOpcodes {
   PPC_mfvsrd = 0x7C000066,
   PPC_mtcrf = 0x7C000120,
   PPC_mtfsb0 = 0xFC00008C,
+  PPC_mtfsfi = 0xFC00010C,
   PPC_mtvsrd = 0x7C000166,
   // POWER8+ (ISA 2.07). VSR[XT].dw[0] = sign_ext_64(RA[32:63]).
   // XO=211 at bits 21-30. Combines extsw + mtvsrd into one insn.
@@ -1658,6 +1659,7 @@ class Assembler : public AssemblerShared {
 
   // FPSCR operations.
   BufferOffset as_mtfsb0(uint8_t bt);
+  BufferOffset as_mtfsfi(uint8_t bf, uint8_t u);
   BufferOffset as_mcrfs(CRegisterID bf, uint8_t bfa);
 
   // VSX (FPR-only subset).
@@ -2006,9 +2008,14 @@ class Assembler : public AssemblerShared {
 
   // --- Static capability queries.
   static bool SupportsFloatingPoint() { return true; }
-  static bool SupportsWasmSimd() { return true; }
+  // Wasm SIMD is VSX-based; the pre-VSX tier (970/G5) has no v128 support
+  // (VMX alone lacks the 2x64 lanes and unaligned loads the port relies on).
+  static bool SupportsWasmSimd() { return HasVSX(); }
   static bool SupportsUnalignedAccesses() { return true; }
-  static bool SupportsFastUnalignedFPAccesses() { return true; }
+  // Also the runtime gate for the 16-byte (v128) tier of the inline wasm
+  // memory.copy/init expansion; the pre-VSX tier has no v128 loads/stores,
+  // and its unaligned scalar FP accesses are not reliably fast either.
+  static bool SupportsFastUnalignedFPAccesses() { return HasVSX(); }
   // POWER9 has scalar FP16 hardware (xscvdphp/xscvhpdp); POWER8 doesn't.
   // Runtime-gate like x86's SupportsFloat32To16 (which keys off F16C).
   static bool SupportsFloat64To16() { return HasPOWER9(); }
