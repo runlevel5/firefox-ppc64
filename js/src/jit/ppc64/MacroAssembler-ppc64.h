@@ -158,7 +158,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
   void convertInt32ToDouble(Register src, FloatRegister dest) {
     // mtvsrwa: VSR[dest].dw0 = sign_ext_64(src[32:63]); P8+ (ISA 2.07).
     // Replaces extsw + mtvsrd (2 insns + scratch GPR) with 1 insn.
-    as_mtvsrwa(dest, src);
+    ma_mtfprwa(dest, src);
     as_fcfid(dest, dest);
   }
   void convertInt32ToDouble(const Address& srcArg, FloatRegister dest) {
@@ -168,6 +168,17 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
     // unboxInt32(Address)'s valuePayload() shift so we read the low word rather
     // than the high word. No-op on little-endian.
     Address src = valuePayload(srcArg);
+    if (!HasVSX()) {
+      // Pre-VSX: no lfiwax. Signed load + red-zone reinterpret.
+      UseScratchRegisterScope temps(*this);
+      Register scratch = temps.Acquire();
+      load32(src, scratch);
+      as_extsw(scratch, scratch);
+      as_std(scratch, StackPointer, -8);
+      as_lfd(dest, StackPointer, -8);
+      as_fcfid(dest, dest);
+      return;
+    }
     // lfiwax (P7+): FPR.dw[0] = sign_ext_64(MEM[addr, 4]). X-form indexed
     // — no immediate offset, so when offset != 0 we add it into a scratch
     // first. Replaces lwz + extsw + mtvsrd with lfiwax (one insn) plus
@@ -243,10 +254,20 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
   }
   void convertInt32ToFloat32(Register src, FloatRegister dest) {
     // mtvsrwa + fcfids; same recipe as convertInt32ToDouble(Register).
-    as_mtvsrwa(dest, src);
-    as_fcfids(dest, dest);
+    ma_mtfprwa(dest, src);
+    ma_fcfids(dest, dest);
   }
   void convertInt32ToFloat32(const Address& src, FloatRegister dest) {
+    if (!HasVSX()) {
+      UseScratchRegisterScope temps(*this);
+      Register scratch = temps.Acquire();
+      load32(src, scratch);
+      as_extsw(scratch, scratch);
+      as_std(scratch, StackPointer, -8);
+      as_lfd(dest, StackPointer, -8);
+      ma_fcfids(dest, dest);
+      return;
+    }
     // lfiwax + fcfids; same recipe as convertInt32ToDouble(Address).
     if (src.offset == 0) {
       as_lfiwax(dest, r0, src.base);
@@ -500,6 +521,125 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
       movePtr(ImmWord(uintptr_t(addr)), dest);
     }
   }
+
+  // GPR <-> FPR moves. VSX has direct moves; the pre-VSX tier (970/G5)
+  // round-trips through the ABI red zone, which the Linux kernel preserves
+  // across signal delivery, so an async signal between the store and the
+  // load cannot clobber the slot.
+  void ma_mffprd(Register dest, FloatRegister src) {
+    if (HasVSX()) {
+      as_mfvsrd(dest, src);
+    } else {
+      as_stfd(src, StackPointer, -8);
+      as_ld(dest, StackPointer, -8);
+    }
+  }
+  void ma_mtfprd(FloatRegister dest, Register src) {
+    if (HasVSX()) {
+      as_mtvsrd(dest, src);
+    } else {
+      as_std(src, StackPointer, -8);
+      as_lfd(dest, StackPointer, -8);
+    }
+  }
+  // FPR = sign-extended low 32 bits of src (mtvsrwa semantics).
+  void ma_mtfprwa(FloatRegister dest, Register src) {
+    if (HasVSX()) {
+      as_mtvsrwa(dest, src);
+    } else {
+      UseScratchRegisterScope temps(*this);
+      Register scratch = temps.Acquire();
+      as_extsw(scratch, src);
+      as_std(scratch, StackPointer, -8);
+      as_lfd(dest, StackPointer, -8);
+    }
+  }
+  // FPR = zero-extended low 32 bits of src (mtvsrwz semantics).
+  void ma_mtfprwz(FloatRegister dest, Register src) {
+    if (HasVSX()) {
+      as_mtvsrwz(dest, src);
+    } else {
+      UseScratchRegisterScope temps(*this);
+      Register scratch = temps.Acquire();
+      as_rldicl(scratch, src, 0, 32);
+      as_std(scratch, StackPointer, -8);
+      as_lfd(dest, StackPointer, -8);
+    }
+  }
+  // i64 (bit pattern in src) -> f64 with round-to-odd: truncate-mode fcfid,
+  // then set the mantissa lsb when the conversion was inexact (FPSCR FI).
+  // Round-to-odd at 53 bits followed by a round-to-nearest frsp at 24 bits
+  // yields the correctly rounded single (valid since 53 >= 24 + 2).
+  void ma_fcfid_rto(FloatRegister dest, FloatRegister src);
+  // fcfids (ISA 2.06): int64 -> float32. The pre-VSX fallback converts with
+  // round-to-odd, then rounds to single, matching fcfids exactly.
+  void ma_fcfids(FloatRegister dest, FloatRegister src) {
+    if (HasVSX()) {
+      as_fcfids(dest, src);
+    } else {
+      ma_fcfid_rto(dest, src);
+      as_frsp(dest, dest);
+    }
+  }
+  // isel (ISA 2.03): rt = crbit ? ra : rb. The pre-VSX fallback branches on
+  // the same CR0 bit (the bc encodings are the ma_b Condition values).
+  void ma_isel(Register rt, Register ra, Register rb, uint16_t bc,
+               CRegisterID cr = cr0) {
+    if (HasVSX()) {
+      as_isel(rt, ra, rb, bc, cr);
+      return;
+    }
+    MOZ_ASSERT(cr == cr0);
+    Label take, done;
+    ma_b(static_cast<Assembler::Condition>(bc), &take);
+    xs_mr(rt, rb);
+    jump(&done);
+    bind(&take);
+    xs_mr(rt, ra);
+    bind(&done);
+  }
+  // isel with RA=0 meaning constant zero (the ISA's r0 special case).
+  void ma_isel0(Register rt, Register rb, uint16_t bc,
+                CRegisterID cr = cr0) {
+    if (HasVSX()) {
+      as_isel0(rt, r0, rb, bc, cr);
+      return;
+    }
+    MOZ_ASSERT(cr == cr0);
+    Label take, done;
+    ma_b(static_cast<Assembler::Condition>(bc), &take);
+    xs_mr(rt, rb);
+    jump(&done);
+    bind(&take);
+    xs_li(rt, 0);
+    bind(&done);
+  }
+  // fcpsgn (ISA 2.05): dest = |magSrc| carrying signSrc's sign bit.
+  void ma_fcpsgn(FloatRegister dest, FloatRegister signSrc,
+                 FloatRegister magSrc);
+  // friz/frip/frim (ISA 2.02): round to integral toward zero / +inf / -inf.
+  void ma_friz(FloatRegister dest, FloatRegister src);
+  void ma_frip(FloatRegister dest, FloatRegister src);
+  void ma_frim(FloatRegister dest, FloatRegister src);
+  // Shared pre-VSX rounding fallback: FPSCR RN swap around fctid + fcfid.
+  void ma_fri970(uint8_t rn, FloatRegister dest, FloatRegister src);
+  // Pre-VSX popcount (no popcntd/popcntw): 64-bit SWAR. All three registers
+  // must be distinct; `in` is clobbered, `work` holds constants.
+  void ma_popcnt64_970(Register out, Register in, Register work);
+  // In-place 64-bit byte swap via the red zone using only r0 -- for the
+  // pre-VSX wasm memory paths, where the scratch pool can already be
+  // exhausted. Not for larx/stcx windows (the stores would lose the
+  // reservation); those use the register-only byteSwap64.
+  void ma_byteSwap64_970(Register reg) {
+    as_std(reg, StackPointer, -16);
+    xs_li(r0, -12);
+    as_lwbrx(reg, StackPointer, r0);
+    as_stw(reg, StackPointer, -24);
+    xs_li(r0, -16);
+    as_lwbrx(reg, StackPointer, r0);
+    as_stw(reg, StackPointer, -20);
+    as_ld(reg, StackPointer, -24);
+  }
   // Load a 32-bit FPR constant from the inline constant pool.
   // Same shape as loadFromPoolFloat64 (above). lfs/plfs auto-expand the
   // 32-bit single-precision value to double in the FPR, so no follow-up
@@ -747,9 +887,9 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
     xs_li(scratch, 1);
     if ((base & BranchOptionMask) == BranchOnSet) {
       xs_li(dest, 0);
-      as_isel(dest, scratch, dest, setbase, cr0);
+      ma_isel(dest, scratch, dest, setbase, cr0);
     } else {
-      as_isel0(dest, r0, scratch, setbase, cr0);
+      ma_isel0(dest, scratch, setbase, cr0);
     }
   }
 
@@ -774,21 +914,21 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
       xs_li(scratch, 1);
       if ((base & BranchOptionMask) == BranchOnSet) {
         xs_li(dest, 0);
-        as_isel(dest, scratch, dest, setbase, cr0);
+        ma_isel(dest, scratch, dest, setbase, cr0);
       } else {
-        as_isel0(dest, r0, scratch, setbase, cr0);
+        ma_isel0(dest, scratch, setbase, cr0);
       }
     }
     if (hasUnorderedFlag) {
       // Condition includes unordered (NaN): force dest=1 when SO is set.
       // isel dest, scratch(=1), dest, SO
-      as_isel(dest, scratch, dest, uint16_t(SOBit), cr0);
+      ma_isel(dest, scratch, dest, uint16_t(SOBit), cr0);
     } else if ((base & BranchOptionMask) != BranchOnSet &&
                cond != DoubleOrdered) {
       // Ordered comparison that negates a CR bit (BranchOnClear): NaN
       // produces all-zero LT/GT/EQ bits which makes the negation return
       // true.  Fix by forcing dest=0 when SO is set.
-      as_isel0(dest, r0, dest, uint16_t(SOBit), cr0);
+      ma_isel0(dest, dest, uint16_t(SOBit), cr0);
     }
   }
 
@@ -797,9 +937,9 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
     uint32_t base = uint32_t(cond) & 0xff;
     uint32_t setbase = (base & ~BranchOptionMask) | BranchOnSet;
     if ((base & BranchOptionMask) == BranchOnSet) {
-      as_isel(dest, src, dest, setbase, cr0);
+      ma_isel(dest, src, dest, setbase, cr0);
     } else {
-      as_isel(dest, dest, src, setbase, cr0);
+      ma_isel(dest, dest, src, setbase, cr0);
     }
   }
 
@@ -809,7 +949,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
   // does not make a zero condition read as non-zero.
   void moveIfZero(Register dst, Register src, Register cond) {
     as_cmpwi(cond, 0);
-    as_isel(dst, src, dst, Equal, cr0);
+    ma_isel(dst, src, dst, Equal, cr0);
   }
 
   void ma_add32TestCarry(Condition cond, Register rd, Register rs, Imm32 imm,
@@ -1100,7 +1240,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
   }
 
   void boxDouble(FloatRegister src, const ValueOperand& dest, FloatRegister) {
-    as_mfvsrd(dest.valueReg(), src);
+    ma_mffprd(dest.valueReg(), src);
   }
   void boxNonDouble(JSValueType type, Register src, const ValueOperand& dest) {
     boxValue(type, src, dest.valueReg());
@@ -1127,7 +1267,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
     load32(valuePayload(src), dest);
   }
   void unboxDouble(const ValueOperand& operand, FloatRegister dest) {
-    as_mtvsrd(dest, operand.valueReg());
+    ma_mtfprd(dest, operand.valueReg());
   }
   void unboxDouble(const Address& src, FloatRegister dest) {
     loadDouble(src, dest);
@@ -1667,7 +1807,7 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
   // `inhibitPools_ == 0`). The POWER8 inline path is unaffected.
   void loadConstantDouble(double dp, FloatRegister dest) {
     if (mozilla::IsPositiveZero(dp)) {
-      as_xxlxor(dest, dest, dest);
+      zeroDouble(dest);
       return;
     }
     if (HasPOWER9()) {
@@ -1682,11 +1822,11 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
     } u;
     u.d = dp;
     movePtr(ImmWord(u.u), scratch);
-    as_mtvsrd(dest, scratch);
+    ma_mtfprd(dest, scratch);
   }
   void loadConstantFloat32(float f, FloatRegister dest) {
     if (mozilla::IsPositiveZero(f)) {
-      as_xxlxor(dest, dest, dest);
+      zeroDouble(dest);
       return;
     }
     if (HasPOWER9()) {
@@ -1701,9 +1841,14 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
     } u;
     u.f = f;
     movePtr(ImmWord(u.u), scratch);
-    x_sldi(scratch, scratch, 32);
-    as_mtvsrd(dest, scratch);
-    as_xscvspdpn(dest, dest);
+    if (HasVSX()) {
+      x_sldi(scratch, scratch, 32);
+      as_mtvsrd(dest, scratch);
+      as_xscvspdpn(dest, dest);
+    } else {
+      as_stw(scratch, StackPointer, -8);
+      as_lfs(dest, StackPointer, -8);
+    }
   }
 
   void notBoolean(const ValueOperand& val) {
@@ -2044,7 +2189,17 @@ class MacroAssemblerPPC64Compat : public MacroAssemblerPPC64 {
 
   inline void incrementInt32Value(const Address& addr);
 
-  void zeroDouble(FloatRegister reg) { as_xxlxor(reg, reg, reg); }
+  void zeroDouble(FloatRegister reg) {
+    if (HasVSX()) {
+      as_xxlxor(reg, reg, reg);
+    } else {
+      UseScratchRegisterScope temps(*this);
+      Register scratch = temps.Acquire();
+      xs_li(scratch, 0);
+      as_std(scratch, StackPointer, -8);
+      as_lfd(reg, StackPointer, -8);
+    }
+  }
 
   void writeCodePointer(CodeLabel* label) {
     label->patchAt()->bind(currentOffset());

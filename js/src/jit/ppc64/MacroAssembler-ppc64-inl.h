@@ -28,11 +28,23 @@ void MacroAssembler::move64(Imm64 imm, Register64 dest) {
 }
 
 void MacroAssembler::moveDoubleToGPR64(FloatRegister src, Register64 dest) {
-  as_mfvsrd(dest.reg, src);
+  if (HasVSX()) {
+    as_mfvsrd(dest.reg, src);
+  } else {
+    // Pre-VSX: round-trip through the ABI red zone (kernel preserves it
+    // across signals, so an interrupt between the two instructions is safe).
+    as_stfd(src, StackPointer, -8);
+    as_ld(dest.reg, StackPointer, -8);
+  }
 }
 
 void MacroAssembler::moveGPR64ToDouble(Register64 src, FloatRegister dest) {
-  as_mtvsrd(dest, src.reg);
+  if (HasVSX()) {
+    as_mtvsrd(dest, src.reg);
+  } else {
+    as_std(src.reg, StackPointer, -8);
+    as_lfd(dest, StackPointer, -8);
+  }
 }
 
 void MacroAssembler::moveLowDoubleToGPR(FloatRegister src, Register dest) {
@@ -61,14 +73,28 @@ void MacroAssembler::move32To64SignExtend(Register src, Register64 dest) {
 }
 
 void MacroAssembler::moveFloat32ToGPR(FloatRegister src, Register dest) {
-  // FPR holds double-format value (PPC convention). Convert to
-  // single-precision bits in bits 0:31 of the VSR, then extract.
-  as_xscvdpspn(ScratchDoubleReg, src);
-  as_mfvsrd(dest, ScratchDoubleReg);
-  x_srdi(dest, dest, 32);
+  if (HasVSX()) {
+    // FPR holds double-format value (PPC convention). Convert to
+    // single-precision bits in bits 0:31 of the VSR, then extract.
+    as_xscvdpspn(ScratchDoubleReg, src);
+    as_mfvsrd(dest, ScratchDoubleReg);
+    x_srdi(dest, dest, 32);
+  } else {
+    // Pre-VSX: stfs converts the double-format FPR to single and stores the
+    // 32-bit bit pattern; lwz reads it back. Round-trip via the red zone.
+    as_stfs(src, StackPointer, -8);
+    as_lwz(dest, StackPointer, -8);
+  }
 }
 
 void MacroAssembler::moveGPRToFloat32(Register src, FloatRegister dest) {
+  if (!HasVSX()) {
+    // Pre-VSX: store the raw single-precision bits, then lfs loads them as
+    // single and expands to the FPR's double format (like the non-JIT path).
+    as_stw(src, StackPointer, -8);
+    as_lfs(dest, StackPointer, -8);
+    return;
+  }
   // Place raw single-precision bits in VSR bits 0:31, then convert
   // to double-precision format (matching PPC's FPR convention, like lfs).
   if (HasPOWER9()) {
@@ -1058,7 +1084,7 @@ void MacroAssembler::min32(Register lhs, Register rhs, Register dest) {
   as_cmpw(lhs, rhs);
   // isel rt, ra, rb, cond: rt = (CR[cond] set) ? ra : rb
   // LessThan set if lhs < rhs (signed), so pick lhs; else rhs = min.
-  as_isel(dest, lhs, rhs, LessThan, cr0);
+  ma_isel(dest, lhs, rhs, LessThan, cr0);
 }
 
 void MacroAssembler::min32(Register lhs, Imm32 rhs, Register dest) {
@@ -1071,7 +1097,7 @@ void MacroAssembler::min32(Register lhs, Imm32 rhs, Register dest) {
 void MacroAssembler::max32(Register lhs, Register rhs, Register dest) {
   as_cmpw(lhs, rhs);
   // GT set if lhs > rhs (signed), so pick lhs; else rhs = max.
-  as_isel(dest, lhs, rhs, GreaterThan, cr0);
+  ma_isel(dest, lhs, rhs, GreaterThan, cr0);
 }
 
 void MacroAssembler::max32(Register lhs, Imm32 rhs, Register dest) {
@@ -1083,7 +1109,7 @@ void MacroAssembler::max32(Register lhs, Imm32 rhs, Register dest) {
 
 void MacroAssembler::minPtr(Register lhs, Register rhs, Register dest) {
   as_cmpd(lhs, rhs);
-  as_isel(dest, lhs, rhs, LessThan, cr0);
+  ma_isel(dest, lhs, rhs, LessThan, cr0);
 }
 
 void MacroAssembler::minPtr(Register lhs, ImmWord rhs, Register dest) {
@@ -1095,7 +1121,7 @@ void MacroAssembler::minPtr(Register lhs, ImmWord rhs, Register dest) {
 
 void MacroAssembler::maxPtr(Register lhs, Register rhs, Register dest) {
   as_cmpd(lhs, rhs);
-  as_isel(dest, lhs, rhs, GreaterThan, cr0);
+  ma_isel(dest, lhs, rhs, GreaterThan, cr0);
 }
 
 void MacroAssembler::maxPtr(Register lhs, ImmWord rhs, Register dest) {
@@ -1124,7 +1150,16 @@ void MacroAssembler::minFloat32(FloatRegister other, FloatRegister srcDest,
   ma_b(Assembler::DoubleEqual, &equal);
   // Ordered and distinct: the base min/max form is exact on this
   // domain (NaN and equal/zero cases were branched out above).
-  as_xsmindp(srcDest, srcDest, other);
+  if (HasVSX()) {
+    as_xsmindp(srcDest, srcDest, other);
+  } else {
+    // Pre-VSX: values are ordered and distinct here (NaN and equal were
+    // branched out above), and the fcmpu CR bits are still live -- keep srcDest iff it is the smaller.
+    Label keep;
+    ma_b(Assembler::DoubleLessThan, &keep);
+    as_fmr(srcDest, other);
+    bind(&keep);
+  }
   jump(&done);
 
   bind(&equal);
@@ -1165,7 +1200,16 @@ void MacroAssembler::minDouble(FloatRegister other, FloatRegister srcDest,
   ma_b(Assembler::DoubleEqual, &equal);
   // Ordered and distinct: the base min/max form is exact on this
   // domain (NaN and equal/zero cases were branched out above).
-  as_xsmindp(srcDest, srcDest, other);
+  if (HasVSX()) {
+    as_xsmindp(srcDest, srcDest, other);
+  } else {
+    // Pre-VSX: values are ordered and distinct here (NaN and equal were
+    // branched out above), and the fcmpu CR bits are still live -- keep srcDest iff it is the smaller.
+    Label keep;
+    ma_b(Assembler::DoubleLessThan, &keep);
+    as_fmr(srcDest, other);
+    bind(&keep);
+  }
   jump(&done);
 
   bind(&equal);
@@ -1201,7 +1245,16 @@ void MacroAssembler::maxFloat32(FloatRegister other, FloatRegister srcDest,
   ma_b(Assembler::DoubleEqual, &equal);
   // Ordered and distinct: the base min/max form is exact on this
   // domain (NaN and equal/zero cases were branched out above).
-  as_xsmaxdp(srcDest, srcDest, other);
+  if (HasVSX()) {
+    as_xsmaxdp(srcDest, srcDest, other);
+  } else {
+    // Pre-VSX: values are ordered and distinct here (NaN and equal were
+    // branched out above), and the fcmpu CR bits are still live -- keep srcDest iff it is the larger.
+    Label keep;
+    ma_b(Assembler::DoubleGreaterThan, &keep);
+    as_fmr(srcDest, other);
+    bind(&keep);
+  }
   jump(&done);
 
   bind(&equal);
@@ -1235,7 +1288,16 @@ void MacroAssembler::maxDouble(FloatRegister other, FloatRegister srcDest,
   ma_b(Assembler::DoubleEqual, &equal);
   // Ordered and distinct: the base min/max form is exact on this
   // domain (NaN and equal/zero cases were branched out above).
-  as_xsmaxdp(srcDest, srcDest, other);
+  if (HasVSX()) {
+    as_xsmaxdp(srcDest, srcDest, other);
+  } else {
+    // Pre-VSX: values are ordered and distinct here (NaN and equal were
+    // branched out above), and the fcmpu CR bits are still live -- keep srcDest iff it is the larger.
+    Label keep;
+    ma_b(Assembler::DoubleGreaterThan, &keep);
+    as_fmr(srcDest, other);
+    bind(&keep);
+  }
   jump(&done);
 
   bind(&equal);
@@ -1499,13 +1561,26 @@ void MacroAssembler::ctz64(Register64 src, Register64 dest) {
     // ((x-1) & ~x is all-ones there). No CR write, no isel.
     as_addi(tmp, src.reg, -1);
     as_andc(tmp, tmp, src.reg);
-    as_popcntd(dest.reg, tmp);
+    if (HasVSX()) {
+      as_popcntd(dest.reg, tmp);
+    } else {
+      Register work = temps.Acquire();
+      ma_popcnt64_970(dest.reg, tmp, work);
+    }
   }
 }
 
 void MacroAssembler::popcnt64(Register64 input, Register64 output,
                               Register tmp) {
-  as_popcntd(output.reg, input.reg);
+  if (HasVSX()) {
+    as_popcntd(output.reg, input.reg);
+    return;
+  }
+  UseScratchRegisterScope temps(*this);
+  Register copy = temps.Acquire();
+  xs_mr(copy, input.reg);
+  Register work = (tmp != InvalidReg) ? tmp : temps.Acquire();
+  ma_popcnt64_970(output.reg, copy, work);
 }
 
 void MacroAssembler::clz32(Register src, Register dest, bool knownNotZero) {
@@ -1523,16 +1598,31 @@ void MacroAssembler::ctz32(Register src, Register dest, bool knownNotZero) {
     // in the high word (via borrow/garbage bits), so clear it.
     as_addi(tmp, src, -1);
     as_andc(tmp, tmp, src);
-    as_popcntw(dest, tmp);
-    as_rldicl(dest, dest, 0, 32);
+    if (HasVSX()) {
+      as_popcntw(dest, tmp);
+      as_rldicl(dest, dest, 0, 32);
+    } else {
+      // Count only the low word: zero-extend so x==0 yields 32, not 64.
+      as_rldicl(tmp, tmp, 0, 32);
+      Register work = temps.Acquire();
+      ma_popcnt64_970(dest, tmp, work);
+    }
   }
 }
 
 void MacroAssembler::popcnt32(Register input, Register output, Register tmp) {
-  as_popcntw(output, input);
-  // popcntw gives per-word results; on 64-bit the low word count is in
-  // bits 32:63, so just mask to 32 bits.
-  as_rlwinm(output, output, 0, 0, 31);
+  if (HasVSX()) {
+    as_popcntw(output, input);
+    // popcntw gives per-word results; on 64-bit the low word count is in
+    // bits 32:63, so just mask to 32 bits.
+    as_rlwinm(output, output, 0, 0, 31);
+    return;
+  }
+  UseScratchRegisterScope temps(*this);
+  Register copy = temps.Acquire();
+  as_rldicl(copy, input, 0, 32);
+  Register work = (tmp != InvalidReg) ? tmp : temps.Acquire();
+  ma_popcnt64_970(output, copy, work);
 }
 
 // ===============================================================
@@ -1924,7 +2014,7 @@ void MacroAssembler::branchTruncateFloat32MaybeModUint32(FloatRegister src,
                                                          Label* fail) {
   // Convert float32 to int64 (truncating toward zero), fail on NaN/overflow.
   as_fctidz(ScratchDoubleReg, src);
-  as_mfvsrd(dest, ScratchDoubleReg);
+  ma_mffprd(dest, ScratchDoubleReg);
   // PPC64 fctidz saturates to INT64_MIN on negative overflow/NaN,
   // and to INT64_MAX on positive overflow. Check both.
   asMasm().branchPtr(Assembler::Equal, dest, ImmWord(int64_t(INT64_MIN)), fail);
@@ -1949,7 +2039,7 @@ void MacroAssembler::branchTruncateDoubleMaybeModUint32(FloatRegister src,
                                                         Label* fail) {
   // Convert double to int64 (truncating toward zero), fail on NaN/overflow.
   as_fctidz(ScratchDoubleReg, src);
-  as_mfvsrd(dest, ScratchDoubleReg);
+  ma_mffprd(dest, ScratchDoubleReg);
   // PPC64 fctidz saturates to INT64_MIN on negative overflow/NaN,
   // and to INT64_MAX on positive overflow. Check both.
   asMasm().branchPtr(Assembler::Equal, dest, ImmWord(int64_t(INT64_MIN)), fail);
@@ -2478,7 +2568,7 @@ void MacroAssembler::branchTestDoubleTruthy(bool b, FloatRegister value,
   UseScratchRegisterScope temps(asMasm());
   Register scratch = temps.Acquire();
   xs_li(scratch, 0);
-  as_mtvsrd(ScratchDoubleReg, scratch);
+  ma_mtfprd(ScratchDoubleReg, scratch);
   as_fcmpu(value, ScratchDoubleReg);
   DoubleCondition cond = b ? DoubleNotEqual : DoubleEqualOrUnordered;
   ma_b(cond, label);
