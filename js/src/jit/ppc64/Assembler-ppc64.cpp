@@ -499,6 +499,11 @@ BufferOffset Assembler::as_mtcrf(uint32_t mask, Register rs) {
   return writeInst(PPC_mtcrf | rs.code() << 21 | mask << 12);
 }
 
+BufferOffset Assembler::as_mfcr(Register rd) {
+  spew("mfcr\t%3s", rd.name());
+  return writeInst(PPC_mfcr | rd.code() << 21);
+}
+
 BufferOffset Assembler::as_mfocrf(Register rd, CRegisterID crfs) {
   spew("mfocrf\t%3s,cr%d", rd.name(), crfs);
   // FXM is a one-hot 8-bit mask at bits 12-19. Bit (7-crfs) selects the CR.
@@ -643,6 +648,7 @@ static uint32_t DForm(uint32_t op, FloatRegister frt, Register ra,
 // XX1-form: T + GPR (RA) + GPR (RB). TX bit at instruction bit 0.
 // Used by lxvx, stxvx, lxvd2x, stxvd2x, mtvsrdd, mtvsrd, mtvsrws, mtvsrwz.
 static uint32_t XX1Form(uint32_t op, uint32_t xt, uint32_t ra, uint32_t rb) {
+  MOZ_ASSERT(HasVSX());
   return op | (xt & 31) << 21 | (ra & 31) << 16 | (rb & 31) << 11 |
          ((xt >> 5) & 1);
 }
@@ -651,6 +657,7 @@ static uint32_t XX1Form(uint32_t op, uint32_t xt, uint32_t ra, uint32_t rb) {
 // bit 0; the X spec calls this SX since the source register is the VSR.
 // Used by mfvsrd, mfvsrld.
 static uint32_t XX1FormMfvsr(uint32_t op, uint32_t rt, uint32_t xs) {
+  MOZ_ASSERT(HasVSX());
   return op | (xs & 31) << 21 | (rt & 31) << 16 | ((xs >> 5) & 1);
 }
 
@@ -664,6 +671,7 @@ static uint32_t XX1FormMfvsr(uint32_t op, uint32_t rt, uint32_t xs) {
 // DEF_VSX_UN.
 static uint32_t XX2Form(uint32_t op, uint32_t xt, uint32_t xb,
                         uint32_t bits16to20 = 0) {
+  MOZ_ASSERT(HasVSX());
   return op | (xt & 31) << 21 | (bits16to20 & 31) << 16 | (xb & 31) << 11 |
          ((xb >> 5) & 1) << 1 | ((xt >> 5) & 1);
 }
@@ -672,6 +680,7 @@ static uint32_t XX2Form(uint32_t op, uint32_t xt, uint32_t xb,
 // Used by xxlor, xxland, xxlxor, xxlnor, xxlandc, xxpermdi, xsmaxjdp,
 // xsminjdp, xvadd*, xvcmp*, etc.
 static uint32_t XX3Form(uint32_t op, uint32_t xt, uint32_t xa, uint32_t xb) {
+  MOZ_ASSERT(HasVSX());
   return op | (xt & 31) << 21 | (xa & 31) << 16 | (xb & 31) << 11 |
          ((xa >> 5) & 1) << 2 | ((xb >> 5) & 1) << 1 | ((xt >> 5) & 1);
 }
@@ -680,6 +689,7 @@ static uint32_t XX3Form(uint32_t op, uint32_t xt, uint32_t xa, uint32_t xb) {
 // Used by xxsel.
 static uint32_t XX4Form(uint32_t op, uint32_t xt, uint32_t xa, uint32_t xb,
                         uint32_t xc) {
+  MOZ_ASSERT(HasVSX());
   return op | (xt & 31) << 21 | (xa & 31) << 16 | (xb & 31) << 11 |
          (xc & 31) << 6 | ((xc >> 5) & 1) << 3 | ((xa >> 5) & 1) << 2 |
          ((xb >> 5) & 1) << 1 | ((xt >> 5) & 1);
@@ -1030,8 +1040,16 @@ DEF_XFORM2S_ISA(cnttzd, HasPOWER9())
 DEF_XFORM2S_ISA(cnttzw, HasPOWER9())
 #undef DEF_ALUE_S
 
-DEF_XFORM2S(popcntd)
-DEF_XFORM2S(popcntw)
+// popcntd/popcntw (ISA 2.06/2.05): absent on the pre-VSX tier.
+#define DEF_XFORM2S_VSXFLOOR(op)                              \
+  BufferOffset Assembler::as_##op(Register rd, Register ra) { \
+    MOZ_ASSERT(HasVSX());                                     \
+    spew(#op "\t%3s,%3s", rd.name(), ra.name());              \
+    return writeInst(InstReg(PPC_##op, ra, rd, r0).encode()); \
+  }
+DEF_XFORM2S_VSXFLOOR(popcntd)
+DEF_XFORM2S_VSXFLOOR(popcntw)
+#undef DEF_XFORM2S_VSXFLOOR
 DEF_XFORM2S_ISA(brd, HasPOWER10())
 DEF_XFORM2S_ISA(brh, HasPOWER10())
 DEF_XFORM2S_ISA(brw, HasPOWER10())
@@ -1147,24 +1165,37 @@ BufferOffset Assembler::as_stdu(Register rd, Register rb, int16_t off) {
 
 #define DEF_MEMx(op) DEF_XFORM(op)
 DEF_MEMx(lbzx) DEF_MEMx(lhax) DEF_MEMx(lhzx) DEF_MEMx(lwax)
-    DEF_MEMx(lwzx) DEF_MEMx(lwarx) DEF_MEMx(lbarx)
-        DEF_MEMx(lharx) DEF_MEMx(ldx) DEF_MEMx(ldarx) DEF_MEMx(stbx)
-            DEF_MEMx(stbcx) DEF_MEMx(stwx) DEF_MEMx(stwbrx) DEF_MEMx(sthx)
-                DEF_MEMx(sthcx) DEF_MEMx(stdx) DEF_MEMx(stdcx)
-                    DEF_MEMx(stwcx) DEF_MEMx(lhbrx) DEF_MEMx(lwbrx)
-                        DEF_MEMx(ldbrx) DEF_MEMx(sthbrx) DEF_MEMx(stdbrx)
+    DEF_MEMx(lwzx) DEF_MEMx(lwarx) DEF_MEMx(ldx) DEF_MEMx(ldarx)
+        DEF_MEMx(stbx) DEF_MEMx(stwx) DEF_MEMx(stwbrx) DEF_MEMx(sthx)
+            DEF_MEMx(stdx) DEF_MEMx(stdcx) DEF_MEMx(stwcx)
+                DEF_MEMx(lhbrx) DEF_MEMx(lwbrx) DEF_MEMx(sthbrx)
 #undef DEF_MEMx
+
+// X-form loads/stores absent on the pre-VSX tier (970/G5): subword
+// larx/stcx (ISA 2.06) and 64-bit byte-reversed ld/st (ISA 2.06).
+#define DEF_MEMx_VSXFLOOR(op)                                              \
+  BufferOffset Assembler::as_##op(Register rd, Register ra, Register rb) { \
+    MOZ_ASSERT(HasVSX());                                                  \
+    spew(#op "\t%3s,%3s,%3s", rd.name(), ra.name(), rb.name());            \
+    return writeInst(InstReg(PPC_##op, rd, ra, rb).encode());              \
+  }
+DEF_MEMx_VSXFLOOR(lbarx) DEF_MEMx_VSXFLOOR(lharx)
+    DEF_MEMx_VSXFLOOR(stbcx) DEF_MEMx_VSXFLOOR(sthcx)
+        DEF_MEMx_VSXFLOOR(ldbrx) DEF_MEMx_VSXFLOOR(stdbrx)
+#undef DEF_MEMx_VSXFLOOR
 
 // --- Integer select ---
 
 BufferOffset Assembler::as_isel(Register rt, Register ra, Register rb,
                                 uint16_t bc, CRegisterID cr) {
+  MOZ_ASSERT(HasVSX());
   MOZ_ASSERT(ra != r0);
   return as_isel0(rt, ra, rb, bc, cr);
 }
 
 BufferOffset Assembler::as_isel0(Register rt, Register ra, Register rb,
                                  uint16_t bc, CRegisterID cr) {
+  MOZ_ASSERT(HasVSX());
   spew("isel\t%3s,%3s,%3s,cr%d:0x%02x", rt.name(), ra.name(), rb.name(), cr,
        bc);
   MOZ_ASSERT((bc < 0x40) && ((bc & 0x0f) == 0x0c));
@@ -1216,30 +1247,59 @@ DEF_FPUAB(fsub)
 DEF_FPUAB(fadds)
 DEF_FPUAB(fdivs)
 DEF_FPUAB(fsubs)
-DEF_FPUAB(fcpsgn)
 #undef DEF_FPUAB
+
+// fcpsgn (ISA 2.05): absent on the pre-VSX tier; use ma_fcpsgn which has a
+// scalar fallback.
+BufferOffset Assembler::as_fcpsgn(FloatRegister rd, FloatRegister ra,
+                                  FloatRegister rb) {
+  MOZ_ASSERT(HasVSX());
+  spew("fcpsgn\t%3s,%3s,%3s", rd.name(), ra.name(), rb.name());
+  return writeInst(AForm(PPC_fcpsgn, rd, ra, rb, f0, false));
+}
+
+// mtfsfi: write a 4-bit immediate into FPSCR field BF (W=0). Field 7 covers
+// FPSCR bits 28-31 = XE, NI, RN -- used by the pre-VSX rounding fallback to
+// swap the RN rounding mode around fctid (XE/NI are always 0 in JIT code).
+BufferOffset Assembler::as_mtfsfi(uint8_t bf, uint8_t u) {
+  MOZ_ASSERT(bf < 8 && u < 16);
+  spew("mtfsfi\t%d,%d", bf, u);
+  return writeInst(PPC_mtfsfi | (uint32_t(bf) << 23) | (uint32_t(u) << 12));
+}
+
 
 // --- FP unary/conversion/rounding ---
 
 #define DEF_FPUDS(op) DEF_XFORM2_F(op)
 DEF_FPUDS(fabs)
 DEF_FPUDS(fneg)
+DEF_FPUDS(fnabs)
 DEF_FPUDS(fmr)
 DEF_FPUDS(fcfid)
-DEF_FPUDS(fcfids)
-DEF_FPUDS(fcfidu)
-DEF_FPUDS(fcfidus)
 DEF_FPUDS(fctid)
 DEF_FPUDS(fctidz)
-DEF_FPUDS(fctiduz)
 DEF_FPUDS(fctiwz)
-DEF_FPUDS(frim)
-DEF_FPUDS(frip)
-DEF_FPUDS(friz)
 DEF_FPUDS(frsp)
 DEF_FPUDS(fsqrt)
 DEF_FPUDS(fsqrts)
 #undef DEF_FPUDS
+
+// FP ops absent on the pre-VSX tier: fcfids/fcfidu(s)/fctiduz (ISA 2.06),
+// frim/frip/friz (ISA 2.02).
+#define DEF_FPUDS_VSXFLOOR(op)                                          \
+  BufferOffset Assembler::as_##op(FloatRegister rd, FloatRegister ra) { \
+    MOZ_ASSERT(HasVSX());                                               \
+    spew(#op "\t%3s,%3s", rd.name(), ra.name());                        \
+    return writeInst(XForm(PPC_##op, rd, f0, ra, false));               \
+  }
+DEF_FPUDS_VSXFLOOR(fcfids)
+DEF_FPUDS_VSXFLOOR(fcfidu)
+DEF_FPUDS_VSXFLOOR(fcfidus)
+DEF_FPUDS_VSXFLOOR(fctiduz)
+DEF_FPUDS_VSXFLOOR(frim)
+DEF_FPUDS_VSXFLOOR(frip)
+DEF_FPUDS_VSXFLOOR(friz)
+#undef DEF_FPUDS_VSXFLOOR
 
 // --- FP loads/stores (D-form) ---
 
@@ -1252,7 +1312,14 @@ DEF_DFORM_F(stfsu)
 
 // --- FP loads/stores (X-form, indexed) ---
 
-DEF_FMEMx(lfdx) DEF_FMEMx(lfsx) DEF_FMEMx(lfiwax)
+DEF_FMEMx(lfdx) DEF_FMEMx(lfsx)
+
+// lfiwax (ISA 2.05): absent on the pre-VSX tier.
+BufferOffset Assembler::as_lfiwax(FloatRegister rd, Register ra, Register rb) {
+  MOZ_ASSERT(HasVSX());
+  spew("lfiwax\t%3s,%3s,%3s", rd.name(), ra.name(), rb.name());
+  return writeInst(XForm(PPC_lfiwax, rd, ra, rb, false));
+}
     DEF_FMEMx(stfdx) DEF_FMEMx(stfsx)
 // Clean up macros.
 #undef DEF_XFORM
@@ -1315,6 +1382,7 @@ BufferOffset Assembler::as_mtvsrwa(FloatRegister xt, Register ra) {
 
 BufferOffset Assembler::as_mtvsrws(FloatRegister xt, Register ra) {
   MOZ_ASSERT(HasPOWER9());
+  MOZ_ASSERT(HasVSX());
   spew("mtvsrws\t%3s,%3s", xt.name(), ra.name());
   return writeInst(XX1Form(PPC_mtvsrws, xt.encoding(), ra.code(), 0));
 }
@@ -1471,6 +1539,13 @@ BufferOffset Assembler::as_lvx(uint8_t vrt, Register ra, Register rb) {
   MOZ_ASSERT(vrt < 32);
   spew("lvx\tvr%d,%3s,%3s", vrt, ra.name(), rb.name());
   return writeInst(PPC_lvx | uint32_t(vrt) << 21 | ra.code() << 16 |
+                   rb.code() << 11);
+}
+
+BufferOffset Assembler::as_lvsl(uint8_t vrt, Register ra, Register rb) {
+  MOZ_ASSERT(vrt < 32);
+  spew("lvsl\tvr%d,%3s,%3s", vrt, ra.name(), rb.name());
+  return writeInst(PPC_lvsl | uint32_t(vrt) << 21 | ra.code() << 16 |
                    rb.code() << 11);
 }
 
@@ -1664,6 +1739,7 @@ DEF_VMX_VVV(vmuluwm)
 DEF_VMX_VVV_ISA(vmulld, HasPOWER10())
 
 DEF_VMX_VVV(vslb)
+DEF_VMX_VVV(vand)
 DEF_VMX_VVV(vslh)
 DEF_VMX_VVV(vslw)
 DEF_VMX_VVV(vsld)
