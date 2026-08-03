@@ -14133,6 +14133,12 @@ static void ConcatInlineString(MacroAssembler& masm, Register lhs, Register rhs,
                                 ? JSThinInlineString::MAX_LENGTH_LATIN1
                                 : JSThinInlineString::MAX_LENGTH_TWO_BYTE;
 
+  // Pre-VSX PowerPC (970) has no unaligned 128-bit loads and stores.
+  bool simdCopy = true;
+#  ifdef JS_CODEGEN_PPC64
+  simdCopy = HasVSX();
+#  endif
+
   // Given that for the lhs we know we're copying into the start of an inline
   // string then on 64-bit we know we're safe to write 16 bytes, regardless
   // of the actual length.
@@ -14140,8 +14146,16 @@ static void ConcatInlineString(MacroAssembler& masm, Register lhs, Register rhs,
     masm.loadStringLength(lhs, temp1);
     masm.loadInlineStringCharsForStore(lhs, temp3);
 
-    masm.loadUnalignedSimd128(Address(temp3, 0), ScratchSimd128Reg);
-    masm.storeUnalignedSimd128(ScratchSimd128Reg, Address(temp2, 0));
+    if (simdCopy) {
+      masm.loadUnalignedSimd128(Address(temp3, 0), ScratchSimd128Reg);
+      masm.storeUnalignedSimd128(ScratchSimd128Reg, Address(temp2, 0));
+    } else {
+      // lhs is no longer needed past this point.
+      masm.loadPtr(Address(temp3, 0), lhs);
+      masm.storePtr(lhs, Address(temp2, 0));
+      masm.loadPtr(Address(temp3, 8), lhs);
+      masm.storePtr(lhs, Address(temp2, 8));
+    }
 
     Label lhsDone;
     masm.branch32(Assembler::BelowOrEqual, temp1, Imm32(thinInlineLength),
