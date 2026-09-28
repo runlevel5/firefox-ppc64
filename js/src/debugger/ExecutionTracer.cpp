@@ -664,13 +664,14 @@ void ValueSummaries::writeHeader(JS::ValueType type, uint8_t flags) {
   // 4 bits for the type, 4 bits for the flags
   MOZ_ASSERT((uint8_t(type) & 0xF0) == 0);
   MOZ_ASSERT((flags & 0xF0) == 0);
-  JS::ValueSummary header;
-  header.type = type;
-  header.flags = flags;
-  MOZ_ASSERT(*reinterpret_cast<uint8_t*>(&header) !=
-             JS::ObjectSummary::GETTER_SETTER_MAGIC);
-  valueData_->writeBytes(reinterpret_cast<const uint8_t*>(&header),
-                         sizeof(header));
+  // Pack the byte explicitly rather than through the JS::ValueSummary bitfield:
+  // C++ allocates bitfields from opposite ends on big- vs little-endian targets,
+  // which would swap the type and flags nibbles. The wire format keeps the type
+  // in the low nibble (consumers read `byte & 0xf`), so build that layout
+  // directly to stay identical across endianness.
+  uint8_t header = uint8_t(uint8_t(type) | (flags << 4));
+  MOZ_ASSERT(header != JS::ObjectSummary::GETTER_SETTER_MAGIC);
+  valueData_->writeBytes(&header, sizeof(header));
 }
 
 bool ValueSummaries::writeShapeSummary(JSContext* cx,

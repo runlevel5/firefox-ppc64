@@ -243,6 +243,7 @@ def jit_default(target, enable_portable_baseline_interp):
         "aarch64",
         "mips64",
         "loongarch64",
+        "ppc64",
         "riscv64",
     ):
         return True
@@ -264,7 +265,7 @@ def report_deprecated(value):
 # =======================================================
 option(
     "--enable-simulator",
-    choices=("arm", "arm64", "mips64", "loong64", "riscv64"),
+    choices=("arm", "arm64", "mips64", "loong64", "riscv64", "ppc64"),
     nargs=1,
     help="Enable a JIT code simulator for the specified architecture",
 )
@@ -281,7 +282,7 @@ def simulator(jit_enabled, simulator_enabled, target):
         if target.cpu != "x86":
             die("The %s simulator only works on x86." % sim_cpu)
 
-    if sim_cpu in ("arm64", "mips64", "loong64", "riscv64"):
+    if sim_cpu in ("arm64", "mips64", "loong64", "riscv64", "ppc64"):
         if target.cpu != "x86_64" and target.cpu != "aarch64":
             die("The %s simulator only works on x86-64 or arm64." % sim_cpu)
 
@@ -294,12 +295,14 @@ set_config("JS_SIMULATOR_ARM64", simulator.arm64)
 set_config("JS_SIMULATOR_MIPS64", simulator.mips64)
 set_config("JS_SIMULATOR_LOONG64", simulator.loong64)
 set_config("JS_SIMULATOR_RISCV64", simulator.riscv64)
+set_config("JS_SIMULATOR_PPC64", simulator.ppc64)
 set_define("JS_SIMULATOR", depends_if(simulator)(lambda x: True))
 set_define("JS_SIMULATOR_ARM", simulator.arm)
 set_define("JS_SIMULATOR_ARM64", simulator.arm64)
 set_define("JS_SIMULATOR_MIPS64", simulator.mips64)
 set_define("JS_SIMULATOR_LOONG64", simulator.loong64)
 set_define("JS_SIMULATOR_RISCV64", simulator.riscv64)
+set_define("JS_SIMULATOR_PPC64", simulator.ppc64)
 
 
 @depends("--enable-jit", simulator, target)
@@ -316,6 +319,8 @@ def jit_codegen(jit_enabled, simulator, target):
         return namespace(x64=True)
     elif target.cpu == "loongarch64":
         return namespace(loong64=True)
+    elif target.cpu == "ppc64":
+        return namespace(ppc64=True)
     elif target.cpu == "riscv64":
         return namespace(riscv64=True)
 
@@ -327,6 +332,7 @@ set_config("JS_CODEGEN_ARM", jit_codegen.arm)
 set_config("JS_CODEGEN_ARM64", jit_codegen.arm64)
 set_config("JS_CODEGEN_MIPS64", jit_codegen.mips64)
 set_config("JS_CODEGEN_LOONG64", jit_codegen.loong64)
+set_config("JS_CODEGEN_PPC64", jit_codegen.ppc64)
 set_config("JS_CODEGEN_RISCV64", jit_codegen.riscv64)
 set_config("JS_CODEGEN_X86", jit_codegen.x86)
 set_config("JS_CODEGEN_X64", jit_codegen.x64)
@@ -337,6 +343,7 @@ set_define("JS_CODEGEN_ARM", jit_codegen.arm)
 set_define("JS_CODEGEN_ARM64", jit_codegen.arm64)
 set_define("JS_CODEGEN_MIPS64", jit_codegen.mips64)
 set_define("JS_CODEGEN_LOONG64", jit_codegen.loong64)
+set_define("JS_CODEGEN_PPC64", jit_codegen.ppc64)
 set_define("JS_CODEGEN_RISCV64", jit_codegen.riscv64)
 set_define("JS_CODEGEN_X86", jit_codegen.x86)
 set_define("JS_CODEGEN_X64", jit_codegen.x64)
@@ -707,7 +714,7 @@ def default_wasm_jspi(
         return
 
     if simulator:
-        return simulator[0] in ("arm64", "arm", "loong64", "mips64", "riscv64")
+        return simulator[0] in ("arm64", "arm", "loong64", "mips64", "ppc64", "riscv64")
 
     if target.cpu in (
         "x86_64",
@@ -716,6 +723,7 @@ def default_wasm_jspi(
         "arm",
         "loongarch64",
         "mips64",
+        "ppc64",
         "riscv64",
     ):
         return True
@@ -747,10 +755,11 @@ def wasm_jspi(value, jit_enabled, simulator, no_experimental, target):
         "arm",
         "loong64",
         "mips64",
+        "ppc64",
         "riscv64",
     ):
         die(
-            "--enable-wasm-jspi is only supported for arm64/arm/loong64/mips64/riscv64 simulators"
+            "--enable-wasm-jspi is only supported for arm64/arm/loong64/mips64/ppc64/riscv64 simulators"
         )
 
     if target.cpu in (
@@ -760,12 +769,13 @@ def wasm_jspi(value, jit_enabled, simulator, no_experimental, target):
         "arm",
         "loongarch64",
         "mips64",
+        "ppc64",
         "riscv64",
     ):
         return True
 
     die(
-        "--enable-wasm-jspi only possible when targeting the x86_64/x86/arm64/arm/loongarch64/mips64/riscv64 jits"
+        "--enable-wasm-jspi only possible when targeting the x86_64/x86/arm64/arm/loongarch64/mips64/ppc64/riscv64 jits"
     )
 
 
@@ -800,10 +810,10 @@ def default_wasm_simd(jit_enabled, simulator, target):
     if not jit_enabled:
         return
 
-    if simulator and (simulator[0] != "arm64"):
+    if simulator and simulator[0] not in ("arm64", "ppc64"):
         return
 
-    if target.cpu in ("x86_64", "x86", "aarch64"):
+    if target.cpu in ("x86_64", "x86", "aarch64", "ppc64"):
         return True
 
 
@@ -828,13 +838,15 @@ def wasm_simd(value, jit_enabled, simulator, target, no_experimental):
     if not jit_enabled:
         die("--enable-wasm-simd requires --enable-jit")
 
-    if simulator and (simulator[0] != "arm64"):
-        die("--enable-wasm-simd is not supported for simulators, except arm64")
+    if simulator and simulator[0] not in ("arm64", "ppc64"):
+        die(
+            "--enable-wasm-simd is not supported for simulators, except arm64 and ppc64"
+        )
 
-    if target.cpu in ("x86_64", "x86", "aarch64"):
+    if target.cpu in ("x86_64", "x86", "aarch64", "ppc64"):
         return True
 
-    die("--enable-wasm-simd only possible when targeting the x86_64/x86/arm64 jits")
+    die("--enable-wasm-simd only possible when targeting the x86_64/x86/arm64/ppc64 jits")
 
 
 set_config("ENABLE_WASM_SIMD", wasm_simd)

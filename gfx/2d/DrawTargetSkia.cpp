@@ -175,7 +175,9 @@ static IntRect CalculateSurfaceBounds(const IntSize& aSize, const Rect* aBounds,
 }
 
 static const int kARGBAlphaOffset =
-    SurfaceFormat::A8R8G8B8_UINT32 == SurfaceFormat::B8G8R8A8 ? 3 : 0;
+    std::endian::native != std::endian::little
+        ? 0
+        : (SurfaceFormat::A8R8G8B8_UINT32 == SurfaceFormat::B8G8R8A8 ? 3 : 0);
 
 static bool VerifyRGBXFormat(uint8_t* aData, const IntSize& aSize,
                              const int32_t aStride, SurfaceFormat aFormat) {

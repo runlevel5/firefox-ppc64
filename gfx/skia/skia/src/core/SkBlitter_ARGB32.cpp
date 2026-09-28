@@ -480,6 +480,274 @@ static inline SkPMColor blend_lcd16_opaque(int srcR, int srcG, int srcB,
         }
     }
 
+#elif defined(SK_CPU_PPC) && defined(__VSX__) && defined(SK_CPU_LENDIAN)
+    #include <altivec.h>
+
+    // Native VSX/AltiVec port of the SSE2 LCD-subpixel blend block below.
+    // Same algorithm — only the intrinsics change. Translations follow the
+    // GCC ppc_wrappers pattern (vec_mergeh/l, vec_packsu, etc.).
+
+    // The following (left) shifts cause the top 5 bits of the mask components to
+    // line up with the corresponding components in an SkPMColor.
+    // Note that the mask's RGB16 order may differ from the SkPMColor order.
+    #define SK_R16x5_R32x5_SHIFT (SK_R32_SHIFT - SK_R16_SHIFT - SK_R16_BITS + 5)
+    #define SK_G16x5_G32x5_SHIFT (SK_G32_SHIFT - SK_G16_SHIFT - SK_G16_BITS + 5)
+    #define SK_B16x5_B32x5_SHIFT (SK_B32_SHIFT - SK_B16_SHIFT - SK_B16_BITS + 5)
+
+    // Each macro must always return __vector unsigned int so the surrounding
+    // vec_and gets matching element types. The pass-through case (SHIFT == 0)
+    // still needs an explicit reinterpret-cast since `mask` is __vector
+    // unsigned char in our function signature.
+    #if SK_R16x5_R32x5_SHIFT == 0
+        #define SkPackedR16x5ToUnmaskedR32x5_VSX(x) ((__vector unsigned int)(x))
+    #elif SK_R16x5_R32x5_SHIFT > 0
+        #define SkPackedR16x5ToUnmaskedR32x5_VSX(x) \
+            vec_sl((__vector unsigned int)(x), vec_splats((unsigned int)SK_R16x5_R32x5_SHIFT))
+    #else
+        #define SkPackedR16x5ToUnmaskedR32x5_VSX(x) \
+            vec_sr((__vector unsigned int)(x), vec_splats((unsigned int)(-SK_R16x5_R32x5_SHIFT)))
+    #endif
+
+    #if SK_G16x5_G32x5_SHIFT == 0
+        #define SkPackedG16x5ToUnmaskedG32x5_VSX(x) ((__vector unsigned int)(x))
+    #elif SK_G16x5_G32x5_SHIFT > 0
+        #define SkPackedG16x5ToUnmaskedG32x5_VSX(x) \
+            vec_sl((__vector unsigned int)(x), vec_splats((unsigned int)SK_G16x5_G32x5_SHIFT))
+    #else
+        #define SkPackedG16x5ToUnmaskedG32x5_VSX(x) \
+            vec_sr((__vector unsigned int)(x), vec_splats((unsigned int)(-SK_G16x5_G32x5_SHIFT)))
+    #endif
+
+    #if SK_B16x5_B32x5_SHIFT == 0
+        #define SkPackedB16x5ToUnmaskedB32x5_VSX(x) ((__vector unsigned int)(x))
+    #elif SK_B16x5_B32x5_SHIFT > 0
+        #define SkPackedB16x5ToUnmaskedB32x5_VSX(x) \
+            vec_sl((__vector unsigned int)(x), vec_splats((unsigned int)SK_B16x5_B32x5_SHIFT))
+    #else
+        #define SkPackedB16x5ToUnmaskedB32x5_VSX(x) \
+            vec_sr((__vector unsigned int)(x), vec_splats((unsigned int)(-SK_B16x5_B32x5_SHIFT)))
+    #endif
+
+    static __vector unsigned char blend_lcd16_vsx(__vector unsigned char& src,
+                                                   __vector unsigned char& dst,
+                                                   __vector unsigned char& mask,
+                                                   __vector unsigned char& srcA) {
+        // Get the R,G,B of each 16bit mask pixel, all aligned to 5-bit positions.
+        __vector unsigned int r = vec_and(SkPackedR16x5ToUnmaskedR32x5_VSX(mask),
+                                          vec_splats((unsigned int)(0x1F << SK_R32_SHIFT)));
+        __vector unsigned int g = vec_and(SkPackedG16x5ToUnmaskedG32x5_VSX(mask),
+                                          vec_splats((unsigned int)(0x1F << SK_G32_SHIFT)));
+        __vector unsigned int b = vec_and(SkPackedB16x5ToUnmaskedB32x5_VSX(mask),
+                                          vec_splats((unsigned int)(0x1F << SK_B32_SHIFT)));
+
+        // a needs to be either the min or the max of the LCD coverages, depending on srcA < dstA.
+        __vector unsigned int rA = vec_sl(r, vec_splats((unsigned int)(SK_A32_SHIFT - SK_R32_SHIFT)));
+        __vector unsigned int gA = vec_sl(g, vec_splats((unsigned int)(SK_A32_SHIFT - SK_G32_SHIFT)));
+        __vector unsigned int bA = vec_sl(b, vec_splats((unsigned int)(SK_A32_SHIFT - SK_B32_SHIFT)));
+        __vector unsigned char aMin = vec_min(vec_min((__vector unsigned char)rA,
+                                                       (__vector unsigned char)gA),
+                                              (__vector unsigned char)bA);
+        __vector unsigned char aMax = vec_max(vec_max((__vector unsigned char)rA,
+                                                       (__vector unsigned char)gA),
+                                              (__vector unsigned char)bA);
+        // srcA has been biased to [0-256]; compare srcA against (dstA+1).
+        __vector unsigned int dstA = vec_and(vec_add((__vector unsigned int)dst,
+                                                     vec_splats((unsigned int)(1 << SK_A32_SHIFT))),
+                                             vec_splats((unsigned int)SK_A32_MASK));
+        __vector __bool int aLT = vec_cmplt((__vector signed int)srcA, (__vector signed int)dstA);
+        // a = (aMin & aLT) | (aMax & ~aLT)
+        __vector unsigned char a = vec_or(vec_and(aMin, (__vector unsigned char)aLT),
+                                          vec_andc(aMax, (__vector unsigned char)aLT));
+
+        // Pack the 4 16-bit mask pixels into 4 32-bit pixels (m0A, m0R, m0G, m0B, ...).
+        mask = vec_or(vec_or(a, (__vector unsigned char)r),
+                      vec_or((__vector unsigned char)g, (__vector unsigned char)b));
+
+        // Interleave into 16-bit words.
+        const __vector unsigned char zeros = vec_splats((unsigned char)0);
+        __vector unsigned short maskLo = (__vector unsigned short)vec_mergeh(mask, zeros);
+        __vector unsigned short maskHi = (__vector unsigned short)vec_mergel(mask, zeros);
+
+        // Upscale 0..31 -> 0..32 by adding (mask >> 4).
+        const __vector unsigned short v4 = vec_splats((unsigned short)4);
+        const __vector unsigned short v8 = vec_splats((unsigned short)8);
+        const __vector unsigned short v5 = vec_splats((unsigned short)5);
+        maskLo = vec_add(maskLo, vec_sr(maskLo, v4));
+        maskHi = vec_add(maskHi, vec_sr(maskHi, v4));
+
+        // Multiply by srcA per 16-bit lane.
+        maskLo = vec_mul(maskLo, (__vector unsigned short)srcA);
+        maskHi = vec_mul(maskHi, (__vector unsigned short)srcA);
+        // Divide by 256 (right-shift 8).
+        maskLo = vec_sr(maskLo, v8);
+        maskHi = vec_sr(maskHi, v8);
+
+        // Unpack dst into 16-bit words.
+        __vector signed short dstLo = (__vector signed short)vec_mergeh(dst, zeros);
+        __vector signed short dstHi = (__vector signed short)vec_mergel(dst, zeros);
+        // mask = (src - dst) * mask
+        __vector signed short srcS = (__vector signed short)src;
+        __vector signed short mLoS = vec_mul((__vector signed short)maskLo, vec_sub(srcS, dstLo));
+        __vector signed short mHiS = vec_mul((__vector signed short)maskHi, vec_sub(srcS, dstHi));
+        // arithmetic shift right by 5
+        mLoS = vec_sra(mLoS, (__vector unsigned short)v5);
+        mHiS = vec_sra(mHiS, (__vector unsigned short)v5);
+        // result = dst + ((src - dst) * mask >> 5)
+        __vector signed short resLo = vec_add(dstLo, mLoS);
+        __vector signed short resHi = vec_add(dstHi, mHiS);
+        // Pack 16-bit signed -> 8-bit unsigned with saturation.
+        return vec_packsu(resLo, resHi);
+    }
+
+    static __vector unsigned char blend_lcd16_opaque_vsx(__vector unsigned char& src,
+                                                          __vector unsigned char& dst,
+                                                          __vector unsigned char& mask) {
+        __vector unsigned int r = vec_and(SkPackedR16x5ToUnmaskedR32x5_VSX(mask),
+                                          vec_splats((unsigned int)(0x1F << SK_R32_SHIFT)));
+        __vector unsigned int g = vec_and(SkPackedG16x5ToUnmaskedG32x5_VSX(mask),
+                                          vec_splats((unsigned int)(0x1F << SK_G32_SHIFT)));
+        __vector unsigned int b = vec_and(SkPackedB16x5ToUnmaskedB32x5_VSX(mask),
+                                          vec_splats((unsigned int)(0x1F << SK_B32_SHIFT)));
+
+        // Opaque src: a = max(r, g, b) shifted to alpha lane.
+        __vector unsigned int rA = vec_sl(r, vec_splats((unsigned int)(SK_A32_SHIFT - SK_R32_SHIFT)));
+        __vector unsigned int gA = vec_sl(g, vec_splats((unsigned int)(SK_A32_SHIFT - SK_G32_SHIFT)));
+        __vector unsigned int bA = vec_sl(b, vec_splats((unsigned int)(SK_A32_SHIFT - SK_B32_SHIFT)));
+        __vector unsigned char a = vec_max(vec_max((__vector unsigned char)rA,
+                                                    (__vector unsigned char)gA),
+                                           (__vector unsigned char)bA);
+
+        mask = vec_or(vec_or(a, (__vector unsigned char)r),
+                      vec_or((__vector unsigned char)g, (__vector unsigned char)b));
+
+        const __vector unsigned char zeros = vec_splats((unsigned char)0);
+        __vector unsigned short maskLo = (__vector unsigned short)vec_mergeh(mask, zeros);
+        __vector unsigned short maskHi = (__vector unsigned short)vec_mergel(mask, zeros);
+
+        const __vector unsigned short v4 = vec_splats((unsigned short)4);
+        const __vector unsigned short v5 = vec_splats((unsigned short)5);
+        maskLo = vec_add(maskLo, vec_sr(maskLo, v4));
+        maskHi = vec_add(maskHi, vec_sr(maskHi, v4));
+
+        __vector signed short dstLo = (__vector signed short)vec_mergeh(dst, zeros);
+        __vector signed short dstHi = (__vector signed short)vec_mergel(dst, zeros);
+        __vector signed short srcS = (__vector signed short)src;
+        __vector signed short mLoS = vec_mul((__vector signed short)maskLo, vec_sub(srcS, dstLo));
+        __vector signed short mHiS = vec_mul((__vector signed short)maskHi, vec_sub(srcS, dstHi));
+        mLoS = vec_sra(mLoS, (__vector unsigned short)v5);
+        mHiS = vec_sra(mHiS, (__vector unsigned short)v5);
+        __vector signed short resLo = vec_add(dstLo, mLoS);
+        __vector signed short resHi = vec_add(dstHi, mHiS);
+        return vec_packsu(resLo, resHi);
+    }
+
+    void blit_row_lcd16(SkPMColor dst[], const uint16_t mask[], SkColor src,
+                        int width, SkPMColor) {
+        if (width <= 0) {
+            return;
+        }
+        int srcA = SkColorGetA(src);
+        int srcR = SkColorGetR(src);
+        int srcG = SkColorGetG(src);
+        int srcB = SkColorGetB(src);
+        srcA = SkAlpha255To256(srcA);
+
+        if (width >= 4) {
+            SkASSERT(SkIsAlign4((uintptr_t) dst));
+            while (!SkIsAlign16((uintptr_t) dst)) {
+                *dst = blend_lcd16(srcA, srcR, srcG, srcB, *dst, *mask);
+                mask++; dst++; width--;
+            }
+
+            // Replicate source across 4 lanes, then unpack low half to interleaved 16-bit.
+            uint32_t srcPM = SkPackARGB32(0xFF, srcR, srcG, srcB);
+            __vector unsigned int src_v32 = vec_splats(srcPM);
+            const __vector unsigned char zeros = vec_splats((unsigned char)0);
+            __vector unsigned char src_v = vec_mergeh((__vector unsigned char)src_v32, zeros);
+            __vector unsigned char srcA_v = (__vector unsigned char)vec_splats((unsigned short)srcA);
+
+            while (width >= 4) {
+                __vector unsigned char dst_v = vec_xl(0, (const unsigned char*)dst);
+                // Load 8 bytes (4x uint16 mask) into low half of vector.
+                uint64_t mlo;
+                memcpy(&mlo, mask, sizeof(mlo));
+                __vector unsigned long long mask_low =
+                    (__vector unsigned long long){mlo, 0};
+                __vector unsigned char mask_v = (__vector unsigned char)mask_low;
+
+                // Check if all mask values are zero (skip blending if so).
+                if (!vec_all_eq((__vector unsigned long long)mask_v,
+                                vec_splats((unsigned long long)0))) {
+                    // Unpack low 8 bytes of mask (4x uint16) into 4x uint32 (with zeros).
+                    // Zero-extend the 4 uint16 masks to 4 uint32 (16-bit-granularity
+                    // merge, matching SSE2's _mm_unpacklo_epi16); a char-granularity
+                    // merge would byte-stretch the RGB565 value and misplace the shifts.
+                    mask_v = (__vector unsigned char)vec_mergeh((__vector unsigned short)mask_v,
+                                                               (__vector unsigned short)zeros);
+                    __vector unsigned char result =
+                        blend_lcd16_vsx(src_v, dst_v, mask_v, srcA_v);
+                    vec_xst(result, 0, (unsigned char*)dst);
+                }
+                dst += 4; mask += 4; width -= 4;
+            }
+        }
+
+        while (width > 0) {
+            *dst = blend_lcd16(srcA, srcR, srcG, srcB, *dst, *mask);
+            mask++; dst++; width--;
+        }
+    }
+
+    void blit_row_lcd16_opaque(SkPMColor dst[], const uint16_t mask[],
+                               SkColor src, int width, SkPMColor opaqueDst) {
+        if (width <= 0) {
+            return;
+        }
+        int srcR = SkColorGetR(src);
+        int srcG = SkColorGetG(src);
+        int srcB = SkColorGetB(src);
+
+        if (width >= 4) {
+            SkASSERT(SkIsAlign4((uintptr_t) dst));
+            while (!SkIsAlign16((uintptr_t) dst)) {
+                *dst = blend_lcd16_opaque(srcR, srcG, srcB, *dst, *mask, opaqueDst);
+                mask++; dst++; width--;
+            }
+
+            uint32_t srcPM = SkPackARGB32(0xFF, srcR, srcG, srcB);
+            __vector unsigned int src_v32 = vec_splats(srcPM);
+            const __vector unsigned char zeros = vec_splats((unsigned char)0);
+            __vector unsigned char src_v = vec_mergeh((__vector unsigned char)src_v32, zeros);
+
+            while (width >= 4) {
+                __vector unsigned char dst_v = vec_xl(0, (const unsigned char*)dst);
+                uint64_t mlo;
+                memcpy(&mlo, mask, sizeof(mlo));
+                __vector unsigned long long mask_low =
+                    (__vector unsigned long long){mlo, 0};
+                __vector unsigned char mask_v = (__vector unsigned char)mask_low;
+
+                if (!vec_all_eq((__vector unsigned long long)mask_v,
+                                vec_splats((unsigned long long)0))) {
+                    // Zero-extend the 4 uint16 masks to 4 uint32 (16-bit-granularity
+                    // merge, matching SSE2's _mm_unpacklo_epi16); a char-granularity
+                    // merge would byte-stretch the RGB565 value and misplace the shifts.
+                    mask_v = (__vector unsigned char)vec_mergeh((__vector unsigned short)mask_v,
+                                                               (__vector unsigned short)zeros);
+                    __vector unsigned char result =
+                        blend_lcd16_opaque_vsx(src_v, dst_v, mask_v);
+                    vec_xst(result, 0, (unsigned char*)dst);
+                }
+                dst += 4; mask += 4; width -= 4;
+            }
+        }
+
+        while (width > 0) {
+            *dst = blend_lcd16_opaque(srcR, srcG, srcB, *dst, *mask, opaqueDst);
+            mask++; dst++; width--;
+        }
+    }
+
 #elif defined(SK_ARM_HAS_NEON)
     #include <arm_neon.h>
 
@@ -1363,7 +1631,8 @@ static inline SkPMColor blend_lcd16_opaque(int srcR, int srcG, int srcB,
         srcA = SkAlpha255To256(srcA);
 
         for (int i = 0; i < width; i++) {
-            dst[i] = blend_lcd16(srcA, srcR, srcG, srcB, dst[i], mask[i]);
+            dst[i] = BE_CONVERT(
+                blend_lcd16(srcA, srcR, srcG, srcB, BE_CONVERT(dst[i]), mask[i]));
         }
     }
 
@@ -1375,7 +1644,9 @@ static inline SkPMColor blend_lcd16_opaque(int srcR, int srcG, int srcB,
         int srcB = SkColorGetB(src);
 
         for (int i = 0; i < width; i++) {
-            dst[i] = blend_lcd16_opaque(srcR, srcG, srcB, dst[i], mask[i], opaqueDst);
+            dst[i] = BE_CONVERT(blend_lcd16_opaque(srcR, srcG, srcB,
+                                                   BE_CONVERT(dst[i]), mask[i],
+                                                   opaqueDst));
         }
     }
 
@@ -1497,17 +1768,17 @@ void SkARGB32_Blitter::blitAntiH2(int x, int y, U8CPU a0, U8CPU a1) {
     uint32_t* device = fDevice.writable_addr32(x, y);
     SkDEBUGCODE((void)fDevice.writable_addr32(x + 1, y);)
 
-    device[0] = SkBlendARGB32(fPMColor, device[0], a0);
-    device[1] = SkBlendARGB32(fPMColor, device[1], a1);
+    device[0] = BE_CONVERT(SkBlendARGB32(fPMColor, BE_CONVERT(device[0]), a0));
+    device[1] = BE_CONVERT(SkBlendARGB32(fPMColor, BE_CONVERT(device[1]), a1));
 }
 
 void SkARGB32_Blitter::blitAntiV2(int x, int y, U8CPU a0, U8CPU a1) {
     uint32_t* device = fDevice.writable_addr32(x, y);
     SkDEBUGCODE((void)fDevice.writable_addr32(x, y + 1);)
 
-    device[0] = SkBlendARGB32(fPMColor, device[0], a0);
+    device[0] = BE_CONVERT(SkBlendARGB32(fPMColor, BE_CONVERT(device[0]), a0));
     device = (uint32_t*)((char*)device + fDevice.rowBytes());
-    device[0] = SkBlendARGB32(fPMColor, device[0], a1);
+    device[0] = BE_CONVERT(SkBlendARGB32(fPMColor, BE_CONVERT(device[0]), a1));
 }
 
 //////////////////////////////////////////////////////////////////////////////////////
@@ -1526,7 +1797,7 @@ void SkARGB32_Blitter::blitAntiV2(int x, int y, U8CPU a0, U8CPU a1) {
 
 #define SK_BLITBWMASK_NAME                  SkARGB32_BlitBW
 #define SK_BLITBWMASK_ARGS                  , SkPMColor color
-#define SK_BLITBWMASK_BLIT8(mask, dst)      solid_8_pixels(mask, dst, color)
+#define SK_BLITBWMASK_BLIT8(mask, dst)      solid_8_pixels(mask, dst, BE_CONVERT(color))
 #define SK_BLITBWMASK_GETADDR               writable_addr32
 #define SK_BLITBWMASK_DEVTYPE               uint32_t
 #include "src/core/SkBlitBWMaskTemplate.h"
@@ -1545,7 +1816,7 @@ void SkARGB32_Blitter::blitAntiV2(int x, int y, U8CPU a0, U8CPU a1) {
 
 #define SK_BLITBWMASK_NAME                  SkARGB32_BlendBW
 #define SK_BLITBWMASK_ARGS                  , uint32_t sc, unsigned dst_scale
-#define SK_BLITBWMASK_BLIT8(mask, dst)      blend_8_pixels(mask, dst, sc, dst_scale)
+#define SK_BLITBWMASK_BLIT8(mask, dst)      blend_8_pixels(mask, dst, BE_CONVERT(sc), dst_scale)
 #define SK_BLITBWMASK_GETADDR               writable_addr32
 #define SK_BLITBWMASK_DEVTYPE               uint32_t
 #include "src/core/SkBlitBWMaskTemplate.h"
@@ -1610,7 +1881,7 @@ void SkARGB32_Opaque_Blitter::blitAntiH(int x,
         }
         SkAlpha aa = antialias[0];
         if (aa == 255) {
-            SkOpts::memset32(device, fPMColor, count);
+            SkOpts::memset32(device, BE_CONVERT(fPMColor), count);
         } else if (aa > 0) {
             SkPMColor sc = SkAlphaMulQ(fPMColor, SkAlpha255To256(aa));
             SkBlitRow::Color32(device, count, sc);
@@ -1625,21 +1896,21 @@ void SkARGB32_Opaque_Blitter::blitAntiH2(int x, int y, U8CPU a0, U8CPU a1) {
     uint32_t* device = fDevice.writable_addr32(x, y);
     SkDEBUGCODE((void)fDevice.writable_addr32(x + 1, y);)
 
-    device[0] = SkFastFourByteInterp(fPMColor, device[0], a0);
-    device[1] = SkFastFourByteInterp(fPMColor, device[1], a1);
+    device[0] = BE_CONVERT(SkFastFourByteInterp(fPMColor, BE_CONVERT(device[0]), a0));
+    device[1] = BE_CONVERT(SkFastFourByteInterp(fPMColor, BE_CONVERT(device[1]), a1));
 }
 
 void SkARGB32_Opaque_Blitter::blitAntiV2(int x, int y, U8CPU a0, U8CPU a1) {
     uint32_t* device = fDevice.writable_addr32(x, y);
     SkDEBUGCODE((void)fDevice.writable_addr32(x, y + 1);)
 
-    device[0] = SkFastFourByteInterp(fPMColor, device[0], a0);
+    device[0] = BE_CONVERT(SkFastFourByteInterp(fPMColor, BE_CONVERT(device[0]), a0));
     device = (uint32_t*)((char*)device + fDevice.rowBytes());
-    device[0] = SkFastFourByteInterp(fPMColor, device[0], a1);
+    device[0] = BE_CONVERT(SkFastFourByteInterp(fPMColor, BE_CONVERT(device[0]), a1));
 }
 
 std::optional<SkBlitter::DirectBlit> SkARGB32_Opaque_Blitter::canDirectBlit() {
-    return {{ fDevice, fPMColor }};
+    return {{ fDevice, BE_CONVERT(fPMColor) }};
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1659,7 +1930,7 @@ void SkARGB32_Blitter::blitV(int x, int y, int height, SkAlpha alpha) {
     const unsigned dst_scale = SkAlpha255To256(255 - SkGetPackedA32(color));
     const size_t rowBytes = fDevice.rowBytes();
     while (--height >= 0) {
-        device[0] = color + SkAlphaMulQ(device[0], dst_scale);
+        device[0] = BE_CONVERT(color + SkAlphaMulQ(BE_CONVERT(device[0]), dst_scale));
         device = (uint32_t*)((char*)device + rowBytes);
     }
 }
@@ -1675,7 +1946,7 @@ void SkARGB32_Blitter::blitRect(int x, int y, int width, int height) {
     const size_t rowBytes = fDevice.rowBytes();
 
     if (SkGetPackedA32(fPMColor) == 0xFF) {
-        SkOpts::rect_memset32(device, fPMColor, width, rowBytes, height);
+        SkOpts::rect_memset32(device, BE_CONVERT(fPMColor), width, rowBytes, height);
     } else {
         while (height --> 0) {
             SkBlitRow::Color32(device, width, fPMColor);
@@ -1704,14 +1975,14 @@ void SkARGB32_Black_Blitter::blitAntiH(int x, int y, const SkAlpha antialias[],
         unsigned aa = antialias[0];
         if (aa) {
             if (aa == 255) {
-                SkOpts::memset32(device, kBlack, count);
+                SkOpts::memset32(device, BE_CONVERT(kBlack), count);
             } else {
                 const SkPMColor src = aa << SK_A32_SHIFT;
                 const unsigned dst_scale = SkAlpha255To256(255 - aa);
                 int n = count;
                 do {
                     --n;
-                    device[n] = src + SkAlphaMulQ(device[n], dst_scale);
+                    device[n] = BE_CONVERT(src + SkAlphaMulQ(BE_CONVERT(device[n]), dst_scale));
                 } while (n > 0);
             }
         }
@@ -1725,17 +1996,17 @@ void SkARGB32_Black_Blitter::blitAntiH2(int x, int y, U8CPU a0, U8CPU a1) {
     uint32_t* device = fDevice.writable_addr32(x, y);
     SkDEBUGCODE((void)fDevice.writable_addr32(x + 1, y);)
 
-    device[0] = (a0 << SK_A32_SHIFT) + SkAlphaMulQ(device[0], 256 - a0);
-    device[1] = (a1 << SK_A32_SHIFT) + SkAlphaMulQ(device[1], 256 - a1);
+    device[0] = BE_CONVERT((a0 << SK_A32_SHIFT) + SkAlphaMulQ(BE_CONVERT(device[0]), 256 - a0));
+    device[1] = BE_CONVERT((a1 << SK_A32_SHIFT) + SkAlphaMulQ(BE_CONVERT(device[1]), 256 - a1));
 }
 
 void SkARGB32_Black_Blitter::blitAntiV2(int x, int y, U8CPU a0, U8CPU a1) {
     uint32_t* device = fDevice.writable_addr32(x, y);
     SkDEBUGCODE((void)fDevice.writable_addr32(x, y + 1);)
 
-    device[0] = (a0 << SK_A32_SHIFT) + SkAlphaMulQ(device[0], 256 - a0);
+    device[0] = BE_CONVERT((a0 << SK_A32_SHIFT) + SkAlphaMulQ(BE_CONVERT(device[0]), 256 - a0));
     device = (uint32_t*)((char*)device + fDevice.rowBytes());
-    device[0] = (a1 << SK_A32_SHIFT) + SkAlphaMulQ(device[0], 256 - a1);
+    device[0] = BE_CONVERT((a1 << SK_A32_SHIFT) + SkAlphaMulQ(BE_CONVERT(device[0]), 256 - a1));
 }
 
 ///////////////////////////////////////////////////////////////////////////////

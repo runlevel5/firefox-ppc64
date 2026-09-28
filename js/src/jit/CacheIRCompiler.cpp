@@ -6419,7 +6419,8 @@ void CacheIRCompiler::emitActivateIterator(Register objBeingIterated,
   // Mark iterator as active.
   Address iterFlagsAddr(nativeIter, NativeIterator::offsetOfFlags());
   masm.storePtr(objBeingIterated, iterObjAddr);
-  masm.or32(Imm32(NativeIterator::Flags::Active), iterFlagsAddr);
+  masm.or32(Imm32(NativeIterator::flagForJit32(NativeIterator::Flags::Active)),
+            iterFlagsAddr);
 
   // Post-write barrier for stores to 'objectBeingIterated_'.
   emitPostBarrierSlot(
@@ -9631,7 +9632,14 @@ void CacheIRCompiler::emitLoadStubField(StubFieldOffset val, Register dest) {
         masm.loadPtr(load, dest);
         break;
       case StubField::Type::RawInt32:
+        // A RawInt32 occupies the low 32 bits of a uintptr_t-sized stub-data
+        // slot; on big-endian those bytes are at offset +4 (the high/zero half
+        // is at +0). Loading +0 there would read zero. No-op on little-endian.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+        masm.load32(Address(load.base, load.offset + 4), dest);
+#else
         masm.load32(load, dest);
+#endif
         break;
       default:
         MOZ_CRASH("Unhandled stub field constant type");
@@ -10312,6 +10320,14 @@ bool CacheIRCompiler::emitConcatStringsResult(StringOperandId lhsId,
     liveRegs.add(ICTailCallReg);
 #endif
     liveRegs.takeUnchecked(output.valueReg());
+
+#ifdef JS_CODEGEN_PPC64
+    // On PPC64, LR is an SPR, not a GPR, so ICTailCallReg is a regular
+    // GPR that does not shadow LR. The inner bctrl will clobber LR, so
+    // save/restore it explicitly.
+    masm.xs_mflr(r0);
+    masm.push(r0);
+#endif
     masm.PushRegsInMask(liveRegs);
 
     // The stub expects lhs in CallTempReg0 and rhs in CallTempReg1.
@@ -10332,11 +10348,19 @@ bool CacheIRCompiler::emitConcatStringsResult(StringOperandId lhsId,
     masm.branchTestPtr(Assembler::Zero, CallTempReg5, CallTempReg5, &vmCall);
     masm.tagValue(JSVAL_TYPE_STRING, CallTempReg5, output.valueReg());
     masm.PopRegsInMask(liveRegs);
+#ifdef JS_CODEGEN_PPC64
+    masm.pop(r0);
+    masm.xs_mtlr(r0);
+#endif
     masm.jump(&done);
 
     masm.bind(&vmCall);
     masm.setFramePushed(framePushed);
     masm.PopRegsInMask(liveRegs);
+#ifdef JS_CODEGEN_PPC64
+    masm.pop(r0);
+    masm.xs_mtlr(r0);
+#endif
   }
 
   {

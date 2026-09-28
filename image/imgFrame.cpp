@@ -15,8 +15,11 @@
 #include "gfxUtils.h"
 
 #include "MainThreadUtils.h"
+#include "mozilla/gfx/Swizzle.h"
 #include "mozilla/gfx/Tools.h"
 #include "mozilla/EndianUtils.h"
+
+#include <bit>
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/ProfilerLabels.h"
 #include "mozilla/StaticPrefs_browser.h"
@@ -377,6 +380,17 @@ nsresult imgFrame::InitWithDrawable(gfxDrawable* aDrawable,
     NS_WARNING("Failed to create SourceSurfaceSharedData");
     mAborted = true;
     return NS_ERROR_OUT_OF_MEMORY;
+  }
+
+  if (std::endian::native != std::endian::little && canUseDataSurface &&
+      aBackend == gfx::BackendType::SKIA) {
+    // On big-endian, Skia stores its little-endian-convention pixel values
+    // with native byte order, leaving A8R8G8B8 bytes in a surface that is
+    // consumed as B8G8R8A8. Reorder in place.
+    gfx::SwizzleData(mRawSurface->GetData(), mRawSurface->Stride(),
+                     gfx::SurfaceFormat::A8R8G8B8, mRawSurface->GetData(),
+                     mRawSurface->Stride(), gfx::SurfaceFormat::B8G8R8A8,
+                     mRawSurface->GetSize());
   }
 
   if (!canUseDataSurface) {

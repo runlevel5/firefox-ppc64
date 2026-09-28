@@ -25,7 +25,7 @@ var ins = wasmEvalText(`
         (drop)
         (v128.const i32x4 5 6 7 8))))`);
 
-var mem = new Int32Array(ins.exports.mem.buffer);
+var mem = memView(Int32Array, ins.exports.mem.buffer);
 ins.exports.run(0);
 assertDeepEq(get(mem, 0, 4), [5, 6, 7, 8]);
 
@@ -62,7 +62,7 @@ var ins = wasmEvalText(`
                     (v128.const i32x4 -13 -14 -15 -16))))
         (unreachable))))`);
 
-var mem = new Int32Array(ins.exports.mem.buffer);
+var mem = memView(Int32Array, ins.exports.mem.buffer);
 ins.exports.run(0);
 assertDeepEq(get(mem, 0, 4), [-5, -6, -7, -8]);
 assertDeepEq(get(mem, 4, 4), [-9, -10, -11, -12]);
@@ -100,7 +100,7 @@ var ins = wasmEvalText(`
         (v128.const i32x4 -9 -10 -11 -12)
         (v128.const i32x4 -13 -14 -15 -16))))`);
 
-var mem = new Int32Array(ins.exports.mem.buffer);
+var mem = memView(Int32Array, ins.exports.mem.buffer);
 ins.exports.run(0);
 assertDeepEq(get(mem, 0, 4), [-5, -6, -7, -8]);
 assertDeepEq(get(mem, 4, 4), [-9, -10, -11, -12]);
