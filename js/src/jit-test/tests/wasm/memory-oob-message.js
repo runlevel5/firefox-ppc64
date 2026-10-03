@@ -8,8 +8,16 @@ const hasOffsetMessage = wasmHugeMemoryEnabled();
 
 function oobPattern(memIdx, byteOffset) {
     if (hasOffsetMessage) {
+        // The reported address is whatever the kernel returned in
+        // siginfo.si_addr for the faulting instruction. Most backends emit
+        // the wasm access directly so si_addr equals byteOffset. PPC64 emits
+        // a 1-byte probing load at byteOffset + (size - 1) before each
+        // multi-byte access (to enforce wasm-spec atomicity on POWER ISA),
+        // so si_addr there can be up to 15 bytes past byteOffset.
+        const offsets = [];
+        for (let i = 0; i < 16; ++i) offsets.push(`${byteOffset + i}`);
         return new RegExp(
-            `out of bounds: memory ${memIdx} access at memory address ${byteOffset}`
+            `out of bounds: memory ${memIdx} access at memory address (?:${offsets.join('|')})`
         );
     }
     return /index out of bounds/;

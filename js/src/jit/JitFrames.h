@@ -346,6 +346,16 @@ enum class ExceptionResumeKind : int32_t {
 
 // Data needed to recover from an exception.
 struct ResumeFromException {
+#if defined(JS_CODEGEN_PPC64)
+  // This struct is built on the stack as part of exception returns. Because
+  // it goes right on top of the stack, an ABI-compliant routine can wreck
+  // it, so we implement a minimum Power ISA linkage area (four doublewords).
+  void* _ppc_sp_;
+  void* _ppc_cr_;
+  void* _ppc_lr_;
+  void* _ppc_toc_;
+#endif
+
   uint8_t* framePointer;
   uint8_t* stackPointer;
   uint8_t* target;
@@ -397,7 +407,7 @@ struct ResumeFromException {
   }
 };
 
-#if defined(JS_CODEGEN_ARM64)
+#if defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_PPC64)
 static_assert(sizeof(ResumeFromException) % 16 == 0,
               "ResumeFromException should be aligned");
 #endif
@@ -845,7 +855,15 @@ class IonDOMMethodExitFrameLayout {
     return reinterpret_cast<JS::Value*>(&loCalleeResult_);
   }
   inline JSObject** thisObjAddress() { return &thisObj_; }
-  inline uintptr_t argc() { return argc_; }
+  inline uintptr_t argc() {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // visitCallDOMNative stores argc in the high 32 bits of this word so the
+    // native's uint32 JSJitMethodCallArgs::argc_ overlay reads it on big-endian.
+    return argc_ >> 32;
+#else
+    return argc_;
+#endif
+  }
 };
 
 inline bool IonDOMExitFrameLayout::isMethodFrame() {

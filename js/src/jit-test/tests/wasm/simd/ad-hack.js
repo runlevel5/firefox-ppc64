@@ -20,7 +20,7 @@ for ( let offset of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]) {
     (memory (export "mem") 1 1)
     (func (export "f") (param $loc i32)
       (v128.store offset=${offset} (local.get $loc) (v128.const i32x4 ${1+offset} 2 3 ${4+offset*2}))))`);
-    var mem8 = new Uint8Array(ins.exports.mem.buffer);
+    var mem8 = memView(Uint8Array, ins.exports.mem.buffer);
     ins.exports.f(160);
     assertSame(getUnaligned(mem8, 4, 160 + offset, 4), [1+offset, 2, 3, 4+offset*2]);
 
@@ -43,8 +43,8 @@ for ( let offset of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]) {
     (memory (export "mem") 1 1)
     (func (export "copy") (param $dest i32) (param $src i32)
       (v128.store (local.get $dest) (v128.load offset=${offset} (local.get $src)))))`);
-    var mem32 = new Uint32Array(ins.exports.mem.buffer);
-    var mem8 = new Uint8Array(ins.exports.mem.buffer);
+    var mem32 = memView(Uint32Array, ins.exports.mem.buffer);
+    var mem8 = memView(Uint8Array, ins.exports.mem.buffer);
     setUnaligned(mem8, 4, 4*4 + offset, [8+offset, 10, 12, 14+offset*2]);
     ins.exports.copy(40*4, 4*4);
     assertSame(get(mem32, 40, 4), [8+offset, 10, 12, 14+offset*2]);
@@ -72,7 +72,7 @@ var ins = wasmEvalText(`
       (local.get $tmp))
     (func (export "f")
       (v128.store (i32.const 160) (call $g (v128.const i32x4 1 2 3 4)))))`);
-var mem = new Uint32Array(ins.exports.mem.buffer);
+var mem = memView(Uint32Array, ins.exports.mem.buffer);
 ins.exports.f();
 assertSame(get(mem, 40, 4), [1, 2, 3, 4]);
 
@@ -86,7 +86,7 @@ var ins = wasmEvalText(`
       (local.tee $tmp (local.get $param)))
     (func (export "f")
       (v128.store (i32.const 160) (call $g (v128.const i32x4 1 2 3 4)))))`);
-var mem = new Uint32Array(ins.exports.mem.buffer);
+var mem = memView(Uint32Array, ins.exports.mem.buffer);
 ins.exports.f();
 assertSame(get(mem, 40, 4), [1, 2, 3, 4]);
 
@@ -130,7 +130,7 @@ for ( let start of [0, 1]) {
     (func (export "f")
       (v128.store (i32.const 160) (call $g))))`);
 
-    var mem = new Uint32Array(ins.exports.mem.buffer);
+    var mem = memView(Uint32Array, ins.exports.mem.buffer);
     ins.exports.f();
     assertSame(get(mem, 40, 4), res);
 }
@@ -185,7 +185,7 @@ for ( let start of [0, 1]) {
       (v128.store (i32.const 512) (call_indirect (type $t1) ${pass} (i32.const 0)))))`;
     var ins = wasmEvalText(txt);
 
-    var mem = new Uint32Array(ins.exports.mem.buffer);
+    var mem = memView(Uint32Array, ins.exports.mem.buffer);
     ins.exports.f1();
     assertSame(get(mem, 40, 4), res);
     ins.exports.f2();
@@ -208,8 +208,8 @@ var ans = [xs[0]*ys[0] + xs[1]*ys[1],
            xs[4]*ys[4] + xs[5]*ys[5],
            xs[6]*ys[6] + xs[7]*ys[7]];
 
-var mem16 = new Int16Array(ins.exports.mem.buffer);
-var mem32 = new Int32Array(ins.exports.mem.buffer);
+var mem16 = memView(Int16Array, ins.exports.mem.buffer);
+var mem32 = memView(Int32Array, ins.exports.mem.buffer);
 set(mem16, 8, xs);
 set(mem16, 16, ys);
 ins.exports.run();
@@ -247,37 +247,37 @@ var ins = wasmEvalText(`
       (v128.store (i32.const 0) (f64x2.splat (f64.const 26789.125))))
 )`);
 
-var mem8 = new Uint8Array(ins.exports.mem.buffer);
+var mem8 = memView(Uint8Array, ins.exports.mem.buffer);
 ins.exports.splat_i8x16(3);
 assertSame(get(mem8, 0, 16), iota(16).map(_=>3));
 ins.exports.csplat_i8x16();
 assertSame(get(mem8, 0, 16), iota(16).map(_=>37));
 
-var mem16 = new Uint16Array(ins.exports.mem.buffer);
+var mem16 = memView(Uint16Array, ins.exports.mem.buffer);
 ins.exports.splat_i16x8(976);
 assertSame(get(mem16, 0, 8), iota(8).map(_=>976));
 ins.exports.csplat_i16x8();
 assertSame(get(mem16, 0, 8), iota(8).map(_=>1175));
 
-var mem32 = new Uint32Array(ins.exports.mem.buffer);
+var mem32 = memView(Uint32Array, ins.exports.mem.buffer);
 ins.exports.splat_i32x4(147812);
 assertSame(get(mem32, 0, 4), [147812, 147812, 147812, 147812]);
 ins.exports.csplat_i32x4();
 assertSame(get(mem32, 0, 4), [127639, 127639, 127639, 127639]);
 
-var mem64 = new BigInt64Array(ins.exports.mem.buffer);
+var mem64 = memView(BigInt64Array, ins.exports.mem.buffer);
 ins.exports.splat_i64x2(147812n);
 assertSame(get(mem64, 0, 2), [147812, 147812]);
 ins.exports.csplat_i64x2();
 assertSame(get(mem64, 0, 2), [0x1234_5678_4365n, 0x1234_5678_4365n]);
 
-var memf32 = new Float32Array(ins.exports.mem.buffer);
+var memf32 = memView(Float32Array, ins.exports.mem.buffer);
 ins.exports.splat_f32x4(147812.5);
 assertSame(get(memf32, 0, 4), [147812.5, 147812.5, 147812.5, 147812.5]);
 ins.exports.csplat_f32x4();
 assertSame(get(memf32, 0, 4), [9121.25, 9121.25, 9121.25, 9121.25]);
 
-var memf64 = new Float64Array(ins.exports.mem.buffer);
+var memf64 = memView(Float64Array, ins.exports.mem.buffer);
 ins.exports.splat_f64x2(147812.5);
 assertSame(get(memf64, 0, 2), [147812.5, 147812.5]);
 ins.exports.csplat_f64x2();
@@ -295,7 +295,7 @@ var ins = wasmEvalText(`
     (func (export "false_anytrue_i8x16") (result i32)
       (v128.any_true (v128.const i8x16 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0))))`);
 
-var mem = new Uint8Array(ins.exports.mem.buffer);
+var mem = memView(Uint8Array, ins.exports.mem.buffer);
 set(mem, 16, iota(16).map((_) => 0));
 assertEq(ins.exports.anytrue_i8x16(), 0);
 
@@ -331,9 +331,9 @@ var ins = wasmEvalText(`
     (func (export "false_alltrue_i32x4") (result i32)
       (i32x4.all_true (v128.const i32x4 1 2 3 0))))`);
 
-var mem8 = new Uint8Array(ins.exports.mem.buffer);
-var mem16 = new Uint16Array(ins.exports.mem.buffer);
-var mem32 = new Uint32Array(ins.exports.mem.buffer);
+var mem8 = memView(Uint8Array, ins.exports.mem.buffer);
+var mem16 = memView(Uint16Array, ins.exports.mem.buffer);
+var mem32 = memView(Uint32Array, ins.exports.mem.buffer);
 
 set(mem8, 16, iota(16).map((_) => 0));
 assertEq(ins.exports.alltrue_i8x16(), 0);
@@ -386,9 +386,9 @@ var ins = wasmEvalText(`
     (func (export "const_bitmask_i32x4") (result i32)
       (i32x4.bitmask (v128.const i32x4 0xff337f80 0x00019842 0xcc3112dd 0xa00240f0))))`);
 
-var mem8 = new Uint8Array(ins.exports.mem.buffer);
-var mem16 = new Uint16Array(ins.exports.mem.buffer);
-var mem32 = new Uint32Array(ins.exports.mem.buffer);
+var mem8 = memView(Uint8Array, ins.exports.mem.buffer);
+var mem16 = memView(Uint16Array, ins.exports.mem.buffer);
+var mem32 = memView(Uint32Array, ins.exports.mem.buffer);
 
 set(mem8, 16, iota(16).map((_) => 0));
 assertEq(ins.exports.bitmask_i8x16(), 0);
@@ -590,7 +590,7 @@ var ins = wasmEvalText(`
     (func (export "shr_u64x2_-231")
       (v128.store (i32.const 0) (i64x2.shr_u (v128.load (i32.const 16)) (i32.const -231)))))`);
 
-var mem8 = new Uint8Array(ins.exports.mem.buffer);
+var mem8 = memView(Uint8Array, ins.exports.mem.buffer);
 var as = [1, 2, 4, 8, 16, 32, 64, 128, 129, 130, 132, 136, 144, 160, 192, 255];
 
 set(mem8, 16, as);
@@ -622,7 +622,7 @@ for (let [meth,op] of [["shl_i8x16",shl], ["shr_i8x16",shr], ["shr_u8x16",shru]]
     assertSame(x, z);
 }
 
-var mem16 = new Uint16Array(ins.exports.mem.buffer);
+var mem16 = memView(Uint16Array, ins.exports.mem.buffer);
 var as = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000];
 set(mem16, 8, as)
 
@@ -671,7 +671,7 @@ for ( let shift of [3, 15, 16, -15] ) {
     assertSame(get(mem16, 0, 8), as.map(shru(shift & 15, 16)))
 }
 
-var mem32 = new Uint32Array(ins.exports.mem.buffer);
+var mem32 = memView(Uint32Array, ins.exports.mem.buffer);
 var as = [5152, 6768, 7074, 800811];
 
 set(mem32, 4, as)
@@ -720,7 +720,7 @@ for ( let shift of [12, 31, 32, -27] ) {
     assertSame(get(mem32, 0, 4), as.map(shru(shift & 31, 32)))
 }
 
-var mem64 = new BigInt64Array(ins.exports.mem.buffer);
+var mem64 = memView(BigInt64Array, ins.exports.mem.buffer);
 var as = [50515253, -616263];
 
 set(mem64, 2, as)
@@ -784,11 +784,11 @@ var ins = wasmEvalText(`
     (func (export "narrow_i32x4_u")
       (v128.store (i32.const 0) (i16x8.narrow_i32x4_u (v128.load (i32.const 16)) (v128.load (i32.const 32))))))`);
 
-var mem8 = new Int8Array(ins.exports.mem.buffer);
-var mem8u = new Uint8Array(ins.exports.mem.buffer);
-var mem16 = new Int16Array(ins.exports.mem.buffer);
-var mem16u = new Uint16Array(ins.exports.mem.buffer);
-var mem32 = new Int32Array(ins.exports.mem.buffer);
+var mem8 = memView(Int8Array, ins.exports.mem.buffer);
+var mem8u = memView(Uint8Array, ins.exports.mem.buffer);
+var mem16 = memView(Int16Array, ins.exports.mem.buffer);
+var mem16u = memView(Uint16Array, ins.exports.mem.buffer);
+var mem32 = memView(Int32Array, ins.exports.mem.buffer);
 
 var as = [1, 267, 3987, 14523, 32768, 3, 312, 4876].map((x) => sign_extend(x, 16));
 var bs = [2, 312, 4876, 15987, 33777, 1, 267, 3987].map((x) => sign_extend(x, 16));
@@ -840,9 +840,9 @@ var ins = wasmEvalText(`
     (func (export "extend_high_i16x8_u")
       (v128.store (i32.const 0) (i32x4.extend_high_i16x8_u (v128.load (i32.const 16))))))`);
 
-var mem16 = new Int16Array(ins.exports.mem.buffer);
-var mem16u = new Uint16Array(ins.exports.mem.buffer);
-var mem8 =  new Int8Array(ins.exports.mem.buffer);
+var mem16 = memView(Int16Array, ins.exports.mem.buffer);
+var mem16u = memView(Uint16Array, ins.exports.mem.buffer);
+var mem8 =  memView(Int8Array, ins.exports.mem.buffer);
 var as = [0, 1, 192, 3, 205, 5, 6, 133, 8, 9, 129, 11, 201, 13, 14, 255];
 
 set(mem8, 16, as);
@@ -859,8 +859,8 @@ assertSame(get(mem16u, 0, 8), iota(8).map((n) => zero_extend(as[n], 8)));
 ins.exports.extend_high_i8x16_u();
 assertSame(get(mem16u, 0, 8), iota(8).map((n) => zero_extend(as[n+8], 8)));
 
-var mem32 = new Int32Array(ins.exports.mem.buffer);
-var mem32u = new Uint32Array(ins.exports.mem.buffer);
+var mem32 = memView(Int32Array, ins.exports.mem.buffer);
+var mem32u = memView(Uint32Array, ins.exports.mem.buffer);
 
 var as = [0, 1, 192, 3, 205, 5, 6, 133].map((x) => x << 8);
 
@@ -921,7 +921,7 @@ var ins = wasmEvalText(`
     (func (export "const_extract_f64x2_1") (result f64)
       (f64x2.extract_lane 1 (v128.const f64x2 -1 -2))))`);
 
-var mem8 = new Uint8Array(ins.exports.mem.buffer);
+var mem8 = memView(Uint8Array, ins.exports.mem.buffer);
 var as = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
 var bs = as.map((x) => -x);
 
@@ -934,7 +934,7 @@ assertEq(ins.exports.extract_u8x16_6(), 256 - as[6]);
 assertEq(ins.exports.const_extract_i8x16_9(), -10);
 assertEq(ins.exports.const_extract_u8x16_9(), 256-10);
 
-var mem16 = new Uint16Array(ins.exports.mem.buffer);
+var mem16 = memView(Uint16Array, ins.exports.mem.buffer);
 var as = [1, 2, 3, 4, 5, 6, 7, 8];
 var bs = as.map((x) => -x);
 
@@ -947,7 +947,7 @@ assertEq(ins.exports.extract_u16x8_3(), 65536 - as[3]);
 assertEq(ins.exports.const_extract_i16x8_5(), -6);
 assertEq(ins.exports.const_extract_u16x8_3(), 65536-4);
 
-var mem32 = new Uint32Array(ins.exports.mem.buffer);
+var mem32 = memView(Uint32Array, ins.exports.mem.buffer);
 var as = [1, 2, 3, 4];
 
 set(mem32, 4, as)
@@ -955,7 +955,7 @@ assertEq(ins.exports.extract_i32x4_2(), as[2]);
 
 assertEq(ins.exports.const_extract_i32x4_2(), -3);
 
-var mem32 = new Float32Array(ins.exports.mem.buffer);
+var mem32 = memView(Float32Array, ins.exports.mem.buffer);
 var as = [1.5, 2.5, 3.5, 4.5];
 
 set(mem32, 4, as)
@@ -963,7 +963,7 @@ assertEq(ins.exports.extract_f32x4_2(), as[2]);
 
 assertEq(ins.exports.const_extract_f32x4_2(), -3);
 
-var mem64 = new Float64Array(ins.exports.mem.buffer);
+var mem64 = memView(Float64Array, ins.exports.mem.buffer);
 var as = [1.5, 2.5];
 
 set(mem64, 2, as)
@@ -971,7 +971,7 @@ assertEq(ins.exports.extract_f64x2_1(), as[1]);
 
 assertEq(ins.exports.const_extract_f64x2_1(), -2);
 
-var mem64 = new BigInt64Array(ins.exports.mem.buffer);
+var mem64 = memView(BigInt64Array, ins.exports.mem.buffer);
 var as = [12345, 67890];
 
 set(mem64, 2, as)
@@ -1016,35 +1016,35 @@ var ins = wasmEvalText(`
         (f64x2.replace_lane 1 (v128.load (i32.const 16)) (local.get $value)))))`);
 
 
-var mem8 = new Uint8Array(ins.exports.mem.buffer);
+var mem8 = memView(Uint8Array, ins.exports.mem.buffer);
 var as = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
 
 set(mem8, 16, as)
 ins.exports.replace_i8x16_9(42);
 assertSame(get(mem8, 0, 16), upd(as, 9, 42));
 
-var mem16 = new Uint16Array(ins.exports.mem.buffer);
+var mem16 = memView(Uint16Array, ins.exports.mem.buffer);
 var as = [1, 2, 3, 4, 5, 6, 7, 8];
 
 set(mem16, 8, as)
 ins.exports.replace_i16x8_5(42);
 assertSame(get(mem16, 0, 8), upd(as, 5, 42));
 
-var mem32 = new Uint32Array(ins.exports.mem.buffer);
+var mem32 = memView(Uint32Array, ins.exports.mem.buffer);
 var as = [1, 2, 3, 4];
 
 set(mem32, 4, as)
 ins.exports.replace_i32x4_3(42);
 assertSame(get(mem32, 0, 4), upd(as, 3, 42));
 
-var mem64 = new BigInt64Array(ins.exports.mem.buffer);
+var mem64 = memView(BigInt64Array, ins.exports.mem.buffer);
 var as = [1, 2];
 
 set(mem64, 2, as)
 ins.exports.replace_i64x2_1(42n);
 assertSame(get(mem64, 0, 2), upd(as, 1, 42));
 
-var mem32 = new Float32Array(ins.exports.mem.buffer);
+var mem32 = memView(Float32Array, ins.exports.mem.buffer);
 var as = [1.5, 2.5, 3.5, 4.5];
 
 set(mem32, 4, as)
@@ -1055,7 +1055,7 @@ set(mem32, 4, as)
 ins.exports.replace_f32x4_3(42.5);
 assertSame(get(mem32, 0, 4), upd(as, 3, 42.5));
 
-var mem64 = new Float64Array(ins.exports.mem.buffer);
+var mem64 = memView(Float64Array, ins.exports.mem.buffer);
 var as = [1.5, 2.5];
 
 set(mem64, 2, as)
@@ -1083,22 +1083,22 @@ var ins = wasmEvalText(`
     (func (export "load_splat_v64x2") (param $addr i32)
       (v128.store (i32.const 0) (v128.load64_splat (local.get $addr)))))`);
 
-var mem8 = new Uint8Array(ins.exports.mem.buffer);
+var mem8 = memView(Uint8Array, ins.exports.mem.buffer);
 mem8[37] = 42;
 ins.exports.load_splat_v8x16(37);
 assertSame(get(mem8, 0, 16), [42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42]);
 
-var mem16 = new Uint16Array(ins.exports.mem.buffer);
+var mem16 = memView(Uint16Array, ins.exports.mem.buffer);
 mem16[37] = 69;
 ins.exports.load_splat_v16x8(37*2);
 assertSame(get(mem16, 0, 8), [69, 69, 69, 69, 69, 69, 69, 69]);
 
-var mem32 = new Int32Array(ins.exports.mem.buffer);
+var mem32 = memView(Int32Array, ins.exports.mem.buffer);
 mem32[37] = 83;
 ins.exports.load_splat_v32x4(37*4);
 assertSame(get(mem32, 0, 4), [83, 83, 83, 83]);
 
-var mem64 = new BigInt64Array(ins.exports.mem.buffer);
+var mem64 = memView(BigInt64Array, ins.exports.mem.buffer);
 mem64[37] = 83n;
 ins.exports.load_splat_v64x2(37*8);
 assertSame(get(mem64, 0, 2), [83, 83]);
@@ -1116,7 +1116,7 @@ var ins = wasmEvalText(`
     (func (export "load64_zero") (param $addr i32)
       (v128.store (i32.const 0) (v128.load64_zero (local.get $addr)))))`);
 
-var mem32 = new Int32Array(ins.exports.mem.buffer);
+var mem32 = memView(Int32Array, ins.exports.mem.buffer);
 mem32[37] = 0x12345678;
 mem32[38] = 0xffffffff;
 mem32[39] = 0xfffffffe;
@@ -1124,7 +1124,7 @@ mem32[40] = 0xfffffffd;
 ins.exports.load32_zero(37*4);
 assertSame(get(mem32, 0, 4), [0x12345678, 0, 0, 0]);
 
-var mem64 = new BigInt64Array(ins.exports.mem.buffer);
+var mem64 = memView(BigInt64Array, ins.exports.mem.buffer);
 mem64[37] = 0x12345678abcdef01n;
 mem64[38] = 0xffffffffffffffffn;
 ins.exports.load64_zero(37*8);
@@ -1151,13 +1151,13 @@ var ins = wasmEvalText(`
     (func (export "load32x2_u") (param $addr i32)
       (v128.store (i32.const 0) (v128.load32x2_u (local.get $addr)))))`);
 
-var mem8 = new Uint8Array(ins.exports.mem.buffer);
-var mem16s = new Int16Array(ins.exports.mem.buffer);
-var mem16u = new Uint16Array(ins.exports.mem.buffer);
-var mem32s = new Int32Array(ins.exports.mem.buffer);
-var mem32u = new Uint32Array(ins.exports.mem.buffer);
-var mem64s = new BigInt64Array(ins.exports.mem.buffer);
-var mem64u = new BigUint64Array(ins.exports.mem.buffer);
+var mem8 = memView(Uint8Array, ins.exports.mem.buffer);
+var mem16s = memView(Int16Array, ins.exports.mem.buffer);
+var mem16u = memView(Uint16Array, ins.exports.mem.buffer);
+var mem32s = memView(Int32Array, ins.exports.mem.buffer);
+var mem32u = memView(Uint32Array, ins.exports.mem.buffer);
+var mem64s = memView(BigInt64Array, ins.exports.mem.buffer);
+var mem64u = memView(BigUint64Array, ins.exports.mem.buffer);
 var xs = [42, 129, 2, 212, 44, 27, 12, 199];
 set(mem8, 48, xs);
 
@@ -1198,7 +1198,7 @@ var ins = wasmEvalText(`
                         (v128.load (i32.const 32))
                         (v128.load (i32.const 48))))))`);
 
-var mem8 = new Uint8Array(ins.exports.mem.buffer);
+var mem8 = memView(Uint8Array, ins.exports.mem.buffer);
 set(mem8, 16, iota(16).map((_) => 0xAA));
 set(mem8, 32, iota(16).map((_) => 0x55));
 
@@ -1230,7 +1230,7 @@ var ins = wasmEvalText(`
            (v128.load (i32.const 16))
            (v128.load (i32.const 32))))))`);
 
-var mem8 = new Uint8Array(ins.exports.mem.buffer);
+var mem8 = memView(Uint8Array, ins.exports.mem.buffer);
 var xs = iota(16).map((n) => 0xA0 + n);
 var ys = iota(16).map((n) => 0x50 + n);
 set(mem8, 16, xs);
@@ -1253,7 +1253,7 @@ var ins = wasmEvalText(`
       (v128.store (i32.const 0)
         (i8x16.swizzle (v128.load (i32.const 16)) (v128.load (i32.const 32))))))`);
 
-var mem8 = new Uint8Array(ins.exports.mem.buffer);
+var mem8 = memView(Uint8Array, ins.exports.mem.buffer);
 
 var xs = [100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115];
 set(mem8, 16, xs);
@@ -1282,7 +1282,7 @@ for ( let [mask, expected] of [[[1,0,3,2,5,4,7,6,9,8,11,10,13,12,15,14],
         (i8x16.swizzle (v128.load (i32.const 16)) (v128.const i8x16 ${mask.join(' ')})))))
 `);
 
-    let mem8 = new Uint8Array(ins.exports.mem.buffer);
+    let mem8 = memView(Uint8Array, ins.exports.mem.buffer);
     set(mem8, 16, [100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115]);
     ins.exports.swizzle();
     assertSame(get(mem8, 0, 16), expected);
@@ -1300,15 +1300,15 @@ var ins = wasmEvalText(`
       (v128.store (i32.const 0)
         (f32x4.convert_i32x4_u (v128.load (i32.const 16))))))`);
 
-var mem32s = new Int32Array(ins.exports.mem.buffer);
-var mem32f = new Float32Array(ins.exports.mem.buffer);
+var mem32s = memView(Int32Array, ins.exports.mem.buffer);
+var mem32f = memView(Float32Array, ins.exports.mem.buffer);
 var xs = [1, -9, 77987, -34512];
 
 set(mem32s, 4, xs);
 ins.exports.convert_s();
 assertSame(get(mem32f, 0, 4), xs);
 
-var mem32u = new Uint32Array(ins.exports.mem.buffer);
+var mem32u = memView(Uint32Array, ins.exports.mem.buffer);
 var ys = xs.map((x) => x>>>0);
 
 set(mem32u, 4, ys);
@@ -1327,9 +1327,9 @@ var ins = wasmEvalText(`
       (v128.store (i32.const 0)
         (i32x4.trunc_sat_f32x4_u (v128.load (i32.const 16))))))`);
 
-var mem32s = new Int32Array(ins.exports.mem.buffer);
-var mem32u = new Uint32Array(ins.exports.mem.buffer);
-var mem32f = new Float32Array(ins.exports.mem.buffer);
+var mem32s = memView(Int32Array, ins.exports.mem.buffer);
+var mem32u = memView(Uint32Array, ins.exports.mem.buffer);
+var mem32f = memView(Float32Array, ins.exports.mem.buffer);
 var xs = [1.5, -9.5, 7.5e12, -8e13];
 
 set(mem32f, 4, xs);
@@ -1364,7 +1364,7 @@ var ins = wasmEvalText(`
       (v128.store (i32.const 0)
         (call $f (local.get $count) (v128.load (i32.const 16))))))`);
 
-var mem32 = new Int32Array(ins.exports.mem.buffer);
+var mem32 = memView(Int32Array, ins.exports.mem.buffer);
 set(mem32, 4, [1,2,3,4]);
 ins.exports.run(7);
 assertSame(get(mem32, 0, 4), [7,14,21,28]);
@@ -1402,7 +1402,7 @@ var ins = wasmEvalText(`
                  (v128.load (i32.const ${16*10}))))))`);
 
 
-var mem32 = new Int32Array(ins.exports.mem.buffer);
+var mem32 = memView(Int32Array, ins.exports.mem.buffer);
 var sum = [0, 0, 0, 0];
 for ( let i=1; i <= 10; i++ ) {
     let v = [1,2,3,4].map((x) => x*i);
@@ -1446,7 +1446,7 @@ for ( let exportspec of ['', '(export "g")'] ) {
     (func (export "get") (param $dest i32)
       (v128.store (local.get $dest) (global.get $g))))`);
 
-    let mem1 = new Int32Array(ins1.exports.mem.buffer);
+    let mem1 = memView(Int32Array, ins1.exports.mem.buffer);
     ins1.exports.get(0);
     assertSame(get(mem1, 0, 4), [9, 8, 7, 6]);
 
@@ -1461,7 +1461,7 @@ for ( let exportspec of ['', '(export "g")'] ) {
     (func (export "get") (param $dest i32)
       (v128.store (local.get $dest) (global.get $g))))`);
 
-    let mem2 = new Int32Array(ins2.exports.mem.buffer);
+    let mem2 = memView(Int32Array, ins2.exports.mem.buffer);
     ins2.exports.get(0);
     assertSame(get(mem2, 0, 4), [9, 8, 7, 6]);
     ins2.exports.put(37);
@@ -1479,7 +1479,7 @@ for ( let exportspec of ['', '(export "g")'] ) {
       (v128.store (local.get $dest) (global.get $g))))`,
                        {m:init});
 
-    let mem3 = new Int32Array(ins3.exports.mem.buffer);
+    let mem3 = memView(Int32Array, ins3.exports.mem.buffer);
     ins3.exports.get(0);
     assertSame(get(mem3, 0, 4), [9, 8, 7, 6]);
 
@@ -1496,7 +1496,7 @@ for ( let exportspec of ['', '(export "g")'] ) {
       (v128.store (local.get $dest) (global.get $g))))`,
                        {m:init});
 
-    let mem4 = new Int32Array(ins4.exports.mem.buffer);
+    let mem4 = memView(Int32Array, ins4.exports.mem.buffer);
     ins4.exports.get(0);
     assertSame(get(mem4, 0, 4), [9, 8, 7, 6]);
     ins4.exports.put(37);
@@ -1513,7 +1513,7 @@ for ( let exportspec of ['', '(export "g")'] ) {
       (v128.store (local.get $dest) (global.get $g))))`,
                        {m:init});
 
-    let mem5 = new Int32Array(ins5.exports.mem.buffer);
+    let mem5 = memView(Int32Array, ins5.exports.mem.buffer);
     ins5.exports.get(0);
     assertSame(get(mem5, 0, 4), [9, 8, 7, 6]);
 
@@ -1536,7 +1536,7 @@ for ( let exportspec of ['', '(export "g")'] ) {
       (v128.store (local.get $dest) (global.get $g))))`,
                        {m:mutg});
 
-    let mem6 = new Int32Array(ins6.exports.mem.buffer);
+    let mem6 = memView(Int32Array, ins6.exports.mem.buffer);
     ins6.exports.get(0);
     assertSame(get(mem6, 0, 4), [19, 18, 17, 16]);
     ins6.exports.put(37);
@@ -1560,7 +1560,7 @@ var insrun = wasmEvalText(`
         (call $worker (v128.load (local.get $srcloc))))))`,
                           {"":insworker.exports});
 
-var mem = new Uint8Array(insrun.exports.mem.buffer);
+var mem = memView(Uint8Array, insrun.exports.mem.buffer);
 var xs = iota(16).map((x) => x+5);
 set(mem, 0, xs);
 insrun.exports.run(0, 16);
@@ -1630,7 +1630,7 @@ var importWithStackArgs = wasmEvalText(`
       v128.store))`,
                                        {"": exportWithStackArgs.exports});
 
-var mem = new Int32Array(importWithStackArgs.exports.mem.buffer);
+var mem = memView(Int32Array, importWithStackArgs.exports.mem.buffer);
 importWithStackArgs.exports.run();
 assertSame(get(mem, 0, 4), [17, 17, 17, 17]);
 assertSame(get(mem, 4, 4), [17, 17, 17, 17]);
@@ -1649,7 +1649,7 @@ var insimporter = wasmEvalText(`
       (v128.store (local.get $dest) (global.get $g))))`,
                                {m:insexporter.exports});
 
-var mem = new Uint8Array(insimporter.exports.mem.buffer);
+var mem = memView(Uint8Array, insimporter.exports.mem.buffer);
 insimporter.exports.run(16);
 assertSame(get(mem, 16, 16), iota(16));
 
@@ -1713,7 +1713,7 @@ var ins = wasmEvalText(`
       i32x4.add
       v128.store))`);
 
-var mem = new Int32Array(ins.exports.mem.buffer);
+var mem = memView(Int32Array, ins.exports.mem.buffer);
 set(mem, 0, [1, 2, 3, 4]);
 set(mem, 4, [11, 12, 13, 14]);
 set(mem, 8, [21, 22, 23, 24]);

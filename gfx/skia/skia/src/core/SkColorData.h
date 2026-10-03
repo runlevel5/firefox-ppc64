@@ -18,6 +18,18 @@
 
 #include <cstdint>
 
+/* Convert between the SkPMColor value convention (SK_*32_SHIFT, which Mozilla
+ * fixes to the little-endian BGRA byte order on every platform) and the
+ * big-endian in-memory representation of that byte order. No-op on
+ * little-endian. */
+#ifdef SK_CPU_BENDIAN
+#define BE_CONVERT(c)                                          \
+    ((((c) & 0xff) << 24) | (((c) & 0xff00) << 8) |            \
+     (((c) & 0xff0000) >> 8) | (((c) & 0xff000000) >> 24))
+#else
+#define BE_CONVERT(c) (c)
+#endif
+
 ////////////////////////////////////////////////////////////////////////////////////////////
 // Convert a 16bit pixel to a 32bit pixel
 

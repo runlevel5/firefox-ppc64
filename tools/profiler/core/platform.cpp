@@ -244,11 +244,20 @@ BOOL WINAPI GetThreadInformation(
 #  endif
 #endif
 
+// PPC64 Linux has no LUL support, but the ELF ABIs mandate a stack backchain
+// that is maintained at every optimization level, so a dedicated backchain
+// walker provides native stacks.
+#if defined(GP_PLAT_ppc64_linux)
+#  define HAVE_NATIVE_UNWIND
+#  define USE_PPC64_BACKCHAIN_STACK_WALK
+#endif
+
 // We can only stackwalk without expensive initialization on platforms which
 // support FramePointerStackWalk or MozStackWalk. LUL Stackwalking requires
 // initializing LUL, and EHABIStackWalk requires initializing EHABI, both of
 // which can be expensive.
-#if defined(USE_FRAME_POINTER_STACK_WALK) || defined(USE_MOZ_STACK_WALK)
+#if defined(USE_FRAME_POINTER_STACK_WALK) || defined(USE_MOZ_STACK_WALK) || \
+    defined(USE_PPC64_BACKCHAIN_STACK_WALK)
 #  define HAVE_FASTINIT_NATIVE_UNWIND
 #endif
 
@@ -2190,6 +2199,9 @@ static const char* const kMainThreadName = "GeckoMain";
     defined(GP_PLAT_arm64_freebsd) || defined(GP_ARCH_arm64) ||         \
     defined(__aarch64__)
 #  define UNWINDING_REGS_HAVE_LR_R11
+#elif defined(GP_PLAT_ppc64_linux) || defined(GP_ARCH_ppc64) || \
+    defined(__powerpc64__)
+#  define UNWINDING_REGS_HAVE_LR
 #endif
 
 // The registers used for stack unwinding and a few other sampling purposes.
@@ -2218,6 +2230,8 @@ class Registers {
 #elif defined(UNWINDING_REGS_HAVE_LR_R11)
   Address mLR{nullptr};   // ARM link register, or temp for return address.
   Address mR11{nullptr};  // Temp for frame pointer.
+#elif defined(UNWINDING_REGS_HAVE_LR)
+  Address mLR{nullptr};  // PPC64 link register.
 #endif
 
 #if defined(GP_OS_linux) || defined(GP_OS_android) || defined(GP_OS_freebsd)
@@ -2365,6 +2379,8 @@ static uint32_t ExtractJsFrames(
 #elif defined(UNWINDING_REGS_HAVE_LR_R11)
       registerState.lr = aRegs.mLR;
       registerState.tempFP = aRegs.mR11;
+#elif defined(UNWINDING_REGS_HAVE_LR)
+      registerState.lr = aRegs.mLR;
 #endif
 
       // Non-periodic sampling passes Nothing() as the buffer write position to
@@ -2630,7 +2646,8 @@ static void MergeStacks(
   }
 }
 
-#if defined(USE_FRAME_POINTER_STACK_WALK) || defined(USE_MOZ_STACK_WALK)
+#if defined(USE_FRAME_POINTER_STACK_WALK) || defined(USE_MOZ_STACK_WALK) || \
+    defined(USE_PPC64_BACKCHAIN_STACK_WALK)
 static void StackWalkCallback(uint32_t aFrameNumber, void* aPC, void* aSP,
                               void* aClosure) {
   NativeStack* nativeStack = static_cast<NativeStack*>(aClosure);
@@ -2715,6 +2732,48 @@ static void DoFramePointerBacktrace(
 
       previousResumeSp = sp;
     }
+  }
+}
+#endif
+
+#if defined(USE_PPC64_BACKCHAIN_STACK_WALK)
+static void DoPPC64BackchainBacktrace(
+    const ThreadRegistration::UnlockedReaderAndAtomicRWOnThread& aThreadData,
+    const Registers& aRegs, NativeStack& aNativeStack,
+    StackWalkControl* aStackWalkControlIfSupported) {
+  // WARNING: this function runs within the profiler's "critical section".
+  // WARNING: this function might be called while the profiler is inactive, and
+  //          cannot rely on ActivePS.
+
+  // The PPC64 ELF ABIs require every function that allocates a stack frame to
+  // store the caller's stack pointer at *(sp) (the backchain) and its return
+  // address at caller_sp + 16, at every optimization level. Walking the
+  // backchain therefore recovers the native call stack without unwind tables.
+  // JIT frames do not maintain the chain and fail the validation checks below;
+  // JS stacks for such samples come from the JS frame merging instead.
+  StackWalkCallback(/* frameNum */ 0, aRegs.mPC, aRegs.mSP, &aNativeStack);
+
+  const uintptr_t stackEnd = uintptr_t(aThreadData.StackTop());
+  uintptr_t sp = uintptr_t(aRegs.mSP);
+  if (!sp || (sp & 15) || sp + 32 > stackEnd) {
+    return;
+  }
+  // Skip the interrupted function's possibly incomplete frame; its PC was
+  // recorded above.
+  uintptr_t frame = *reinterpret_cast<uintptr_t*>(sp);
+  while (aNativeStack.mCount < MAX_NATIVE_FRAMES) {
+    if (!frame || (frame & 15) || frame <= sp || frame + 32 > stackEnd) {
+      break;
+    }
+    uintptr_t ra = *reinterpret_cast<uintptr_t*>(frame + 16);
+    uintptr_t next = *reinterpret_cast<uintptr_t*>(frame);
+    if (!ra) {
+      break;
+    }
+    StackWalkCallback(aNativeStack.mCount, reinterpret_cast<void*>(ra),
+                      reinterpret_cast<void*>(frame), &aNativeStack);
+    sp = frame;
+    frame = next;
   }
 }
 #endif
@@ -3035,6 +3094,9 @@ static void DoNativeBacktrace(
 #  elif defined(USE_MOZ_STACK_WALK)
   DoMozStackWalkBacktrace(aThreadData, aRegs, aNativeStack,
                           aStackWalkControlIfSupported);
+#  elif defined(USE_PPC64_BACKCHAIN_STACK_WALK)
+  DoPPC64BackchainBacktrace(aThreadData, aRegs, aNativeStack,
+                            aStackWalkControlIfSupported);
 #  else
 #    error "Invalid configuration"
 #  endif
@@ -3222,6 +3284,7 @@ static inline void DoPeriodicSample(
 #undef UNWINDING_REGS_HAVE_R10_R12
 #undef UNWINDING_REGS_HAVE_LR_R7
 #undef UNWINDING_REGS_HAVE_LR_R11
+#undef UNWINDING_REGS_HAVE_LR
 
 // END sampling/unwinding code
 ////////////////////////////////////////////////////////////////////////
@@ -8433,6 +8496,9 @@ static void profiler_suspend_and_sample_thread(
 #  elif defined(USE_MOZ_STACK_WALK)
       DoMozStackWalkBacktrace(aThreadData, aRegs, nativeStack,
                               stackWalkControlIfSupported);
+#  elif defined(USE_PPC64_BACKCHAIN_STACK_WALK)
+      DoPPC64BackchainBacktrace(aThreadData, aRegs, nativeStack,
+                                stackWalkControlIfSupported);
 #  else
 #    error "Invalid configuration"
 #  endif

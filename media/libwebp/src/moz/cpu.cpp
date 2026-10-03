@@ -36,6 +36,10 @@ static int MozCPUInfo(CPUFeature feature)
     case kMSA:
       return 1;
 #endif
+#if defined(WEBP_USE_VSX)
+    case kVSX:
+      return 1;
+#endif
     default:
       return 0;
   }

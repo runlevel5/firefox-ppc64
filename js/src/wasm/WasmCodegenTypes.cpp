@@ -148,7 +148,7 @@ void TrapSitesForKind::checkInvariants(const uint8_t* codeBase) const {
 #  if (defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_X86) ||        \
        defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_ARM) ||      \
        defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_MIPS64) || \
-       defined(JS_CODEGEN_RISCV64))
+       defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64))
   // Check that each trapsite is associated with an instruction that
   // SummarizeTrapInstruction can identify and can determine the length of.
   // The required instruction kind depends on the trapsite kind.

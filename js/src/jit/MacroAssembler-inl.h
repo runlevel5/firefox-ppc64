@@ -40,6 +40,8 @@
 #  include "jit/loong64/MacroAssembler-loong64-inl.h"
 #elif defined(JS_CODEGEN_RISCV64)
 #  include "jit/riscv64/MacroAssembler-riscv64-inl.h"
+#elif defined(JS_CODEGEN_PPC64)
+#  include "jit/ppc64/MacroAssembler-ppc64-inl.h"
 #elif defined(JS_CODEGEN_WASM32)
 #  include "jit/wasm32/MacroAssembler-wasm32-inl.h"
 #elif !defined(JS_CODEGEN_NONE)
@@ -295,8 +297,8 @@ void MacroAssembler::PushFrameDescriptorForJitCall(FrameType type,
 
 void MacroAssembler::branchIfNotActivationEntryFrame(Register scratch,
                                                      Label* notEntryFrame) {
-  load32(Address(FramePointer, CommonFrameLayout::offsetOfDescriptor()),
-         scratch);
+  loadPtr(Address(FramePointer, CommonFrameLayout::offsetOfDescriptor()),
+          scratch);
   and32(Imm32(FrameDescriptor::TypeMask), scratch);
   branch32(Assembler::NotEqual, scratch, Imm32(uint32_t(FrameType::CppToJSJit)),
            notEntryFrame);
