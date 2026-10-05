@@ -291,4 +291,11 @@
 
 /* clang-format on */
 
+/* PowerPC without the POWER8 crypto instructions has no AES acceleration, and
+ * there ChaCha20-Poly1305 is several times faster than AES-GCM, so it is the
+ * one to offer first. Keep SSL_ImplementedCiphers and cipherSuites in step. */
+#if defined(__powerpc64__) && !defined(__CRYPTO__)
+#define NSS_PREFER_CHACHA20_SUITES 1
+#endif
+
 #endif /* __sslproto_h_ */
