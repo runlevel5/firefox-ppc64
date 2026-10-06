@@ -279,6 +279,22 @@
       ]
     },
     {
+      # HACL* vec128 ChaCha20 for the PowerPC targets the little-endian VSX
+      # assembly cannot serve: big-endian POWER8+, and pre-VSX CPUs (PPC970).
+      'target_name': 'chacha20-ppc-vec128_lib',
+      'type': 'static_library',
+      'sources': [
+        'chacha20poly1305-ppc.c',
+        'verified/Hacl_Chacha20_Vec128.c',
+      ],
+      'defines': [
+        'HACL_CAN_COMPILE_VEC128',
+      ],
+      'dependencies': [
+        '<(DEPTH)/exports.gyp:nss_exports',
+      ],
+    },
+    {
       'target_name': 'armv8_c_lib',
       'type': 'static_library',
       'sources': [
@@ -487,6 +503,11 @@
             'sha512-ppc_c_lib',
           ],
         }],
+        [ 'disable_altivec==0 and target_arch=="ppc64"', {
+          'dependencies': [
+            'chacha20-ppc-vec128_lib',
+          ],
+        }],
         [ 'disable_altivec==0 and target_arch=="ppc64le"', {
           'dependencies': [
             'sha512-ppc_c_lib',
@@ -562,6 +583,11 @@
         [ 'disable_crypto_vsx==1 and (target_arch=="ppc" or target_arch=="ppc64" or target_arch=="ppc64le")', {
           'defines': [
             'NSS_DISABLE_CRYPTO_VSX',
+          ],
+        }],
+        [ 'disable_altivec==0 and target_arch=="ppc64"', {
+          'dependencies': [
+            'chacha20-ppc-vec128_lib',
           ],
         }],
         [ 'OS!="linux"', {
