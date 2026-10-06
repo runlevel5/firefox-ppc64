@@ -39,6 +39,16 @@
 #define USE_PPC_CRYPTO_GHASH
 #endif
 
+/* The hand-written VSX ChaCha20 in chacha20-ppc64le.S is little-endian only.
+ * Everywhere else on PowerPC use HACL*'s vec128 ChaCha20, which compiles to
+ * VSX where the target baseline has it and to plain AltiVec on a pre-VSX CPU
+ * such as the PPC970. __LITTLE_ENDIAN__ rather than IS_LITTLE_ENDIAN so the
+ * test does not depend on this header's include order. */
+#if !(defined(__VSX__) && defined(__LITTLE_ENDIAN__)) && \
+    !(defined(__VSX__) && defined(NSS_DISABLE_CRYPTO_VSX))
+#define USE_PPC_CHACHA20_VEC128
+#endif
+
 #endif /* defined(__powerpc64__) && !defined(NSS_DISABLE_ALTIVEC) && defined(__ALTIVEC__) */
 
 #endif
