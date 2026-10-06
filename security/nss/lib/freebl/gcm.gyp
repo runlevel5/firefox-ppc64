@@ -38,13 +38,43 @@
           'HAVE_PLATFORM_GHASH'
         ]
       }],
-      [ 'target_arch=="ppc64" or target_arch=="ppc64le"', {
+      # Only claim a platform GHASH when the VSX implementation is actually
+      # compiled: ghash-ppc.c's body is gated on USE_PPC_CRYPTO_GHASH, which
+      # needs __VSX__. Defining HAVE_PLATFORM_GHASH unconditionally makes
+      # gcm.c drop its stubs and reference symbols that do not exist.
+      [ '(target_arch=="ppc64" or target_arch=="ppc64le") and disable_crypto_vsx==0', {
         'dependencies': [
           'ghash.gyp:ghash-aes-ppc_c_lib',
         ],
         'defines': [
           'HAVE_PLATFORM_GHASH'
         ]
+      }],
+      # gcm.c must see the same __ALTIVEC__/__VSX__ visibility as
+      # ghash-ppc.c: gcmHashContext's vec_u64 x/h fields are gated on
+      # those macros, and a mismatch between translation units shifts
+      # every field after them (including ghash_mul) to different
+      # offsets, corrupting the hardware GHASH dispatch.
+      [ 'target_arch=="ppc64" or target_arch=="ppc64le"', {
+        'conditions': [
+          [ 'disable_crypto_vsx==0', {
+            'cflags': [
+              '-mcrypto',
+              '-maltivec'
+            ],
+            'cflags_mozilla': [
+              '-mcrypto',
+              '-maltivec'
+            ],
+          }, 'disable_crypto_vsx==1', {
+            'cflags': [
+              '-maltivec'
+            ],
+            'cflags_mozilla': [
+              '-maltivec'
+            ],
+          }],
+        ],
       }],
       [ 'OS=="linux"', {
         'defines': [
@@ -65,9 +95,20 @@
             'HAVE_PLATFORM_GCM'
           ],
         }],
-        [ 'disable_altivec==0 and target_arch=="ppc64le"', {
+        # The hardware GCM assembly needs the POWER8 crypto instructions, so it
+        # is only built when the target baseline has them; ppc_crypto_support()
+        # still gates the use of it at run time.
+        [ 'disable_altivec==0 and disable_crypto_vsx==0 and (target_arch=="ppc64" or target_arch=="ppc64le")', {
           'dependencies': [
             'ppc-gcm-wrap.gyp:ppc-gcm-wrap-nodepend_c_lib',
+          ],
+          'defines': [
+            'HAVE_PLATFORM_GCM'
+          ],
+        }],
+        [ '(target_arch=="arm64" or target_arch=="aarch64") and OS!="win"', {
+          'dependencies': [
+            'aarch64-gcm-wrap.gyp:aarch64-gcm-wrap-nodepend_c_lib',
           ],
           'defines': [
             'HAVE_PLATFORM_GCM'
@@ -86,9 +127,20 @@
             'HAVE_PLATFORM_GCM'
           ],
         }],
-        [ 'disable_altivec==0 and target_arch=="ppc64le"', {
+        # The hardware GCM assembly needs the POWER8 crypto instructions, so it
+        # is only built when the target baseline has them; ppc_crypto_support()
+        # still gates the use of it at run time.
+        [ 'disable_altivec==0 and disable_crypto_vsx==0 and (target_arch=="ppc64" or target_arch=="ppc64le")', {
           'dependencies': [
             'ppc-gcm-wrap.gyp:ppc-gcm-wrap_c_lib',
+          ],
+          'defines': [
+            'HAVE_PLATFORM_GCM'
+          ],
+        }],
+        [ '(target_arch=="arm64" or target_arch=="aarch64") and OS!="win"', {
+          'dependencies': [
+            'aarch64-gcm-wrap.gyp:aarch64-gcm-wrap_c_lib',
           ],
           'defines': [
             'HAVE_PLATFORM_GCM'
