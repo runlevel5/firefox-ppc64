@@ -84,7 +84,7 @@ pre_align struct gcmHashContextStr {
     __m128i x, h;
 #elif defined(__aarch64__)
     uint64x2_t x, h;
-#elif defined(USE_PPC_CRYPTO)
+#elif defined(USE_PPC_CRYPTO_GHASH)
     vec_u64 x, h;
 #endif
     uint64_t x_low, x_high, h_high, h_low;
