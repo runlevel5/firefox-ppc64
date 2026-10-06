@@ -36,7 +36,11 @@
     li           \VAL0, 0
     andi.        \TMP1, \LEN, 8
     beq          1f
+#ifdef __LITTLE_ENDIAN__
     ldbrx        \VAL1, 0, \DATA
+#else
+    ldx          \VAL1, 0, \DATA
+#endif
     li           \TMP0, 8
 1:
     andi.        \TMP1, \LEN, 7
@@ -61,7 +65,11 @@
 .macro STORE_LEN DATA, LEN, VAL1, VAL0, TMP0, TMP1, TMP2
     andi.        \TMP1, \LEN, 8
     beq          1f
+#ifdef __LITTLE_ENDIAN__
     stdbrx       \VAL1, 0, \DATA
+#else
+    stdx         \VAL1, 0, \DATA
+#endif
     li           \TMP0, 8
     b            2f
 1:
@@ -81,18 +89,46 @@
 4:
 .endm
 
+
+/* ELFv2 reaches the TOC through r12 at the global entry point; ELFv1 has the
+ * caller load r2 from a function descriptor in .opd, so the two ABIs need
+ * different entry sequences. */
+#if !defined(_CALL_ELF) || _CALL_ELF == 2
+.macro FUNC_BEGIN NAME
+    .globl \NAME
+    .type \NAME,@function
+    .align 5
+\NAME:
+    addis TOCP,12,(.TOC.-\NAME)@ha
+    addi TOCP,TOCP,(.TOC.-\NAME)@l
+    .localentry \NAME, .-\NAME
+.endm
+.macro FUNC_END NAME
+    .size \NAME, . - \NAME
+.endm
+#else
+.macro FUNC_BEGIN NAME
+    .globl \NAME
+    .section ".opd","aw"
+    .align 3
+\NAME:
+    .quad .L.\NAME,.TOC.@tocbase,0
+    .previous
+    .type \NAME,@function
+    .align 5
+.L.\NAME:
+.endm
+.macro FUNC_END NAME
+    .size \NAME, . - .L.\NAME
+.endm
+#endif
+
 .text
 
 ################################################################################
 # Generates the H table
 # void ppc_aes_gcmINIT(uint8_t Htbl[16*8], uint32_t *KS, int NR);
-.globl	ppc_aes_gcmINIT
-.type	ppc_aes_gcmINIT,@function
-.align	5
-ppc_aes_gcmINIT:
-addis	TOCP,12,(.TOC.-ppc_aes_gcmINIT)@ha
-addi	TOCP,TOCP,(.TOC.-ppc_aes_gcmINIT)@l
-.localentry	ppc_aes_gcmINIT, .-ppc_aes_gcmINIT
+FUNC_BEGIN ppc_aes_gcmINIT
 
 .set Htbl, 3
 .set KS, 4
@@ -246,18 +282,12 @@ addi	TOCP,TOCP,(.TOC.-ppc_aes_gcmINIT)@l
     stxvd2x      H4M+32, 10, Htbl
 
     blr
-.size ppc_aes_gcmINIT, . - ppc_aes_gcmINIT
+FUNC_END ppc_aes_gcmINIT
 
 ################################################################################
 # Authenticate only
 # void ppc_aes_gcmHASH(uint8_t Htbl[16*8], uint8_t *AAD, uint64_t Alen, uint8_t *Tp);
-.globl	ppc_aes_gcmHASH
-.type	ppc_aes_gcmHASH,@function
-.align	5
-ppc_aes_gcmHASH:
-addis	TOCP,12,(.TOC.-ppc_aes_gcmHASH)@ha
-addi	TOCP,TOCP,(.TOC.-ppc_aes_gcmHASH)@l
-.localentry	ppc_aes_gcmHASH, .-ppc_aes_gcmHASH
+FUNC_BEGIN ppc_aes_gcmHASH
 
 .set Htbl, 3
 .set AAD, 4
@@ -491,18 +521,12 @@ addi	TOCP,TOCP,(.TOC.-ppc_aes_gcmHASH)@l
     addi         7, SP, -64
     lvx          28, 0, 7
     blr
-.size ppc_aes_gcmHASH, . - ppc_aes_gcmHASH
+FUNC_END ppc_aes_gcmHASH
 
 ################################################################################
 # Generates the final GCM tag
 # void ppc_aes_gcmTAG(uint8_t Htbl[16*8], uint8_t *Tp, uint64_t Mlen, uint64_t Alen, uint8_t* X0, uint8_t* TAG);
-.globl	ppc_aes_gcmTAG
-.type	ppc_aes_gcmTAG,@function
-.align	5
-ppc_aes_gcmTAG:
-addis	TOCP,12,(.TOC.-ppc_aes_gcmTAG)@ha
-addi	TOCP,TOCP,(.TOC.-ppc_aes_gcmTAG)@l
-.localentry	ppc_aes_gcmTAG, .-ppc_aes_gcmTAG
+FUNC_BEGIN ppc_aes_gcmTAG
 
 .set Htbl, 3
 .set Tp, 4
@@ -558,18 +582,12 @@ addi	TOCP,TOCP,(.TOC.-ppc_aes_gcmTAG)@l
     stxvd2x      X+32, 0, TAG
 
     blr
-.size ppc_aes_gcmTAG, . - ppc_aes_gcmTAG
+FUNC_END ppc_aes_gcmTAG
 
 ################################################################################
 # Crypt only
 # void ppc_aes_gcmCRYPT(const uint8_t* PT, uint8_t* CT, uint64_t LEN, uint8_t *CTRP, uint32_t *KS, int NR);
-.globl	ppc_aes_gcmCRYPT
-.type	ppc_aes_gcmCRYPT,@function
-.align	5
-ppc_aes_gcmCRYPT:
-addis	TOCP,12,(.TOC.-ppc_aes_gcmCRYPT)@ha
-addi	TOCP,TOCP,(.TOC.-ppc_aes_gcmCRYPT)@l
-.localentry	ppc_aes_gcmCRYPT, .-ppc_aes_gcmCRYPT
+FUNC_BEGIN ppc_aes_gcmCRYPT
 
 .set PT, 3
 .set CT, 4
@@ -1039,13 +1057,31 @@ addi	TOCP,TOCP,(.TOC.-ppc_aes_gcmCRYPT)@l
     ld           26,-48(SP);
     ld           25,-56(SP);
     blr
-.size ppc_aes_gcmCRYPT, . - ppc_aes_gcmCRYPT
+FUNC_END ppc_aes_gcmCRYPT
 
 .data
 .align	4
+/* These are loaded with lvx, which reverses the sixteen bytes on
+ * little-endian and leaves them alone on big-endian, so each constant is
+ * spelled to reach the register the same way both times. SWAP_MASK is the
+ * exception: its job is to normalise what lxvd2x produced, and on big-endian
+ * lxvd2x already gives the order the code wants, so there it is the identity
+ * permutation. */
 .Lpoly:
+#ifdef __LITTLE_ENDIAN__
 	.byte	1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0xc2
+#else
+	.byte	0xc2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+#endif
 .Lpoly_r:
-    .byte	0,0,0,0,0,0,0,0xc2,0,0,0,0,0,0,0,0
+#ifdef __LITTLE_ENDIAN__
+	.byte	0,0,0,0,0,0,0,0xc2,0,0,0,0,0,0,0,0
+#else
+	.byte	0,0,0,0,0,0,0,0,0xc2,0,0,0,0,0,0,0
+#endif
 .Ldb_bswap_mask:
+#ifdef __LITTLE_ENDIAN__
 	.byte	8,9,10,11,12,13,14,15,0,1,2,3,4,5,6,7
+#else
+	.byte	0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+#endif

@@ -26,6 +26,17 @@
 #define USE_PPC_CRYPTO
 #endif
 
+/*
+ * The GHASH implementation (ghash-ppc.c) works on both endians: it uses
+ * the byte-order-neutral vec_xl_be/vec_xst_be accessors at the memory
+ * boundary and explicit doubleword indices everywhere else. The remaining
+ * USE_PPC_CRYPTO consumers are still little-endian only.
+ */
+#if (defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 8)) && \
+    defined(__VSX__)
+#define USE_PPC_CRYPTO_GHASH
+#endif
+
 #endif /* defined(__powerpc64__) && !defined(NSS_DISABLE_ALTIVEC) && defined(__ALTIVEC__) */
 
 #endif

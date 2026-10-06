@@ -8,7 +8,26 @@
 #include "gcm.h"
 #include "secerr.h"
 
-#if defined(USE_PPC_CRYPTO)
+#if defined(USE_PPC_CRYPTO_GHASH)
+
+/* GNU C vector element indexing follows memory order, so element 0 of a
+ * vec_u64 is the least-significant doubleword of the 128-bit register value
+ * on little-endian but the most-significant one on big-endian. The algorithm
+ * below works on register values (vec_xl_be and vec_xst_be produce and
+ * consume the same 128-bit value on both endians), so the element indices
+ * and the pair constructors must mirror on big-endian. VEC_HI_LO(hi, lo)
+ * builds the 128-bit value (hi << 64) | lo on either endianness. */
+#if defined(__LITTLE_ENDIAN__)
+#define GHASH_DW_LO 0
+#define GHASH_DW_HI 1
+#define GHASH_MSB 15 /* vec_splat index of the value's most-significant byte */
+#define VEC_HI_LO(hi, lo) ((vec_u64){ (lo), (hi) })
+#else
+#define GHASH_DW_LO 1
+#define GHASH_DW_HI 0
+#define GHASH_MSB 0
+#define VEC_HI_LO(hi, lo) ((vec_u64){ (hi), (lo) })
+#endif
 
 PRBool
 platform_ghash_support()
@@ -49,7 +68,7 @@ gcm_HashMult_hw(gcmHashContext *ghash, const unsigned char *buf,
                 unsigned int count)
 {
     const vec_u8 leftshift = vec_splat_u8(1);
-    const vec_u64 onebit = (vec_u64){ 1, 0 };
+    const vec_u64 onebit = VEC_HI_LO(0, 1);
     const unsigned long long pd = 0xc2LLU << 56;
 
     vec_u64 ci, v, r0, r1;
@@ -64,17 +83,19 @@ gcm_HashMult_hw(gcmHashContext *ghash, const unsigned char *buf,
         ci ^= v;
 
         /* Do binary mult ghash->X = C * ghash->H (Karatsuba). */
-        r0 = vpmsumd((vec_u64){ ci[0], 0 }, (vec_u64){ ghash->h[0], 0 });
-        r1 = vpmsumd((vec_u64){ ci[1], 0 }, (vec_u64){ ghash->h[1], 0 });
+        r0 = vpmsumd((vec_u64){ ci[GHASH_DW_LO], 0 },
+                     (vec_u64){ ghash->h[GHASH_DW_LO], 0 });
+        r1 = vpmsumd((vec_u64){ ci[GHASH_DW_HI], 0 },
+                     (vec_u64){ ghash->h[GHASH_DW_HI], 0 });
         v = (vec_u64){ ci[0] ^ ci[1], ghash->h[0] ^ ghash->h[1] };
         v = vpmsumd((vec_u64){ v[0], 0 }, (vec_u64){ v[1], 0 });
         v ^= r0;
         v ^= r1;
-        r0 ^= (vec_u64){ 0, v[0] };
-        r1 ^= (vec_u64){ v[1], 0 };
+        r0 ^= VEC_HI_LO(v[GHASH_DW_LO], 0);
+        r1 ^= VEC_HI_LO(0, v[GHASH_DW_HI]);
 
         /* Shift one (multiply by x) as gcm spec is stupid. */
-        hibit = (vec_u64)vec_splat((vec_u8)r0, 15);
+        hibit = (vec_u64)vec_splat((vec_u8)r0, GHASH_MSB);
         hibit = (vec_u64)vec_rl((vec_u8)hibit, leftshift);
         hibit &= onebit;
         r0 = vec_sll(r0, leftshift);
@@ -82,10 +103,10 @@ gcm_HashMult_hw(gcmHashContext *ghash, const unsigned char *buf,
         r1 |= hibit;
 
         /* Reduce */
-        v = vpmsumd((vec_u64){ r0[0], 0 }, (vec_u64){ pd, 0 });
-        r0 ^= (vec_u64){ 0, v[0] };
-        r1 ^= (vec_u64){ v[1], 0 };
-        v = vpmsumd((vec_u64){ r0[1], 0 }, (vec_u64){ pd, 0 });
+        v = vpmsumd((vec_u64){ r0[GHASH_DW_LO], 0 }, (vec_u64){ pd, 0 });
+        r0 ^= VEC_HI_LO(v[GHASH_DW_LO], 0);
+        r1 ^= VEC_HI_LO(0, v[GHASH_DW_HI]);
+        v = vpmsumd((vec_u64){ r0[GHASH_DW_HI], 0 }, (vec_u64){ pd, 0 });
         r1 ^= v;
         ci = r0 ^ r1;
     }
@@ -99,7 +120,7 @@ SECStatus
 gcm_HashInit_hw(gcmHashContext *ghash)
 {
     ghash->x = (vec_u64)vec_splat_u32(0);
-    ghash->h = (vec_u64){ ghash->h_low, ghash->h_high };
+    ghash->h = VEC_HI_LO(ghash->h_high, ghash->h_low);
     ghash->ghash_mul = gcm_HashMult_hw;
     ghash->hw = PR_TRUE;
     return SECSuccess;
@@ -112,4 +133,4 @@ gcm_HashZeroX_hw(gcmHashContext *ghash)
     return SECSuccess;
 }
 
-#endif /* defined(USE_PPC_CRYPTO) */
+#endif /* defined(USE_PPC_CRYPTO_GHASH) */
