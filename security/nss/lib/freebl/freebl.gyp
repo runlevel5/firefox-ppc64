@@ -224,12 +224,15 @@
         '<(DEPTH)/exports.gyp:nss_exports'
       ],
       'conditions': [
-        [ 'ppc_abi==2', {
+        # sha512-p8.s and sha512.c's vector path are built out of POWER8
+        # instructions, so they need the target baseline to have them. The
+        # assembly is ELFv2-only on top of that.
+        [ 'ppc_abi==2 and disable_vec_crypto==0', {
           'sources': [
             'sha512-p8.s',
           ],
         }],
-        [ 'disable_crypto_vsx==0', {
+        [ 'disable_vec_crypto==0', {
           'cflags': [
             '-mcrypto',
             '-maltivec',
@@ -244,7 +247,7 @@
             '-funroll-loops',
             '-fpeel-loops'
            ],
-        }, 'disable_crypto_vsx==1', {
+        }, 'disable_vec_crypto==1', {
           'cflags': [
             '-maltivec',
             '-funroll-loops',
@@ -268,12 +271,15 @@
         '<(DEPTH)/exports.gyp:nss_exports'
       ],
       'conditions': [
-        [ 'ppc_abi==2', {
+        # sha512-p8.s and sha512.c's vector path are built out of POWER8
+        # instructions, so they need the target baseline to have them. The
+        # assembly is ELFv2-only on top of that.
+        [ 'ppc_abi==2 and disable_vec_crypto==0', {
           'sources': [
             'sha512-p8.s',
           ],
         }],
-        [ 'disable_crypto_vsx==0', {
+        [ 'disable_vec_crypto==0', {
           'cflags': [
             '-mcrypto',
             '-maltivec',
@@ -288,7 +294,7 @@
             '-funroll-loops',
             '-fpeel-loops'
            ],
-        }, 'disable_crypto_vsx==1', {
+        }, 'disable_vec_crypto==1', {
           'cflags': [
             '-maltivec',
             '-funroll-loops',
