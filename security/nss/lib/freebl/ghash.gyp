@@ -99,7 +99,7 @@
         '<(DEPTH)/exports.gyp:nss_exports'
       ],
       'conditions': [
-        [ 'disable_crypto_vsx==0', {
+        [ 'disable_vec_crypto==0', {
           'cflags': [
             '-mcrypto',
             '-maltivec'
@@ -108,7 +108,7 @@
              '-mcrypto',
              '-maltivec'
            ],
-        }, 'disable_crypto_vsx==1', {
+        }, 'disable_vec_crypto==1', {
           'cflags': [
             '-maltivec'
           ],
