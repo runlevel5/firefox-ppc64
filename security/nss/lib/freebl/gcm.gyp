@@ -38,11 +38,11 @@
           'HAVE_PLATFORM_GHASH'
         ]
       }],
-      # Only claim a platform GHASH when the VSX implementation is actually
-      # compiled: ghash-ppc.c's body is gated on USE_PPC_CRYPTO_GHASH, which
-      # needs __VSX__. Defining HAVE_PLATFORM_GHASH unconditionally makes
-      # gcm.c drop its stubs and reference symbols that do not exist.
-      [ '(target_arch=="ppc64" or target_arch=="ppc64le") and disable_crypto_vsx==0', {
+      # Only claim a platform GHASH when the implementation is actually
+      # compiled: ghash-ppc.c multiplies with vpmsumd, a POWER8 instruction.
+      # Defining HAVE_PLATFORM_GHASH unconditionally makes gcm.c drop its
+      # stubs and reference symbols that do not exist.
+      [ '(target_arch=="ppc64" or target_arch=="ppc64le") and disable_vec_crypto==0', {
         'dependencies': [
           'ghash.gyp:ghash-aes-ppc_c_lib',
         ],
@@ -57,7 +57,7 @@
       # offsets, corrupting the hardware GHASH dispatch.
       [ 'target_arch=="ppc64" or target_arch=="ppc64le"', {
         'conditions': [
-          [ 'disable_crypto_vsx==0', {
+          [ 'disable_vec_crypto==0', {
             'cflags': [
               '-mcrypto',
               '-maltivec'
@@ -66,7 +66,7 @@
               '-mcrypto',
               '-maltivec'
             ],
-          }, 'disable_crypto_vsx==1', {
+          }, 'disable_vec_crypto==1', {
             'cflags': [
               '-maltivec'
             ],
@@ -95,10 +95,9 @@
             'HAVE_PLATFORM_GCM'
           ],
         }],
-        # The hardware GCM assembly needs the POWER8 crypto instructions, so it
-        # is only built when the target baseline has them; ppc_crypto_support()
-        # still gates the use of it at run time.
-        [ 'disable_altivec==0 and disable_crypto_vsx==0 and (target_arch=="ppc64" or target_arch=="ppc64le")', {
+        # vcipher is POWER8, so this is only built when the target baseline
+        # has it; ppc_crypto_support() still gates its use at run time.
+        [ 'disable_altivec==0 and disable_vec_crypto==0 and (target_arch=="ppc64" or target_arch=="ppc64le")', {
           'dependencies': [
             'ppc-gcm-wrap.gyp:ppc-gcm-wrap-nodepend_c_lib',
           ],
@@ -127,10 +126,9 @@
             'HAVE_PLATFORM_GCM'
           ],
         }],
-        # The hardware GCM assembly needs the POWER8 crypto instructions, so it
-        # is only built when the target baseline has them; ppc_crypto_support()
-        # still gates the use of it at run time.
-        [ 'disable_altivec==0 and disable_crypto_vsx==0 and (target_arch=="ppc64" or target_arch=="ppc64le")', {
+        # vcipher is POWER8, so this is only built when the target baseline
+        # has it; ppc_crypto_support() still gates its use at run time.
+        [ 'disable_altivec==0 and disable_vec_crypto==0 and (target_arch=="ppc64" or target_arch=="ppc64le")', {
           'dependencies': [
             'ppc-gcm-wrap.gyp:ppc-gcm-wrap_c_lib',
           ],
