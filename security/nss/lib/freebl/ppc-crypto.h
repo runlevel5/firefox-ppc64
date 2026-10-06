@@ -19,10 +19,12 @@
 /*
  * PPC CRYPTO requires at least gcc 8 or clang. The LE check is purely
  * because it's only been tested on LE. If you're interested in BE,
- * please send a patch.
+ * please send a patch. sha512.c's vector path is built on
+ * __builtin_crypto_vshasigmaw, so it also needs the POWER8 crypto
+ * instructions and not merely VSX.
  */
 #if (defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 8)) && \
-    defined(IS_LITTLE_ENDIAN) && defined(__VSX__)
+    defined(IS_LITTLE_ENDIAN) && defined(__VSX__) && defined(__CRYPTO__)
 #define USE_PPC_CRYPTO
 #endif
 
