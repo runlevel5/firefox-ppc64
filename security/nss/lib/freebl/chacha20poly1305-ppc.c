@@ -22,10 +22,16 @@
  */
 
 #include "Hacl_Chacha20Poly1305_32.h"
+#include "ppc-crypto.h"
 
+#ifdef USE_PPC_CHACHA20_VEC128
+#include "Hacl_Chacha20.h"
+#include "Hacl_Chacha20_Vec128.h"
+#else
 /* Forward declaration from chacha20-ppc64le.S */
 void chacha20vsx(uint32_t len, uint8_t *output, uint8_t *block, uint8_t *k,
                  uint8_t *nonce, uint32_t ctr);
+#endif
 
 static inline void
 poly1305_padded_32(uint64_t *ctx, uint32_t len, uint8_t *text)
@@ -540,6 +546,8 @@ poly1305_do_32(
     Hacl_Poly1305_32_poly1305_finish(out, k, ctx);
 }
 
+#ifndef USE_PPC_CHACHA20_VEC128
+
 void
 Chacha20Poly1305_vsx_aead_encrypt(
     uint8_t *k,
@@ -586,3 +594,68 @@ Chacha20Poly1305_vsx_aead_decrypt(
     }
     return (uint32_t)1U;
 }
+
+#else /* HACL* vec128 ChaCha20: big-endian PowerPC, or a pre-VSX CPU */
+
+/* The 4-way vector block only pays off once its setup is amortised; under two
+ * blocks the scalar code wins, so short inputs (including the 64-byte Poly1305
+ * key block) stay scalar. */
+static inline void
+chacha20vec128(uint32_t len, uint8_t *output, uint8_t *block, uint8_t *k,
+            uint8_t *nonce, uint32_t ctr)
+{
+    if (len < 128) {
+        Hacl_Chacha20_chacha20_encrypt(len, output, block, k, nonce, ctr);
+    } else {
+        Hacl_Chacha20_Vec128_chacha20_encrypt_128(len, output, block, k, nonce, ctr);
+    }
+}
+
+void
+Chacha20Poly1305_vec128_aead_encrypt(
+    uint8_t *k,
+    uint8_t *n,
+    uint32_t aadlen,
+    uint8_t *aad,
+    uint32_t mlen,
+    uint8_t *m,
+    uint8_t *cipher,
+    uint8_t *mac)
+{
+    chacha20vec128(mlen, cipher, m, k, n, (uint32_t)1U);
+    uint8_t tmp[64U] = { 0U };
+    chacha20vec128((uint32_t)64U, tmp, tmp, k, n, (uint32_t)0U);
+    uint8_t *key = tmp;
+    poly1305_do_32(key, aadlen, aad, mlen, cipher, mac);
+}
+
+uint32_t
+Chacha20Poly1305_vec128_aead_decrypt(
+    uint8_t *k,
+    uint8_t *n,
+    uint32_t aadlen,
+    uint8_t *aad,
+    uint32_t mlen,
+    uint8_t *m,
+    uint8_t *cipher,
+    uint8_t *mac)
+{
+    uint8_t computed_mac[16U] = { 0U };
+    uint8_t tmp[64U] = { 0U };
+    chacha20vec128((uint32_t)64U, tmp, tmp, k, n, (uint32_t)0U);
+    uint8_t *key = tmp;
+    poly1305_do_32(key, aadlen, aad, mlen, cipher, computed_mac);
+    uint8_t res = (uint8_t)255U;
+    for (uint32_t i = (uint32_t)0U; i < (uint32_t)16U; i++) {
+        uint8_t uu____0 = FStar_UInt8_eq_mask(computed_mac[i], mac[i]);
+        res = uu____0 & res;
+    }
+    uint8_t z = res;
+    if (z == (uint8_t)255U) {
+        chacha20vec128(mlen, m, cipher, k, n, (uint32_t)1U);
+        return (uint32_t)0U;
+    }
+    return (uint32_t)1U;
+}
+
+#endif /* USE_PPC_CHACHA20_VEC128 */

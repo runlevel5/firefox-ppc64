@@ -179,6 +179,12 @@ else:
     UNIFIED_SOURCES += [
         "gecko/nsProfiler.cpp",
     ]
+    # ppc64 has a working sampler (see ProfilerPlatformMacros.h) but no LUL
+    # support yet, so it does not take the full Linux branch above.
+    if CONFIG["OS_TARGET"] == "Linux" and CONFIG["TARGET_CPU"] == "ppc64":
+        UNIFIED_SOURCES += [
+            "core/ProfilerCPUFreq-linux-android.cpp",
+        ]
 
 LOCAL_INCLUDES += [
     "/caps",

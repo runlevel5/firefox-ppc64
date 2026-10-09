@@ -188,6 +188,16 @@ Address BaselineCacheIRCompiler::stubAddress(uint32_t offset) const {
   return Address(ICStubReg, stubDataOffset_ + offset);
 }
 
+// RawInt32 stub fields are word-sized (stored via asWord), so their 32-bit
+// payload occupies the high-addressed half of the uintptr_t slot on big-endian.
+// A 32-bit load of such a field must therefore skip the tag word. No-op on LE.
+static Address Int32StubFieldAddr(Address addr) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  addr.offset += sizeof(int32_t);
+#endif
+  return addr;
+}
+
 template <typename Fn, Fn fn>
 void BaselineCacheIRCompiler::callVM(MacroAssembler& masm) {
   VMFunctionId id = VMFunctionToId<Fn, fn>::id;
@@ -561,7 +571,7 @@ bool BaselineCacheIRCompiler::emitLoadFixedSlotResult(ObjOperandId objId,
   Register obj = allocator.useRegister(masm, objId);
   AutoScratchRegisterMaybeOutput scratch(allocator, masm, output);
 
-  masm.load32(stubAddress(offsetOffset), scratch);
+  masm.load32(Int32StubFieldAddr(stubAddress(offsetOffset)), scratch);
   masm.loadValue(BaseIndex(obj, scratch, TimesOne), output.valueReg());
   return true;
 }
@@ -580,7 +590,7 @@ bool BaselineCacheIRCompiler::emitLoadDynamicSlotResult(ObjOperandId objId,
   AutoScratchRegisterMaybeOutput scratch(allocator, masm, output);
   AutoScratchRegister scratch2(allocator, masm);
 
-  masm.load32(stubAddress(offsetOffset), scratch);
+  masm.load32(Int32StubFieldAddr(stubAddress(offsetOffset)), scratch);
   masm.loadPtr(Address(obj, NativeObject::offsetOfSlots()), scratch2);
   masm.loadValue(BaseIndex(scratch2, scratch, TimesOne), output.valueReg());
   return true;
@@ -897,7 +907,7 @@ bool BaselineCacheIRCompiler::emitStoreSlotShared(bool isFixed,
   }
 
   Address offsetAddr = stubAddress(offsetOffset);
-  masm.load32(offsetAddr, scratch1);
+  masm.load32(Int32StubFieldAddr(offsetAddr), scratch1);
 
   if (isFixed) {
     BaseIndex slot(obj, scratch1, TimesOne);
@@ -971,7 +981,7 @@ bool BaselineCacheIRCompiler::emitAddAndStoreSlotShared(
     masm.loadJSContext(scratch1);
     masm.passABIArg(scratch1);
     masm.passABIArg(obj);
-    masm.load32(numNewSlotsAddr, scratch2);
+    masm.load32(Int32StubFieldAddr(numNewSlotsAddr), scratch2);
     masm.passABIArg(scratch2);
     masm.callWithABI<Fn, NativeObject::growSlotsPure>();
     masm.storeCallPointerResult(scratch1);
@@ -992,7 +1002,7 @@ bool BaselineCacheIRCompiler::emitAddAndStoreSlotShared(
 
   // Perform the store. No pre-barrier required since this is a new
   // initialization.
-  masm.load32(offsetAddr, scratch1);
+  masm.load32(Int32StubFieldAddr(offsetAddr), scratch1);
   if (op == CacheOp::AddAndStoreFixedSlot) {
     BaseIndex slot(obj, scratch1, TimesOne);
     masm.storeValue(val, slot);

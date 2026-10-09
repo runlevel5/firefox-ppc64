@@ -2208,6 +2208,195 @@ SummarizeResult SummarizeTrapInstruction(const InstructionBytes& insn) {
   return SummarizeResult();
 }
 
+// ================================================================== ppc64 ====
+
+#  elif defined(JS_CODEGEN_PPC64)
+
+SummarizeResult SummarizeTrapInstruction(const InstructionBytes& insn) {
+  MOZ_ASSERT(insn.isU32aligned());
+
+  // The instruction stream is stored in the native byte order on PPC64, so
+  // the fetch must be endian-aware (this backend supports both endiannesses).
+#    if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  const uint32_t insnBits = (uint32_t(insn.get(0)) << 24) |
+                            (uint32_t(insn.get(1)) << 16) |
+                            (uint32_t(insn.get(2)) << 8) | uint32_t(insn.get(3));
+#    else
+  const uint32_t insnBits = insn.getU32LittleEndian(0);
+#    endif
+  const uint32_t majorOp = insnBits >> 26;
+  // X-form secondary opcode: bits 10..1.
+  const uint32_t xo = (insnBits >> 1) & 0x3FF;
+
+  // PPC_trap = 0x7FE00008 = tw 31,0,0.
+  if (insnBits == 0x7FE00008) {
+    return SummarizeResult(TrapMachineInsn::OfficialUD, 4);
+  }
+
+  // D-form / DS-form loads.
+  switch (majorOp) {
+    case 34:  // lbz
+      return SummarizeResult(TrapMachineInsn::Load8, 4);
+    case 40:  // lhz
+    case 42:  // lha
+      return SummarizeResult(TrapMachineInsn::Load16, 4);
+    case 32:  // lwz
+      return SummarizeResult(TrapMachineInsn::Load32, 4);
+    case 58:  // ld (DS=0) / lwa (DS=2)
+      if ((insnBits & 3) == 2) {
+        return SummarizeResult(TrapMachineInsn::Load32, 4);  // lwa
+      }
+      return SummarizeResult(TrapMachineInsn::Load64, 4);  // ld
+    case 48:                                 // lfs
+      return SummarizeResult(TrapMachineInsn::Load32, 4);
+    case 50:  // lfd
+      return SummarizeResult(TrapMachineInsn::Load64, 4);
+    case 61:  // DQ-form lxv (XO=1) / stxv (XO=5)
+      if ((insnBits & 7) == 1) {
+        return SummarizeResult(TrapMachineInsn::Load128, 4);
+      }
+      if ((insnBits & 7) == 5) {
+        return SummarizeResult(TrapMachineInsn::Store128, 4);
+      }
+      break;
+    default:
+      break;
+  }
+
+  // D-form / DS-form stores.
+  switch (majorOp) {
+    case 38:  // stb
+      return SummarizeResult(TrapMachineInsn::Store8, 4);
+    case 44:  // sth
+      return SummarizeResult(TrapMachineInsn::Store16, 4);
+    case 36:  // stw
+    case 37:  // stwu
+      return SummarizeResult(TrapMachineInsn::Store32, 4);
+    case 52:  // stfs
+      return SummarizeResult(TrapMachineInsn::Store32, 4);
+    case 62:  // std (DS=0) / stdu (DS=1)
+      return SummarizeResult(TrapMachineInsn::Store64, 4);
+    case 54:  // stfd
+    case 55:  // stfdu
+      return SummarizeResult(TrapMachineInsn::Store64, 4);
+    default:
+      break;
+  }
+
+  // X-form instructions (major opcode 31).
+  if (majorOp == 31) {
+    switch (xo) {
+      // Indexed loads.
+      case 87:  // lbzx
+        return SummarizeResult(TrapMachineInsn::Load8, 4);
+      case 279:  // lhzx
+      case 343:  // lhax
+        return SummarizeResult(TrapMachineInsn::Load16, 4);
+      case 23:  // lwzx
+        return SummarizeResult(TrapMachineInsn::Load32, 4);
+      case 21:  // ldx
+        return SummarizeResult(TrapMachineInsn::Load64, 4);
+      case 535:  // lfsx
+      case 855:  // lfiwax
+      case 887:  // lfiwzx
+        return SummarizeResult(TrapMachineInsn::Load32, 4);
+      case 599:  // lfdx
+        return SummarizeResult(TrapMachineInsn::Load64, 4);
+      case 790:  // lhbrx (byte-reverse halfword)
+        return SummarizeResult(TrapMachineInsn::Load16, 4);
+      case 534:  // lwbrx (byte-reverse word)
+        return SummarizeResult(TrapMachineInsn::Load32, 4);
+      case 532:  // ldbrx (byte-reverse doubleword)
+        return SummarizeResult(TrapMachineInsn::Load64, 4);
+
+      // Indexed stores.
+      case 215:  // stbx
+        return SummarizeResult(TrapMachineInsn::Store8, 4);
+      case 407:  // sthx
+        return SummarizeResult(TrapMachineInsn::Store16, 4);
+      case 151:  // stwx
+        return SummarizeResult(TrapMachineInsn::Store32, 4);
+      case 149:  // stdx
+        return SummarizeResult(TrapMachineInsn::Store64, 4);
+      case 663:  // stfsx
+        return SummarizeResult(TrapMachineInsn::Store32, 4);
+      case 727:  // stfdx
+        return SummarizeResult(TrapMachineInsn::Store64, 4);
+      case 918:  // sthbrx (byte-reverse halfword store)
+        return SummarizeResult(TrapMachineInsn::Store16, 4);
+      case 662:  // stwbrx (byte-reverse word store)
+        return SummarizeResult(TrapMachineInsn::Store32, 4);
+      case 660:  // stdbrx (byte-reverse doubleword store)
+        return SummarizeResult(TrapMachineInsn::Store64, 4);
+
+      // VSX SIMD indexed load/store (XX1-form, same major opcode 31).
+      case 268:  // lxvx (POWER9)
+      case 844:  // lxvd2x (POWER8)
+        return SummarizeResult(TrapMachineInsn::Load128, 4);
+      case 396:  // stxvx (POWER9)
+      case 972:  // stxvd2x (POWER8)
+        return SummarizeResult(TrapMachineInsn::Store128, 4);
+
+      // Atomic (load-reserve / store-conditional).
+      case 20:   // lwarx
+      case 52:   // lbarx (POWER7+)
+      case 84:   // ldarx
+      case 116:  // lharx (POWER7+)
+        return SummarizeResult(TrapMachineInsn::Atomic, 4);
+      default:
+        break;
+    }
+    // stwcx. (XO=150, Rc=1), stdcx. (XO=214, Rc=1), stbcx. (XO=694, Rc=1)
+    // and sthcx. (XO=726, Rc=1) have bit 0 set. Note xo above already
+    // discards bit 0, so we need a separate low-11-bit match.
+    const uint32_t xoRc = insnBits & 0x7FF;  // bits 10..0
+    if (xoRc == ((150 << 1) | 1) || xoRc == ((214 << 1) | 1) ||
+        xoRc == ((694 << 1) | 1) || xoRc == ((726 << 1) | 1)) {
+      return SummarizeResult(TrapMachineInsn::Atomic, 4);
+    }
+  }
+
+  // POWER10 prefixed loads/stores (major opcode 1). The trap-site PC
+  // points at the prefix word; the actual load/store kind is encoded in
+  // the suffix word at offset 4. The 64-byte-boundary rule
+  // (ensurePrefixedAlignment) guarantees the suffix is in the same block.
+  if (majorOp == 1) {
+    #    if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    const uint32_t suffix = (uint32_t(insn.get(4)) << 24) |
+                            (uint32_t(insn.get(5)) << 16) |
+                            (uint32_t(insn.get(6)) << 8) | uint32_t(insn.get(7));
+#    else
+    const uint32_t suffix = insn.getU32LittleEndian(4);
+#    endif
+    const uint32_t suffixOp6 = suffix >> 26;          // 6-bit suffix op
+    const uint32_t suffixOp5 = suffix >> 27;          // 5-bit suffix op (plxv/pstxv)
+    switch (suffixOp6) {
+      case 57:  // pld
+        return SummarizeResult(TrapMachineInsn::Load64, 8);
+      case 50:  // plfd
+        return SummarizeResult(TrapMachineInsn::Load64, 8);
+      case 48:  // plfs
+        return SummarizeResult(TrapMachineInsn::Load32, 8);
+      case 61:  // pstd
+        return SummarizeResult(TrapMachineInsn::Store64, 8);
+      case 54:  // pstfd
+        return SummarizeResult(TrapMachineInsn::Store64, 8);
+      case 52:  // pstfs
+        return SummarizeResult(TrapMachineInsn::Store32, 8);
+      default:
+        break;
+    }
+    if (suffixOp5 == 25) {  // plxv
+      return SummarizeResult(TrapMachineInsn::Load128, 8);
+    }
+    if (suffixOp5 == 27) {  // pstxv
+      return SummarizeResult(TrapMachineInsn::Store128, 8);
+    }
+  }
+
+  return SummarizeResult();
+}
+
 // ================================================================== none ====
 
 #elif defined(JS_CODEGEN_NONE)
