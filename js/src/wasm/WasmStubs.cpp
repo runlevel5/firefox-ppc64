@@ -414,6 +414,12 @@ static void SetupABIArguments(MacroAssembler& masm, const FuncExport& fe,
             // wasmLosslessInvoke, and is guarded against in normal JS-API
             // call paths.
             masm.loadUnalignedSimd128(src, iter->fpu());
+#  if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
+      __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            // The ExportArg slot holds the little-endian image; byte-reverse
+            // the raw load into the canonical register value.
+            masm.byteReverseSimd128(iter->fpu(), iter->fpu());
+#  endif
             break;
 #else
             MOZ_CRASH("V128 not supported in SetupABIArguments");
@@ -428,8 +434,15 @@ static void SetupABIArguments(MacroAssembler& masm, const FuncExport& fe,
         switch (type) {
           case MIRType::Int32:
             masm.load32(src, scratch);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            // The callee reads an i32 stack argument as 32 bits at the slot
+            // offset; a 64-bit store would put the value in the wrong word.
+            masm.store32(scratch, Address(masm.getStackPointer(),
+                                          iter->offsetFromArgBase()));
+#else
             masm.storePtr(scratch, Address(masm.getStackPointer(),
                                            iter->offsetFromArgBase()));
+#endif
             break;
           case MIRType::Int64: {
             RegisterOrSP sp = masm.getStackPointer();
@@ -460,11 +473,33 @@ static void SetupABIArguments(MacroAssembler& masm, const FuncExport& fe,
             // This is only used by the testing invoke path,
             // wasmLosslessInvoke, and is guarded against in normal JS-API
             // call paths.
+#  if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
+      __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            // The ExportArg slot holds the little-endian image, but a v128
+            // stack argument slot holds the raw store of the canonical
+            // value; reverse the 16 bytes while copying through GPRs (ldbrx
+            // reverses each 8-byte half; storing the halves exchanged
+            // completes the reversal). Works on every ISA level.
+            {
+              UseScratchRegisterScope temps(masm);
+              Register addrTmp = temps.Acquire();
+              Register dataTmp = temps.Acquire();
+              int32_t dstOff = iter->offsetFromArgBase();
+              masm.movePtr(ImmWord(src.offset), addrTmp);
+              masm.as_ldbrx(dataTmp, src.base, addrTmp);
+              masm.storePtr(dataTmp,
+                            Address(masm.getStackPointer(), dstOff + 8));
+              masm.movePtr(ImmWord(src.offset + 8), addrTmp);
+              masm.as_ldbrx(dataTmp, src.base, addrTmp);
+              masm.storePtr(dataTmp, Address(masm.getStackPointer(), dstOff));
+            }
+#  else
             ScratchSimd128Scope fpscratch(masm);
             masm.loadUnalignedSimd128(src, fpscratch);
             masm.storeUnalignedSimd128(
                 fpscratch,
                 Address(masm.getStackPointer(), iter->offsetFromArgBase()));
+#  endif
             break;
 #else
             MOZ_CRASH("V128 not supported in SetupABIArguments");
@@ -505,7 +540,18 @@ static void StoreRegisterResult(MacroAssembler& masm, const FuncExport& fe,
           break;
         case ValType::V128:
 #ifdef ENABLE_WASM_SIMD
+#  if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
+      __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+          // The result slot holds the little-endian image; byte-reverse the
+          // canonical register value before the raw store.
+          {
+            ScratchSimd128Scope fpscratch(masm);
+            masm.byteReverseSimd128(result.fpr(), fpscratch);
+            masm.storeUnalignedSimd128(fpscratch, Address(loc, 0));
+          }
+#  else
           masm.storeUnalignedSimd128(result.fpr(), Address(loc, 0));
+#  endif
           break;
 #else
           MOZ_CRASH("V128 not supported in StoreABIReturn");
@@ -646,8 +692,9 @@ static bool GenerateInterpEntry(MacroAssembler& masm, const FuncExport& fe,
 
   // Save the return address if it wasn't already saved by the call insn.
 #ifdef JS_USE_LINK_REGISTER
-#  if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS64) || \
-      defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64)
+#  if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS64) ||      \
+      defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64) || \
+      defined(JS_CODEGEN_PPC64)
   masm.pushReturnAddress();
 #  elif defined(JS_CODEGEN_ARM64)
   // WasmPush updates framePushed() unlike pushReturnAddress(), but that's
@@ -1158,7 +1205,13 @@ static bool GenerateJitEntry(MacroAssembler& masm, size_t funcExportIndex,
         masm.unboxInt32(argv, target);
         GenPrintIsize(DebugChannel::Function, masm, target);
         if (isStackArg) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+          // Callees read i32 stack arguments as 32 bits at the slot offset; a
+          // 64-bit store would put the value in the wrong word.
+          masm.store32(target, Address(sp, iter->offsetFromArgBase()));
+#else
           masm.storePtr(target, Address(sp, iter->offsetFromArgBase()));
+#endif
         }
         break;
       }
@@ -2127,9 +2180,10 @@ static bool GenerateImportInterpExit(MacroAssembler& masm, const FuncImport& fi,
   // The native ABI preserves the instance, heap and global registers since they
   // are non-volatile.
   MOZ_ASSERT(NonVolatileRegs.has(InstanceReg));
-#if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM) ||      \
-    defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS64) || \
-    defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64)
+#if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM) ||         \
+    defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS64) ||    \
+    defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64) || \
+    defined(JS_CODEGEN_PPC64)
   MOZ_ASSERT(NonVolatileRegs.has(HeapReg));
 #endif
 
@@ -2576,6 +2630,15 @@ bool wasm::GenerateBuiltinThunk(MacroAssembler& masm, ABIFunctionType abiType,
         }
       }
 #endif
+#ifdef JS_CODEGEN_PPC64
+      // PPC64 32-bit operations do not zero-extend to 64 bits (unlike
+      // x86-64/ARM64/LA64). The ELFv2 ABI requires callers to zero/sign-extend
+      // narrow args. Wasm i32 values may have garbage upper bits in 64-bit
+      // registers, so zero-extend them before calling C++ builtins.
+      if (selfArgs.mirType() == MIRType::Int32) {
+        masm.move32ZeroExtendToPtr(selfArgs->gpr(), selfArgs->gpr());
+      }
+#endif
       continue;
     }
 
@@ -2590,7 +2653,18 @@ bool wasm::GenerateBuiltinThunk(MacroAssembler& masm, ABIFunctionType abiType,
   // Call into the native builtin function
   masm.assertStackAlignment(ABIStackAlignment);
   MoveSPForJitABI(masm);
+#if defined(JS_CODEGEN_PPC64) && defined(_CALL_ELF) && _CALL_ELF == 1
+  // ELFv1: funcPtr is a C function pointer, i.e. a {entry,toc,env} descriptor,
+  // not a raw code entry. call(ImmPtr) would branch straight into the
+  // descriptor's data; dereference it like the callWithABI sites do. The thunk
+  // copied the builtin's arguments into registers (these builtins are
+  // register-arg only), so callABIDescriptorELFv1's register-arg convention and
+  // its mandatory parameter save area are exactly what's needed here.
+  masm.movePtr(ImmPtr(funcPtr, ImmPtr::NoCheckToken()), CallReg);
+  masm.callABIDescriptorELFv1(CallReg);
+#else
   masm.call(ImmPtr(funcPtr, ImmPtr::NoCheckToken()));
+#endif
 
 #if defined(JS_CODEGEN_X64)
   // No widening is required, as the caller will widen.
@@ -2662,6 +2736,28 @@ static const LiveRegisterSet RegsToPreserve(
     FloatRegisterSet(FloatRegisters::AllDoubleMask));
 #  ifdef ENABLE_WASM_SIMD
 #    error "high lanes of SIMD registers need to be saved too."
+#  endif
+#elif defined(JS_CODEGEN_PPC64)
+// Exclude r0 (ScratchRegister, not allocatable, special addressing semantics),
+// r1 (SP), r2 (TOC pointer, reserved), and r13 (TLS pointer, reserved).
+static const LiveRegisterSet RegsToPreserve(
+    GeneralRegisterSet(Registers::AllMask & ~((uint32_t(1) << Registers::r0) |
+                                              (uint32_t(1) << Registers::r1) |
+                                              (uint32_t(1) << Registers::r2) |
+                                              (uint32_t(1) << Registers::r13))),
+#  ifdef ENABLE_WASM_SIMD
+    // Unlike ARM64, where the vector registers alias the doubles, PPC64
+    // doubles live in the FPRs (VSR0-31) while wasm v128 values live in the
+    // VRs (VSR32-63) -- two disjoint physical pools, so both must be
+    // preserved. Saving only the doubles loses the entire live v128 state: a
+    // trap firing while a v128 is live (notably the interrupt-check trap,
+    // which fires constantly in hot loops) resumes with whatever the C++
+    // handler's libc left in the VRs (e.g. glibc's vector memcpy leaves lvsl
+    // alignment-control patterns in low VRs).
+    FloatRegisterSet(FloatRegisters::AllDoubleMask |
+                     FloatRegisters::AllSimd128Mask));
+#  else
+    FloatRegisterSet(FloatRegisters::AllDoubleMask));
 #  endif
 #elif defined(JS_CODEGEN_ARM64)
 // We assume that traps do not happen while lr is live. This both ensures that

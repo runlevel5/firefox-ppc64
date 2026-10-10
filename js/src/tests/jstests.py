@@ -512,9 +512,13 @@ def load_wpt_tests(xul_tester, requested_paths, excluded_paths, update_manifest=
     wpt = os.path.join(wp, "tests")
 
     sys_paths = [
+        "python/mach",
+        "python/mozbuild",
         "python/mozterm",
         "python/mozboot",
+        "python/mozversioncontrol",
         "testing/mozbase/mozcrash",
+        "testing/mozbase/mozdebug",
         "testing/mozbase/mozdevice",
         "testing/mozbase/mozfile",
         "testing/mozbase/mozinfo",
@@ -523,6 +527,7 @@ def load_wpt_tests(xul_tester, requested_paths, excluded_paths, update_manifest=
         "testing/mozbase/mozprocess",
         "testing/mozbase/mozprofile",
         "testing/mozbase/mozrunner",
+        "testing/mozbase/mozshellutil",
         "testing/mozbase/mozversion",
         "testing/web-platform/",
         "testing/web-platform/tests",
@@ -531,7 +536,13 @@ def load_wpt_tests(xul_tester, requested_paths, excluded_paths, update_manifest=
         "testing/web-platform/tests/tools/third_party/webencodings",
         "testing/web-platform/tests/tools/wptrunner",
         "testing/web-platform/tests/tools/wptserve",
+        "third_party/python/certifi",
+        "third_party/python/charset_normalizer",
+        "third_party/python/idna",
+        "third_party/python/redo",
         "third_party/python/requests",
+        "third_party/python/urllib3",
+        "xpcom/geckoprocesstypes_generator",
     ]
     abs_sys_paths = [os.path.join(repo_root, path) for path in sys_paths]
 

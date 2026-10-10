@@ -2518,8 +2518,20 @@ static bool PrepareAndExecuteRegExp(MacroAssembler& masm, Register regexp,
   masm.computeEffectiveAddress(Address(FramePointer, ioOffset), temp2);
   masm.PushRegsInMask(volatileRegs);
   masm.setupUnalignedABICall(temp3);
+#if defined(JS_CODEGEN_PPC64)
+  // temp1 aliases argregs on this platform, so we need to reuse temp3
+  // or we'll stomp on the code pointer when we pass the first ABI argument.
+  masm.movePtr(codePointer, temp3);
+  codePointer = temp3;
+#endif
   masm.passABIArg(temp2);
+#if defined(JS_CODEGEN_PPC64)
+  // The regexp code pointer is a raw JIT entry, not an ELFv1 function
+  // descriptor, so it must not be called through the descriptor path.
+  masm.callWithABIJitCode(codePointer);
+#else
   masm.callWithABI(codePointer);
+#endif
   masm.storeCallInt32Result(temp1);
   masm.PopRegsInMask(volatileRegs);
 
@@ -2910,7 +2922,9 @@ static JitCode* GenerateRegExpMatchStubShared(JSContext* cx,
     maybeTemp5 = regs.takeAny();
   }
 
-  Address flagsSlot(regexp, RegExpObject::offsetOfFlags());
+  // The flags are a boxed Int32Value tested with 32-bit loads; address the
+  // payload word (see RegExpObject::offsetOfFlagsForJit32).
+  Address flagsSlot(regexp, RegExpObject::offsetOfFlagsForJit32());
   Address lastIndexSlot(regexp, RegExpObject::offsetOfLastIndex());
 
   TempAllocator temp(&cx->tempLifoAlloc());
@@ -2947,8 +2961,10 @@ static JitCode* GenerateRegExpMatchStubShared(JSContext* cx,
                  ImmWord(0), &oolEntry);
 
   // Similarly, if the |hasIndices| flag is set, fall back to the OOL stub.
-  masm.branchTest32(Assembler::NonZero,
-                    Address(shared, RegExpShared::offsetOfFlags()),
+  // The flags are a single byte, so load exactly that byte before testing.
+  static_assert(sizeof(JS::RegExpFlags) == 1, "load size must match flag size");
+  masm.load8ZeroExtend(Address(shared, RegExpShared::offsetOfFlags()), temp3);
+  masm.branchTest32(Assembler::NonZero, temp3,
                     Imm32(int32_t(JS::RegExpFlag::HasIndices)), &oolEntry);
 
   Address pairCountAddress = RegExpPairCountAddress();
@@ -3509,7 +3525,9 @@ JitCode* JitZone::generateRegExpExecTestStub(JSContext* cx) {
   Register temp2 = regs.takeAny();
   Register temp3 = regs.takeAny();
 
-  Address flagsSlot(regexp, RegExpObject::offsetOfFlags());
+  // The flags are a boxed Int32Value tested with 32-bit loads; address the
+  // payload word (see RegExpObject::offsetOfFlagsForJit32).
+  Address flagsSlot(regexp, RegExpObject::offsetOfFlagsForJit32());
   Address lastIndexSlot(regexp, RegExpObject::offsetOfLastIndex());
 
   // Load lastIndex and skip RegExp execution if needed.
@@ -6342,8 +6360,16 @@ void CodeGenerator::visitCallDOMNative(LCallDOMNative* call) {
   LoadDOMPrivate(masm, obj, argPrivate,
                  static_cast<MCallDOMNative*>(call->mir())->objectKind());
 
-  // Push argc from the call instruction into what will become the IonExitFrame
+  // Push argc from the call instruction into what will become the IonExitFrame.
+  // This word is read both as a uintptr_t (IonDOMMethodExitFrameLayout::argc(),
+  // for GC tracing) and as a uint32 (JSJitMethodCallArgs::argc_, by the native).
+  // On big-endian a uint32 read of a word slot sees the high half, so store argc
+  // in the high 32 bits; argc() reads it back shifted.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  masm.Push(ImmWord(uintptr_t(call->numActualArgs()) << 32));
+#else
   masm.Push(Imm32(call->numActualArgs()));
+#endif
 
   // Push our argv onto the stack
   masm.Push(argArgs);
@@ -10082,8 +10108,15 @@ static void TableIteratorAdvance(MacroAssembler& masm, Register iter,
   Register i = temp;
 
   // Note: |count| and |index| are stored as PrivateUint32Value. We use add32
-  // and store32 to change the payload.
-  masm.add32(Imm32(1), Address(iter, TableIteratorObject::offsetOfCount()));
+  // and store32 to change the payload. The Int32 payload is in the low 32 bits
+  // of the 64-bit Value, which on big-endian targets is at byte offset +4.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  constexpr int32_t payloadOff = sizeof(int32_t);
+#else
+  constexpr int32_t payloadOff = 0;
+#endif
+  masm.add32(Imm32(1),
+             Address(iter, TableIteratorObject::offsetOfCount() + payloadOff));
 
   masm.unboxInt32(Address(iter, TableIteratorObject::offsetOfIndex()), i);
 
@@ -10103,7 +10136,8 @@ static void TableIteratorAdvance(MacroAssembler& masm, Register iter,
                        JS_HASH_KEY_EMPTY, &seek);
 
   masm.bind(&done);
-  masm.store32(i, Address(iter, TableIteratorObject::offsetOfIndex()));
+  masm.store32(i,
+               Address(iter, TableIteratorObject::offsetOfIndex() + payloadOff));
 }
 
 // Corresponds to TableIteratorObject::finish.
@@ -10829,6 +10863,12 @@ void CodeGenerator::visitWasmLoadSlot(LWasmLoadSlot* ins) {
   if (type == MIRType::Simd128) {
     MOZ_ASSERT(wideningOp == MWideningOp::None);
     FaultingCodeOffset fco = masm.loadUnalignedSimd128(addr, dst.fpu());
+#  if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
+      __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // A wasm global cell holds the little-endian image; byte-reverse to the
+    // canonical SIMD register order.
+    masm.byteReverseSimd128(dst.fpu(), dst.fpu());
+#  endif
     EmitSignalNullCheckTrapSite(masm, ins, fco, wasm::TrapMachineInsn::Load128);
     return;
   }
@@ -10871,7 +10911,16 @@ void CodeGenerator::visitWasmStoreSlot(LWasmStoreSlot* ins) {
 
 #ifdef ENABLE_WASM_SIMD
   if (type == MIRType::Simd128) {
-    FaultingCodeOffset fco = masm.storeUnalignedSimd128(src.fpu(), addr);
+    FloatRegister v = src.fpu();
+#  if defined(JS_CODEGEN_PPC64) && defined(__BYTE_ORDER__) && \
+      __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // A wasm global cell holds the little-endian image; byte-reverse the
+    // canonical register into a scratch (the input may be live) before storing.
+    ScratchSimd128Scope scratch(masm);
+    masm.byteReverseSimd128(v, scratch);
+    v = scratch;
+#  endif
+    FaultingCodeOffset fco = masm.storeUnalignedSimd128(v, addr);
     EmitSignalNullCheckTrapSite(masm, ins, fco,
                                 wasm::TrapMachineInsn::Store128);
     return;
@@ -18319,14 +18368,17 @@ void CodeGenerator::visitObjectToIterator(LObjectToIterator* lir) {
     // do a VM call to replace the cached iterator with a fresh iterator
     // including indices.
     masm.branchTest32(Assembler::NonZero, iterFlagsAddr,
-                      Imm32(NativeIterator::Flags::IndicesSupported),
+                      Imm32(NativeIterator::flagForJit32(
+                          NativeIterator::Flags::IndicesSupported)),
                       ool->entry());
   }
 
   if (!lir->mir()->skipRegistration()) {
     masm.storePtr(obj, Address(nativeIter,
                                NativeIterator::offsetOfObjectBeingIterated()));
-    masm.or32(Imm32(NativeIterator::Flags::Active), iterFlagsAddr);
+    masm.or32(Imm32(NativeIterator::flagForJit32(
+                  NativeIterator::Flags::Active)),
+              iterFlagsAddr);
 
     Register enumeratorsAddr = temp2;
     masm.movePtr(ImmPtr(lir->mir()->enumeratorsAddr()), enumeratorsAddr);
@@ -18374,7 +18426,9 @@ void CodeGenerator::emitIteratorHasIndicesAndBranch(Register iterator,
   masm.loadPrivate(nativeIterAddr, temp);
   masm.branchTest32(Assembler::Zero,
                     Address(temp, NativeIterator::offsetOfFlags()),
-                    Imm32(NativeIterator::Flags::IndicesAvailable), ifFalse);
+                    Imm32(NativeIterator::flagForJit32(
+                        NativeIterator::Flags::IndicesAvailable)),
+                    ifFalse);
 
   // Guard that the first shape stored in the iterator matches the current
   // shape of the iterated object.

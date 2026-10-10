@@ -1,3 +1,6 @@
+// |jit-test| skip-if: getBuildConfiguration("big-endian")
+// Builds a little-endian-canonical clone buffer from native-order 64-bit words
+// (BigUint64Array); the clone format is LE, so this only matches on LE targets.
 var bytes = new BigUint64Array([
   0xfff1000000000002n, // SCTAG_HEADER (version=2)
   0xffff002200000000n, // SCTAG_ERROR_OBJECT

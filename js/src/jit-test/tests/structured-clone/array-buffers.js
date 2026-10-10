@@ -1,3 +1,7 @@
+// |jit-test| skip-if: getBuildConfiguration("big-endian")
+// Bakes a little-endian-canonical structured-clone buffer; the clone format is
+// LE and round-trips correctly on big-endian, but this raw-buffer construction
+// only matches the on-disk layout on little-endian targets.
 // Tests for ArrayBuffer, TypedArray, and DataView encoding/decoding. 
 
 var clonebuffer = serialize("dummy");

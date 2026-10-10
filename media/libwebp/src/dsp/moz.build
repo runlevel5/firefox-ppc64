@@ -117,6 +117,24 @@ elif CONFIG['TARGET_CPU'].startswith('mips'):
         'yuv_mips32.c',
         'yuv_mips_dsp_r2.c',
     ]
+# Only build the VSX kernels when the target baseline actually has VSX.
+# These files carry their own -mcpu=power8 -mvsx, which overrides the build's
+# -mcpu, and libwebp registers them without a runtime capability check, so on
+# a pre-VSX CPU (POWER4/5/6, PowerPC 970) they would be executed and fault.
+elif CONFIG['TARGET_CPU'] == 'ppc64' and CONFIG['PPC_TARGET_HAS_VSX']:
+    SOURCES += [
+        'alpha_processing_vsx.c',
+        'dec_vsx.c',
+        'filters_vsx.c',
+        'lossless_vsx.c',
+        'rescaler_vsx.c',
+        'upsampling_vsx.c',
+        'yuv_vsx.c',
+    ]
+    DEFINES['WEBP_HAVE_VSX'] = 1;
+    for f in SOURCES:
+      if f.endswith('vsx.c'):
+        SOURCES[f].flags += ['-mcpu=power8', '-mvsx']
 
 if CONFIG['CC_TYPE'] in ('clang', 'clang-cl'):
     CFLAGS += ['-Wno-unreachable-code']
