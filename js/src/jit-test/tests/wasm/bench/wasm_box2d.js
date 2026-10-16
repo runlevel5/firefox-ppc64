@@ -6,6 +6,10 @@ const isSimulator = [
 if (getBuildConfiguration("debug") && isSimulator)
   quit();
 
+// The Emscripten-generated glue requires a little-endian system.
+if (getBuildConfiguration("big-endian"))
+  quit();
+
 // All the glue code is wrapped in a function so it can be executed uncached and
 // cached or compiled separately.
 function runBox2d(cacheEntryOrModule) {

@@ -495,7 +495,10 @@ class RegExpDepthCheck final : public v8::internal::regexp::Visitor {
 
   // This size is picked to be comfortably larger than any
   // RegExp*::ToNode stack frame.
-#if !defined(DEBUG) && !defined(MOZ_CODE_COVERAGE)
+#if defined(__powerpc64__)
+  // PPC64 ELFv2 has larger minimum stack frames.
+  static const size_t FRAME_PADDING = 256 * 4;
+#elif !defined(DEBUG) && !defined(MOZ_CODE_COVERAGE)
   static const size_t FRAME_PADDING = 256;
 #else
   // Use a slightly larger padding for debug and code coverage builds.
@@ -881,7 +884,15 @@ RegExpRunStatus ExecuteRaw(jit::JitCode* code, const CharT* chars,
                 v8::internal::RegExp::kInternalRegExpFailure);
 
   using RegExpCodeSignature = int (*)(InputOutputData*);
+#if defined(JS_CODEGEN_PPC64) && defined(_CALL_ELF) && _CALL_ELF == 1
+  // PPC64 ELFv1: |code->raw()| is a raw JIT entry, not a function descriptor.
+  // The descriptor is per-call, so it lives on the stack. See MakeELFv1Call.
+  js::jit::ELFv1FunctionDescriptor desc;
+  auto function =
+      js::jit::MakeELFv1Call<RegExpCodeSignature>(code->raw(), &desc);
+#else
   auto function = reinterpret_cast<RegExpCodeSignature>(code->raw());
+#endif
   {
     JS::AutoSuppressGCAnalysis nogc;
     return (RegExpRunStatus)CALL_GENERATED_1(function, &data);

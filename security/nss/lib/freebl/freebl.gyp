@@ -183,12 +183,15 @@
         '<(DEPTH)/exports.gyp:nss_exports'
       ],
       'conditions': [
-        [ 'ppc_abi==2', {
+        # sha512-p8.s and sha512.c's vector path are built out of POWER8
+        # instructions, so they need the target baseline to have them. The
+        # assembly is ELFv2-only on top of that.
+        [ 'ppc_abi==2 and disable_vec_crypto==0', {
           'sources': [
             'sha512-p8.s',
           ],
         }],
-        [ 'disable_crypto_vsx==0', {
+        [ 'disable_vec_crypto==0', {
           'cflags': [
             '-mcrypto',
             '-maltivec',
@@ -203,7 +206,7 @@
             '-funroll-loops',
             '-fpeel-loops'
            ],
-        }, 'disable_crypto_vsx==1', {
+        }, 'disable_vec_crypto==1', {
           'cflags': [
             '-maltivec',
             '-funroll-loops',
@@ -227,12 +230,15 @@
         '<(DEPTH)/exports.gyp:nss_exports'
       ],
       'conditions': [
-        [ 'ppc_abi==2', {
+        # sha512-p8.s and sha512.c's vector path are built out of POWER8
+        # instructions, so they need the target baseline to have them. The
+        # assembly is ELFv2-only on top of that.
+        [ 'ppc_abi==2 and disable_vec_crypto==0', {
           'sources': [
             'sha512-p8.s',
           ],
         }],
-        [ 'disable_crypto_vsx==0', {
+        [ 'disable_vec_crypto==0', {
           'cflags': [
             '-mcrypto',
             '-maltivec',
@@ -247,7 +253,7 @@
             '-funroll-loops',
             '-fpeel-loops'
            ],
-        }, 'disable_crypto_vsx==1', {
+        }, 'disable_vec_crypto==1', {
           'cflags': [
             '-maltivec',
             '-funroll-loops',
@@ -271,6 +277,22 @@
         'chacha20poly1305-ppc.c',
         'chacha20-ppc64le.S',
       ]
+    },
+    {
+      # HACL* vec128 ChaCha20 for the PowerPC targets the little-endian VSX
+      # assembly cannot serve: big-endian POWER8+, and pre-VSX CPUs (PPC970).
+      'target_name': 'chacha20-ppc-vec128_lib',
+      'type': 'static_library',
+      'sources': [
+        'chacha20poly1305-ppc.c',
+        'verified/Hacl_Chacha20_Vec128.c',
+      ],
+      'defines': [
+        'HACL_CAN_COMPILE_VEC128',
+      ],
+      'dependencies': [
+        '<(DEPTH)/exports.gyp:nss_exports',
+      ],
     },
     {
       'target_name': 'armv8_c_lib',
@@ -351,6 +373,11 @@
             'sha512-ppc_c_lib',
           ],
         }],
+        [ 'disable_altivec==0 and target_arch=="ppc64"', {
+          'dependencies': [
+            'chacha20-ppc-vec128_lib',
+          ],
+        }],
         [ 'disable_altivec==0 and target_arch=="ppc64le"', {
           'dependencies': [
             'sha512-ppc_c_lib',
@@ -424,6 +451,11 @@
         [ 'disable_crypto_vsx==1 and (target_arch=="ppc" or target_arch=="ppc64" or target_arch=="ppc64le")', {
           'defines': [
             'NSS_DISABLE_CRYPTO_VSX',
+          ],
+        }],
+        [ 'disable_altivec==0 and target_arch=="ppc64"', {
+          'dependencies': [
+            'chacha20-ppc-vec128_lib',
           ],
         }],
         [ 'OS!="linux"', {

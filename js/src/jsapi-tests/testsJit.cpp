@@ -25,6 +25,14 @@ void PrepareJit(js::jit::MacroAssembler& masm) {
 #if defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
     defined(JS_CODEGEN_RISCV64)
   save.add(js::jit::ra);
+#elif defined(JS_CODEGEN_PPC64)
+  // LR on PPC64 isn't a GPR; save it to the stack manually.
+  {
+    UseScratchRegisterScope temps(masm);
+    Register scratch = temps.Acquire();
+    masm.xs_mflr(scratch);
+    masm.as_stdu(scratch, StackPointer, -8);
+  }
 #elif defined(JS_USE_LINK_REGISTER)
   save.add(js::jit::lr);
 #endif
@@ -44,6 +52,8 @@ bool ExecuteJit(JSContext* cx, js::jit::MacroAssembler& masm) {
 #if defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
     defined(JS_CODEGEN_RISCV64)
   restore.add(js::jit::ra);
+#elif defined(JS_CODEGEN_PPC64)
+  // LR will be restored manually after PopRegsInMask.
 #elif defined(JS_USE_LINK_REGISTER)
   restore.add(js::jit::lr);
 #endif
@@ -55,6 +65,16 @@ bool ExecuteJit(JSContext* cx, js::jit::MacroAssembler& masm) {
 
   // Reset stack pointer.
   masm.SetStackPointer64(PseudoStackPointer64);
+#elif defined(JS_CODEGEN_PPC64)
+  // Restore LR from the stack and return.
+  {
+    UseScratchRegisterScope temps(masm);
+    Register scratch = temps.Acquire();
+    masm.as_ld(scratch, StackPointer, 0);
+    masm.xs_mtlr(scratch);
+    masm.as_addi(StackPointer, StackPointer, 8);
+  }
+  masm.as_blr();
 #else
   // Exit the JIT-ed code using the ABI return style.
   masm.abiret();
@@ -75,6 +95,15 @@ bool ExecuteJit(JSContext* cx, js::jit::MacroAssembler& masm) {
 
   JS::AutoSuppressGCAnalysis suppress;
   EnterTest test = code->as<EnterTest>();
+#if defined(JS_CODEGEN_PPC64) && defined(_CALL_ELF) && _CALL_ELF == 1
+  // PPC64 ELFv1: a C function pointer is the address of a {entry, toc, env}
+  // descriptor, not a code entry, so calling the raw JIT entry would read the
+  // prologue as descriptor data. Build one on the stack, as the production
+  // entry points do; it must outlive the call below.
+  js::jit::ELFv1FunctionDescriptor elfv1Desc;
+  test = js::jit::MakeELFv1Call<EnterTest>(reinterpret_cast<void*>(test),
+                                           &elfv1Desc);
+#endif
 
 #if defined(JS_CODEGEN_ARM64) && !defined(JS_SIMULATOR_ARM64)
   {

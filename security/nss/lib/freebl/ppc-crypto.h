@@ -19,11 +19,34 @@
 /*
  * PPC CRYPTO requires at least gcc 8 or clang. The LE check is purely
  * because it's only been tested on LE. If you're interested in BE,
- * please send a patch.
+ * please send a patch. sha512.c's vector path is built on
+ * __builtin_crypto_vshasigmaw, so it also needs the POWER8 crypto
+ * instructions and not merely VSX.
  */
 #if (defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 8)) && \
-    defined(IS_LITTLE_ENDIAN) && defined(__VSX__)
+    defined(IS_LITTLE_ENDIAN) && defined(__VSX__) && defined(__CRYPTO__)
 #define USE_PPC_CRYPTO
+#endif
+
+/*
+ * The GHASH implementation (ghash-ppc.c) works on both endians: it uses
+ * the byte-order-neutral vec_xl_be/vec_xst_be accessors at the memory
+ * boundary and explicit doubleword indices everywhere else. The remaining
+ * USE_PPC_CRYPTO consumers are still little-endian only.
+ */
+#if (defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 8)) && \
+    defined(__VSX__)
+#define USE_PPC_CRYPTO_GHASH
+#endif
+
+/* The hand-written VSX ChaCha20 in chacha20-ppc64le.S is little-endian only.
+ * Everywhere else on PowerPC use HACL*'s vec128 ChaCha20, which compiles to
+ * VSX where the target baseline has it and to plain AltiVec on a pre-VSX CPU
+ * such as the PPC970. __LITTLE_ENDIAN__ rather than IS_LITTLE_ENDIAN so the
+ * test does not depend on this header's include order. */
+#if !(defined(__VSX__) && defined(__LITTLE_ENDIAN__)) && \
+    !(defined(__VSX__) && defined(NSS_DISABLE_CRYPTO_VSX))
+#define USE_PPC_CHACHA20_VEC128
 #endif
 
 #endif /* defined(__powerpc64__) && !defined(NSS_DISABLE_ALTIVEC) && defined(__ALTIVEC__) */

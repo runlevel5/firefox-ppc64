@@ -38,7 +38,7 @@ const simple = wasmTextToBinary(`(module
 )`);
 var ins = new WebAssembly.Instance(new WebAssembly.Module(simple));
 ins.exports.run();
-var mem16 = new Int16Array(ins.exports.memory.buffer, 0, 8);
+var mem16 = memView(Int16Array, ins.exports.memory.buffer, 0, 8);
 assertSame(mem16, [0, 11, -11, -32513, 32767, -32768, 0, -255]);
 
 if (hasDisassembler() && isX64) {
