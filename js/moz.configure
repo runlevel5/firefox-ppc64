@@ -655,11 +655,14 @@ set_config("MOZ_RUST_SIMD", rust_simd)
 set_define("MOZ_RUST_SIMD", rust_simd)
 
 
-@depends(rust_simd)
-def rustc_bootstrap_default(rust_simd):
+@depends(rust_simd, target)
+def rustc_bootstrap_default(rust_simd, target):
     crates = ["mozglue_static", "qcms"]
     if rust_simd:
         crates += ["encoding_rs", "any_all_workaround"]
+    # The jxl_simd VSX backend uses the unstable PowerPC intrinsics.
+    if target.cpu == "ppc64":
+        crates += ["jxl_simd"]
     return ",".join(crates)
 
 
