@@ -45,6 +45,7 @@ avx512 = ["avx"]
 neon = []
 simd128 = []
 sse42 = []
+vsx = []
 
 [lib]
 name = "jxl_simd"
