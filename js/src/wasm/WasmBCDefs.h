@@ -44,6 +44,9 @@
 #if defined(JS_CODEGEN_RISCV64)
 #  include "jit/riscv64/Assembler-riscv64.h"
 #endif
+#if defined(JS_CODEGEN_PPC64)
+#  include "jit/ppc64/Assembler-ppc64.h"
+#endif
 #include "js/ScalarType.h"
 #include "util/Memory.h"
 #include "wasm/WasmCodegenTypes.h"
@@ -148,6 +151,10 @@ enum class RhsDestOp { True = true };
 #endif
 
 #ifdef JS_CODEGEN_RISCV64
+#  define RABALDR_PIN_INSTANCE
+#endif
+
+#ifdef JS_CODEGEN_PPC64
 #  define RABALDR_PIN_INSTANCE
 #endif
 

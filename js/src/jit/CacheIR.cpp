@@ -12841,7 +12841,7 @@ AttachDecision InlinableNativeIRGenerator::tryAttachSpecializedFunctionBind(
       writer.guardFunctionScript(targetId, fun->baseScript());
     }
     writer.guardFixedSlotValue(
-        targetId, JSFunction::offsetOfFlagsAndArgCount(),
+        targetId, JSFunction::offsetOfFlagsAndArgCountSlot(),
         fun->getReservedSlot(JSFunction::FlagsAndArgCountSlot));
     writer.guardFixedSlotValue(targetId, JSFunction::offsetOfAtom(),
                                fun->getReservedSlot(JSFunction::AtomSlot));

@@ -30,7 +30,8 @@ testGetParam("chunkBytes");
 testGetParam("helperThreadCount");
 
 testChangeParam("maxBytes");
-testChangeParam("minNurseryBytes", 16 * 1024);
+var pageSize = gcparam("systemPageSizeKB") * 1024;
+testChangeParam("minNurseryBytes", pageSize);
 testChangeParam("maxNurseryBytes", 1024 * 1024);
 testChangeParam("incrementalGCEnabled");
 testChangeParam("perZoneGCEnabled");
