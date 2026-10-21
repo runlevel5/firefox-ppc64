@@ -46,11 +46,23 @@ struct V128 {
   void extractLane(unsigned lane, T* result) const {
     MOZ_ASSERT(lane < 16 / sizeof(T));
     memcpy(result, bytes + sizeof(T) * lane, sizeof(T));
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    uint8_t* p = reinterpret_cast<uint8_t*>(result);
+    for (size_t i = 0; i < sizeof(T) / 2; i++) {
+      std::swap(p[i], p[sizeof(T) - 1 - i]);
+    }
+#endif
   }
 
   template <typename T>
   void insertLane(unsigned lane, T value) {
     MOZ_ASSERT(lane < 16 / sizeof(T));
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    uint8_t* p = reinterpret_cast<uint8_t*>(&value);
+    for (size_t i = 0; i < sizeof(T) / 2; i++) {
+      std::swap(p[i], p[sizeof(T) - 1 - i]);
+    }
+#endif
     memcpy(bytes + sizeof(T) * lane, &value, sizeof(T));
   }
 

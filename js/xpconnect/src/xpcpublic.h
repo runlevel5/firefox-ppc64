@@ -830,6 +830,8 @@ nsCString GetFunctionName(JSContext* cx, JS::Handle<JSObject*> obj);
 // We need an exact page size only if we run the binary in automation.
 #if (defined(XP_DARWIN) && defined(__aarch64__)) || defined(__loongarch__)
 const size_t kAutomationPageSize = 16384;
+#elif defined(__powerpc64__)
+const size_t kAutomationPageSize = 65536;
 #else
 const size_t kAutomationPageSize = 4096;
 #endif

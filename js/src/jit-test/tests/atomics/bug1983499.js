@@ -1,3 +1,6 @@
+// |jit-test| skip-if: getBuildConfiguration("big-endian")
+// This test asserts little-endian typed-array element order ("Little endian
+// order!"): i16[0] over bytes 0x11,0x22 is 0x2211 on LE and 0x1122 on BE.
 function test() {
   var i8 = new Int8Array(4);
   var i16 = new Int16Array(i8.buffer, 0, 2);

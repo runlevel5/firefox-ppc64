@@ -112,24 +112,37 @@ function Uint64Array(arg) {
 
 Uint64Array.BYTES_PER_ELEMENT = 8;
 
+// Wasm memory is little-endian, so use explicit little-endian accesses
+// rather than native-endian typed array indexing.
+
 Uint8Array.prototype.read = function (n) { return this[n] }
-Uint16Array.prototype.read = function (n) { return this[n] }
-Uint32Array.prototype.read = function (n) { return this[n] }
+Uint16Array.prototype.read = function (n) {
+    return new DataView(this.buffer).getUint16(n*2, true);
+}
+Uint32Array.prototype.read = function (n) {
+    return new DataView(this.buffer).getUint32(n*4, true);
+}
 Uint64Array.prototype.read = function (n) {
-    return new I64(this.elem[n*2+1], this.elem[n*2]);
+    let dv = new DataView(this.buf);
+    return new I64(dv.getUint32(n*8+4, true), dv.getUint32(n*8, true));
 }
 
 Uint8Array.prototype.write = function (n,v) { this[n] = v }
-Uint16Array.prototype.write = function (n,v) { this[n] = v }
-Uint32Array.prototype.write = function (n,v) { this[n] = v}
+Uint16Array.prototype.write = function (n,v) {
+    new DataView(this.buffer).setUint16(n*2, v, true);
+}
+Uint32Array.prototype.write = function (n,v) {
+    new DataView(this.buffer).setUint32(n*4, v, true);
+}
 Uint64Array.prototype.write = function (n,v) {
+    let dv = new DataView(this.buf);
     if (typeof v == "number") {
 	// Note, this chops v if v is too large
-	this.elem[n*2] = v;
-	this.elem[n*2+1] = 0;
+	dv.setUint32(n*8, v, true);
+	dv.setUint32(n*8+4, 0, true);
     } else {
-	this.elem[n*2] = v.low;
-	this.elem[n*2+1] = v.high;
+	dv.setUint32(n*8, v.low, true);
+	dv.setUint32(n*8+4, v.high, true);
     }
 }
 

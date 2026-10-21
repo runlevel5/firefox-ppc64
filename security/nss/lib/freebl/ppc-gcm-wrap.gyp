@@ -8,7 +8,7 @@
   'target_defaults': {
     'type': 'static_library',
     'sources': [
-      'ppc-gcm.s',
+      'ppc-gcm.S',
       'ppc-gcm-wrap.c',
     ],
     'dependencies': [
