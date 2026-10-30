@@ -197,6 +197,7 @@ if CONFIG["TARGET_CPU"].startswith("ppc") and CONFIG["PPC_TARGET_HAS_ALTIVEC"]:
 if CONFIG["TARGET_CPU"].startswith("ppc") and CONFIG["PPC_TARGET_HAS_VSX"]:
     SOURCES += [
         "ConvolutionFilterVSX.cpp",
+        "FilterProcessingVSX.cpp",
     ]
     DEFINES["USE_VSX"] = True
 
