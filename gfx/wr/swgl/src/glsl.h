@@ -45,6 +45,16 @@ typedef sampler2DRect_impl* sampler2DRect;
 SI bool test_all(Bool cond) { return _mm_movemask_ps(cond) == 0xF; }
 SI bool test_any(Bool cond) { return _mm_movemask_ps(cond) != 0; }
 SI bool test_none(Bool cond) { return _mm_movemask_ps(cond) == 0; }
+#elif USE_ALTIVEC
+SI bool test_all(Bool cond) {
+  return vec_all_ne(bit_cast<av_i32x4>(cond), av_i32x4{});
+}
+SI bool test_any(Bool cond) {
+  return vec_any_ne(bit_cast<av_i32x4>(cond), av_i32x4{});
+}
+SI bool test_none(Bool cond) {
+  return vec_all_eq(bit_cast<av_i32x4>(cond), av_i32x4{});
+}
 #else
 SI bool test_all(Bool cond) {
   return bit_cast<uint32_t>(CONVERT(cond, U8)) == 0xFFFFFFFFU;
@@ -171,6 +181,8 @@ SI Float min(Float a, Float b) {
   return _mm_min_ps(a, b);
 #elif USE_NEON
   return vminq_f32(a, b);
+#elif USE_ALTIVEC
+  return bit_cast<Float>(vec_min(bit_cast<av_f32x4>(a), bit_cast<av_f32x4>(b)));
 #else
   return if_then_else(a < b, a, b);
 #endif
@@ -181,6 +193,8 @@ SI Float max(Float a, Float b) {
   return _mm_max_ps(a, b);
 #elif USE_NEON
   return vmaxq_f32(a, b);
+#elif USE_ALTIVEC
+  return bit_cast<Float>(vec_max(bit_cast<av_f32x4>(a), bit_cast<av_f32x4>(b)));
 #else
   return if_then_else(a > b, a, b);
 #endif
@@ -202,6 +216,8 @@ SI Float sqrt(Float v) {
   e *= vrsqrtsq_f32(v, e * e);
   e *= vrsqrtsq_f32(v, e * e);
   return if_then(v != Float(0.0f), v * e);
+#elif USE_VSX
+  return bit_cast<Float>(vec_sqrt(bit_cast<av_f32x4>(v)));
 #else
   return (Float){sqrtf(v.x), sqrtf(v.y), sqrtf(v.z), sqrtf(v.w)};
 #endif
@@ -262,6 +278,8 @@ SI Float recip(Float v) {
 #elif USE_NEON
   Float e = vrecpeq_f32(v);
   return vrecpsq_f32(v, e) * e;
+#elif USE_ALTIVEC
+  return bit_cast<Float>(vec_re(bit_cast<av_f32x4>(v)));
 #else
   return 1.0f / v;
 #endif
@@ -281,6 +299,8 @@ SI Float inversesqrt(Float v) {
 #elif USE_NEON
   Float e = vrsqrteq_f32(v);
   return vrsqrtsq_f32(v, e * e) * e;
+#elif USE_ALTIVEC
+  return bit_cast<Float>(vec_rsqrte(bit_cast<av_f32x4>(v)));
 #else
   return 1.0f / sqrt(v);
 #endif
