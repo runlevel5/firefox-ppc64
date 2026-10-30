@@ -23,7 +23,8 @@ enum class SwizzleArch : uint8_t {
   eSSE2 = 1 << 3,
   eSSSE3 = 1 << 4,
   eAVX2 = 1 << 5,
-  eAny = eFallback | eGeneric | eNEON | eSSE2 | eSSSE3 | eAVX2,
+  eVSX = 1 << 6,
+  eAny = eFallback | eGeneric | eNEON | eSSE2 | eSSSE3 | eAVX2 | eVSX,
 };
 
 MOZ_MAKE_ENUM_CLASS_BITWISE_OPERATORS(SwizzleArch)
