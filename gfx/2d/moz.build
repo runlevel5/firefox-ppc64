@@ -194,6 +194,12 @@ if CONFIG["TARGET_CPU"].startswith("ppc") and CONFIG["PPC_TARGET_HAS_ALTIVEC"]:
     ]
     DEFINES["USE_ALTIVEC"] = True
 
+if CONFIG["TARGET_CPU"].startswith("ppc") and CONFIG["PPC_TARGET_HAS_VSX"]:
+    SOURCES += [
+        "ConvolutionFilterVSX.cpp",
+    ]
+    DEFINES["USE_VSX"] = True
+
 include("/ipc/chromium/chromium-config.mozbuild")
 
 FINAL_LIBRARY = "xul"
