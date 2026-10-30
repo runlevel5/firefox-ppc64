@@ -22,8 +22,34 @@ static constexpr bool kLE = std::endian::native == std::endian::little;
 // Byte select mask for the alpha channel of each pixel.
 static constexpr unsigned int kAlphaMask = kLE ? 0xFF000000u : 0x000000FFu;
 
+// VSX has unaligned vector loads and stores; plain AltiVec (PowerPC 970)
+// only has aligned ones, so use the lvsl/vperm idiom for loads and rotate
+// plus per-word element stores for 4-byte aligned pixel stores.
 static MOZ_ALWAYS_INLINE u8x16 Load16(const unsigned char* aPtr) {
+#if defined(__VSX__)
   return vec_xl(0, aPtr);
+#elif defined(__BIG_ENDIAN__)
+  return vec_perm(vec_ld(0, aPtr), vec_ld(15, aPtr), vec_lvsl(0, aPtr));
+#else
+  u8x16 v;
+  memcpy(&v, aPtr, 16);
+  return v;
+#endif
+}
+
+static MOZ_ALWAYS_INLINE void Store16(unsigned char* aPtr, u8x16 aV) {
+#if defined(__VSX__)
+  vec_xst(aV, 0, aPtr);
+#elif defined(__BIG_ENDIAN__)
+  u8x16 r = vec_perm(aV, aV, vec_lvsr(0, aPtr));
+  unsigned int* w = reinterpret_cast<unsigned int*>(aPtr);
+  vec_ste((u32x4)r, 0, w);
+  vec_ste((u32x4)r, 4, w);
+  vec_ste((u32x4)r, 8, w);
+  vec_ste((u32x4)r, 12, w);
+#else
+  memcpy(aPtr, &aV, 16);
+#endif
 }
 
 // Zero-extend the low or high 8 bytes to 16-bit lanes.
@@ -87,9 +113,9 @@ static MOZ_ALWAYS_INLINE i32x4 RoundShift(i32x4 aAccum) {
 
 // Convolves horizontally along a single row. The row data is given in
 // |srcData| and continues for the numValues() of the filter.
-void convolve_horizontally_vsx(const unsigned char* srcData,
-                               const SkConvolutionFilter1D& filter,
-                               unsigned char* outRow, bool /*hasAlpha*/) {
+void convolve_horizontally_altivec(const unsigned char* srcData,
+                                   const SkConvolutionFilter1D& filter,
+                                   unsigned char* outRow, bool /*hasAlpha*/) {
   const u8x16 zero = vec_splats((unsigned char)0);
   const u8x16 pairMask01 = PairMask(0);
   const u8x16 pairMask23 = PairMask(8);
@@ -106,9 +132,10 @@ void convolve_horizontally_vsx(const unsigned char* srcData,
     // Four coefficients and four pixels per iteration.
     for (int filterX = 0; filterX < filterLength >> 2; filterX++) {
       // [c0 c1 c2 c3 c0 c1 c2 c3], then [c0 c1 c0 c1 ...] and [c2 c3 c2 c3 ...]
-      uint64_t coeffBits;
-      memcpy(&coeffBits, filterValues, 8);
-      u32x4 coeff = (u32x4)vec_splats((unsigned long long)coeffBits);
+      unsigned int bits01, bits23;
+      memcpy(&bits01, filterValues, 4);
+      memcpy(&bits23, filterValues + 2, 4);
+      u32x4 coeff = {bits01, bits23, bits01, bits23};
       i16x8 coeff01 = (i16x8)vec_splat(coeff, 0);
       i16x8 coeff23 = (i16x8)vec_splat(coeff, 1);
 
@@ -212,7 +239,7 @@ static void ConvolveVertically(const ConvolutionFixed* filterValues,
   for (int outX = 0; outX < width; outX += 4) {
     u8x16 px = ConvolveBlock<hasAlpha>(filterValues, filterLength,
                                        sourceDataRows, outX << 2);
-    vec_xst(px, 0, outRow);
+    Store16(outRow, px);
     outRow += 16;
   }
 
@@ -223,16 +250,16 @@ static void ConvolveVertically(const ConvolutionFixed* filterValues,
     u8x16 px = ConvolveBlock<hasAlpha>(filterValues, filterLength,
                                        sourceDataRows, width << 2);
     alignas(16) unsigned char tmp[16];
-    vec_xst(px, 0, tmp);
+    vec_st(px, 0, tmp);
     memcpy(outRow, tmp, r * 4);
   }
 }
 
-void convolve_vertically_vsx(const ConvolutionFixed* filterValues,
-                             int filterLength,
-                             unsigned char* const* sourceDataRows,
-                             int pixelWidth, unsigned char* outRow,
-                             bool hasAlpha) {
+void convolve_vertically_altivec(const ConvolutionFixed* filterValues,
+                                 int filterLength,
+                                 unsigned char* const* sourceDataRows,
+                                 int pixelWidth, unsigned char* outRow,
+                                 bool hasAlpha) {
   if (hasAlpha) {
     ConvolveVertically<true>(filterValues, filterLength, sourceDataRows,
                              pixelWidth, outRow);
