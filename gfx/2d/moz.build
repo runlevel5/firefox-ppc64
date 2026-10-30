@@ -198,8 +198,13 @@ if CONFIG["TARGET_CPU"].startswith("ppc") and CONFIG["PPC_TARGET_HAS_VSX"]:
     SOURCES += [
         "ConvolutionFilterVSX.cpp",
         "FilterProcessingVSX.cpp",
+        "LuminanceVSX.cpp",
     ]
     DEFINES["USE_VSX"] = True
+
+    SOURCE_HEADERS += [
+        "LuminanceVSX.h",
+    ]
 
 include("/ipc/chromium/chromium-config.mozbuild")
 
