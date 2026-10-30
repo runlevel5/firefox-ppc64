@@ -17,6 +17,11 @@
 #  include "mozilla/arm.h"
 #endif
 
+#ifdef USE_VSX
+#  include "LuminanceVSX.h"
+#  include "mozilla/ppc.h"
+#endif
+
 namespace mozilla {
 namespace gfx {
 
@@ -58,6 +63,14 @@ static void ComputesRGBLuminanceMask(const uint8_t* aSourceData,
   if (mozilla::supports_neon()) {
     ComputesRGBLuminanceMask_NEON(aSourceData, aSourceStride, aDestData,
                                   aDestStride, aSize, aOpacity);
+    return;
+  }
+#endif
+
+#ifdef USE_VSX
+  if (mozilla::supports_vsx()) {
+    ComputesRGBLuminanceMask_VSX(aSourceData, aSourceStride, aDestData,
+                                 aDestStride, aSize, aOpacity);
     return;
   }
 #endif
