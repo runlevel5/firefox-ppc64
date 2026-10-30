@@ -13,6 +13,25 @@
 #  endif
 #endif
 
+// AltiVec intrinsics work the same under GCC and clang. The VMX subset is
+// enough for the integer packing and blending helpers; VSX adds vec_sqrt.
+#ifdef __ALTIVEC__
+#  include <altivec.h>
+#  undef vector
+#  undef pixel
+#  undef bool
+#  define USE_ALTIVEC 1
+#  ifdef __VSX__
+#    define USE_VSX 1
+#  endif
+typedef __vector unsigned char av_u8x16;
+typedef __vector signed short av_i16x8;
+typedef __vector unsigned short av_u16x8;
+typedef __vector signed int av_i32x4;
+typedef __vector unsigned int av_u32x4;
+typedef __vector float av_f32x4;
+#endif
+
 namespace glsl {
 
 #ifdef __clang__
