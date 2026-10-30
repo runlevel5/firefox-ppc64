@@ -148,38 +148,38 @@ class FilterProcessing {
       Float aK2, Float aK3, Float aK4);
 #endif
 
-#ifdef USE_VSX
-  static void ExtractAlpha_VSX(const IntSize& size, const uint8_t* sourceData,
+#ifdef USE_ALTIVEC
+  static void ExtractAlpha_AltiVec(const IntSize& size, const uint8_t* sourceData,
                                int32_t sourceStride, uint8_t* alphaData,
                                int32_t alphaStride);
-  static already_AddRefed<DataSourceSurface> ConvertToB8G8R8A8_VSX(
+  static already_AddRefed<DataSourceSurface> ConvertToB8G8R8A8_AltiVec(
       SourceSurface* aSurface);
-  static already_AddRefed<DataSourceSurface> ApplyBlending_VSX(
+  static already_AddRefed<DataSourceSurface> ApplyBlending_AltiVec(
       DataSourceSurface* aInput1, DataSourceSurface* aInput2,
       BlendMode aBlendMode);
-  static void ApplyMorphologyHorizontal_VSX(
+  static void ApplyMorphologyHorizontal_AltiVec(
       const uint8_t* aSourceData, int32_t aSourceStride, uint8_t* aDestData,
       int32_t aDestStride, const IntRect& aDestRect, int32_t aRadius,
       MorphologyOperator aOperator);
-  static void ApplyMorphologyVertical_VSX(
+  static void ApplyMorphologyVertical_AltiVec(
       const uint8_t* aSourceData, int32_t aSourceStride, uint8_t* aDestData,
       int32_t aDestStride, const IntRect& aDestRect, int32_t aRadius,
       MorphologyOperator aOperator);
-  static already_AddRefed<DataSourceSurface> ApplyColorMatrix_VSX(
+  static already_AddRefed<DataSourceSurface> ApplyColorMatrix_AltiVec(
       DataSourceSurface* aInput, const Matrix5x4& aMatrix);
-  static void ApplyComposition_VSX(DataSourceSurface* aSource,
+  static void ApplyComposition_AltiVec(DataSourceSurface* aSource,
                                    DataSourceSurface* aDest,
                                    CompositeOperator aOperator);
-  static void DoOpacityCalculation_VSX(const IntSize& aSize,
+  static void DoOpacityCalculation_AltiVec(const IntSize& aSize,
                                        uint8_t* aTargetData,
                                        int32_t aTargetStride,
                                        const uint8_t* aSourceData,
                                        int32_t aSourceStride, Float aValue);
-  static already_AddRefed<DataSourceSurface> RenderTurbulence_VSX(
+  static already_AddRefed<DataSourceSurface> RenderTurbulence_AltiVec(
       const IntSize& aSize, const Point& aOffset, const Size& aBaseFrequency,
       int32_t aSeed, int aNumOctaves, TurbulenceType aType, bool aStitch,
       const Rect& aTileRect);
-  static already_AddRefed<DataSourceSurface> ApplyArithmeticCombine_VSX(
+  static already_AddRefed<DataSourceSurface> ApplyArithmeticCombine_AltiVec(
       DataSourceSurface* aInput1, DataSourceSurface* aInput2, Float aK1,
       Float aK2, Float aK3, Float aK4);
 #endif

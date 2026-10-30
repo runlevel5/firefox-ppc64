@@ -19,8 +19,8 @@
 #  include "LuminanceNEON.h"
 #endif
 
-#ifdef USE_VSX
-#  include "LuminanceVSX.h"
+#ifdef USE_ALTIVEC
+#  include "LuminanceAltiVec.h"
 #  include "mozilla/ppc.h"
 #endif
 
@@ -69,9 +69,9 @@ static void ComputesRGBLuminanceMask(const uint8_t* aSourceData,
   }
 #endif
 
-#ifdef USE_VSX
-  if (mozilla::supports_vsx()) {
-    ComputesRGBLuminanceMask_VSX(aSourceData, aSourceStride, aDestData,
+#ifdef USE_ALTIVEC
+  if (mozilla::supports_vmx()) {
+    ComputesRGBLuminanceMask_AltiVec(aSourceData, aSourceStride, aDestData,
                                  aDestStride, aSize, aOpacity);
     return;
   }
