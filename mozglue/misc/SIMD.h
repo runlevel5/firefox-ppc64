@@ -14,8 +14,8 @@ namespace mozilla {
 // platforms, so these should at least ensure consistency.
 //
 // NOTE: these are currently implemented with hand-written SIMD for x86, AMD64,
-// arm64, and LoongArch64 platforms, and fallback to the C runtime or naive
-// loops on other architectures. Please consider this before switching an
+// arm64, LoongArch64 and Power ISA platforms, and fallback to the C runtime or
+// naive loops on other architectures. Please consider this before switching an
 // already optimized loop to these helpers.
 class SIMD {
  public:

@@ -17,6 +17,11 @@
 #  include <immintrin.h>
 #elif defined(__aarch64__)
 #  include <arm_neon.h>
+#elif defined(__VSX__)
+#  include <altivec.h>
+#  undef vector
+#  undef pixel
+#  undef bool
 #endif
 
 namespace mozilla {
@@ -916,6 +921,443 @@ const uint32_t* SIMD::memchr32(const uint32_t* ptr, uint32_t value,
 const uint64_t* SIMD::memchr64(const uint64_t* ptr, uint64_t value,
                                size_t length) {
   return FindInBuffer<uint64_t>(ptr, value, length);
+}
+
+const char* SIMD::memchr2x8(const char* ptr, char v1, char v2, size_t length) {
+  const unsigned char* uptr = reinterpret_cast<const unsigned char*>(ptr);
+  unsigned char uv1 = static_cast<unsigned char>(v1);
+  unsigned char uv2 = static_cast<unsigned char>(v2);
+  const unsigned char* uresult =
+      FindTwoInBuffer<unsigned char>(uptr, uv1, uv2, length);
+  return reinterpret_cast<const char*>(uresult);
+}
+
+const char16_t* SIMD::memchr2x16(const char16_t* ptr, char16_t v1, char16_t v2,
+                                 size_t length) {
+  return FindTwoInBuffer<char16_t>(ptr, v1, v2, length);
+}
+
+#elif defined(__VSX__)
+
+// Power ISA. The structure follows the SSE2 path. Which instructions back it
+// is decided by the compile-time baseline:
+//  - POWER9 and POWER10 (_ARCH_PWR9): vclzlsbb gives the index of the first
+//    matching element in one instruction.
+//  - POWER8 (__POWER8_VECTOR__): vbpermq gathers the compare result into a
+//    GPR mask; 64-bit lanes are available.
+// Lane 0 of a vector holds the lowest address on both endiannesses, but the
+// lowest address is the least significant byte of a 64-bit lane on LE and the
+// most significant on BE, and vec_sld moves bytes in opposite directions.
+
+typedef __vector unsigned char VecU8;
+
+#  if defined(__POWER8_VECTOR__)
+#    define MOZ_PPC_VEC64 1
+#  endif
+
+template <typename TValue>
+VecU8 SplatNeedle(TValue value) {
+  static_assert(sizeof(TValue) == 1 || sizeof(TValue) == 2 ||
+                sizeof(TValue) == 4 || sizeof(TValue) == 8);
+  if constexpr (sizeof(TValue) == 1) {
+    return vec_splats(static_cast<unsigned char>(value));
+  } else if constexpr (sizeof(TValue) == 2) {
+    return (VecU8)vec_splats(static_cast<unsigned short>(value));
+  } else if constexpr (sizeof(TValue) == 4) {
+    return (VecU8)vec_splats(static_cast<unsigned int>(value));
+  } else {
+#  ifdef MOZ_PPC_VEC64
+    return (VecU8)vec_splats(static_cast<unsigned long long>(value));
+#  else
+    MOZ_CRASH("64-bit lanes need VSX");
+#  endif
+  }
+}
+
+template <typename TValue>
+VecU8 CmpEq128(VecU8 a, VecU8 b) {
+  static_assert(sizeof(TValue) == 1 || sizeof(TValue) == 2 ||
+                sizeof(TValue) == 4 || sizeof(TValue) == 8);
+  if constexpr (sizeof(TValue) == 1) {
+    return (VecU8)vec_cmpeq(a, b);
+  } else if constexpr (sizeof(TValue) == 2) {
+    return (VecU8)vec_cmpeq((__vector unsigned short)a,
+                            (__vector unsigned short)b);
+  } else if constexpr (sizeof(TValue) == 4) {
+    return (VecU8)vec_cmpeq((__vector unsigned int)a, (__vector unsigned int)b);
+  } else {
+#  ifdef MOZ_PPC_VEC64
+    return (VecU8)vec_cmpeq((__vector unsigned long long)a,
+                            (__vector unsigned long long)b);
+#  else
+    MOZ_CRASH("64-bit lanes need VSX");
+#  endif
+  }
+}
+
+VecU8 LoadVec(uintptr_t ptr) {
+  return vec_xl(0, reinterpret_cast<const unsigned char*>(ptr));
+}
+
+bool AnyMatch(VecU8 cmp) {
+  return vec_any_ne(cmp, vec_splats(static_cast<unsigned char>(0)));
+}
+
+// Index of the lowest-address byte that is set in two 64-bit lanes holding
+// bytes 0-7 and 8-15, or 16 if none is.
+int FirstMatchIndex64(uint64_t lo, uint64_t hi) {
+  uint64_t lane = lo ? lo : hi;
+  if (!lane) {
+    return 16;
+  }
+  int base = lo ? 0 : 8;
+#  ifdef __LITTLE_ENDIAN__
+  return base + (__builtin_ctzll(lane) >> 3);
+#  else
+  return base + (__builtin_clzll(lane) >> 3);
+#  endif
+}
+
+// Index of the lowest-address byte of the first match in a compare result, or
+// 16 if there is none.
+int FirstMatchIndex(VecU8 cmp) {
+#  if defined(_ARCH_PWR9)
+  return vec_cntlz_lsbb(cmp);
+#  elif defined(MOZ_PPC_VEC64)
+  // vbpermq gathers the top bit of each byte, lowest address first, into the
+  // low 16 bits of the big-endian first doubleword; the sentinel makes the
+  // count 16 when nothing matched.
+  const VecU8 bitIndex = {0,  8,  16, 24, 32, 40,  48,  56,
+                          64, 72, 80, 88, 96, 104, 112, 120};
+  __vector unsigned long long mask = vec_vbpermq(cmp, bitIndex);
+#    ifdef __LITTLE_ENDIAN__
+  uint32_t bits = static_cast<uint32_t>(vec_extract(mask, 1));
+#    else
+  uint32_t bits = static_cast<uint32_t>(vec_extract(mask, 0));
+#    endif
+  return __builtin_clz((bits << 16) | 0x8000);
+#  else
+  uint64_t lanes[2] __attribute__((aligned(16)));
+  vec_st(cmp, 0, reinterpret_cast<unsigned char*>(lanes));
+  return FirstMatchIndex64(lanes[0], lanes[1]);
+#  endif
+}
+
+// Equivalents of _mm_bslli_si128 and _mm_bsrli_si128 in memory order: shift
+// bytes toward higher (respectively lower) addresses, filling with zero.
+template <int N>
+VecU8 BSlliN(VecU8 x) {
+  static_assert(N > 0 && N < 16);
+  VecU8 zero = vec_splats(static_cast<unsigned char>(0));
+#  ifdef __LITTLE_ENDIAN__
+  return vec_sld(x, zero, N);
+#  else
+  return vec_sld(zero, x, 16 - N);
+#  endif
+}
+
+template <int N>
+VecU8 BSrliN(VecU8 x) {
+  static_assert(N > 0 && N < 16);
+  VecU8 zero = vec_splats(static_cast<unsigned char>(0));
+#  ifdef __LITTLE_ENDIAN__
+  return vec_sld(zero, x, 16 - N);
+#  else
+  return vec_sld(x, zero, N);
+#  endif
+}
+
+// GCC on little-endian POWER8 picks lvx for loads it can prove aligned and
+// then spills every vector through the stack to recover memory order for
+// FirstMatchIndex. Hiding the alignment keeps it on lxvd2x and in registers.
+MOZ_ALWAYS_INLINE uintptr_t HideAlignment(uintptr_t ptr) {
+#  if defined(__GNUC__) && !defined(__clang__) && \
+      defined(__LITTLE_ENDIAN__) && !defined(_ARCH_PWR9)
+  __asm__("" : "+r"(ptr));
+#  endif
+  return ptr;
+}
+
+// Index of the first zero byte of v (lowest address first), or 8 if none.
+int FirstZeroByte(uint64_t v) {
+  constexpr uint64_t k7f = 0x7f7f7f7f7f7f7f7fllu;
+  uint64_t t = ~(((v & k7f) + k7f) | v | k7f);
+  if (!t) {
+    return 8;
+  }
+#  ifdef __LITTLE_ENDIAN__
+  return __builtin_ctzll(t) >> 3;
+#  else
+  return __builtin_clzll(t) >> 3;
+#  endif
+}
+
+// Two possibly overlapping 8-byte windows, for 8-byte to 15-byte buffers.
+const unsigned char* Check2x8Bytes(uint64_t needle64, uintptr_t a,
+                                   uintptr_t b) {
+  uint64_t chunk;
+  memcpy(&chunk, reinterpret_cast<const void*>(a), sizeof(chunk));
+  int idx = FirstZeroByte(chunk ^ needle64);
+  if (idx != 8) {
+    return reinterpret_cast<const unsigned char*>(a + idx);
+  }
+  memcpy(&chunk, reinterpret_cast<const void*>(b), sizeof(chunk));
+  idx = FirstZeroByte(chunk ^ needle64);
+  if (idx != 8) {
+    return reinterpret_cast<const unsigned char*>(b + idx);
+  }
+  return nullptr;
+}
+
+template <typename TValue>
+MOZ_ALWAYS_INLINE const TValue* Check16Bytes(VecU8 needle, uintptr_t a) {
+  VecU8 cmp = CmpEq128<TValue>(needle, LoadVec(a));
+  if (AnyMatch(cmp)) {
+    return reinterpret_cast<const TValue*>(a + FirstMatchIndex(cmp));
+  }
+  return nullptr;
+}
+
+template <typename TValue>
+MOZ_ALWAYS_INLINE const TValue* Check4x16Bytes(VecU8 needle, uintptr_t a,
+                                               uintptr_t b, uintptr_t c,
+                                               uintptr_t d) {
+  VecU8 cmpA = CmpEq128<TValue>(needle, LoadVec(a));
+  VecU8 cmpB = CmpEq128<TValue>(needle, LoadVec(b));
+  VecU8 cmpC = CmpEq128<TValue>(needle, LoadVec(c));
+  VecU8 cmpD = CmpEq128<TValue>(needle, LoadVec(d));
+  VecU8 or_ab = vec_or(cmpA, cmpB);
+  VecU8 or_cd = vec_or(cmpC, cmpD);
+  if (AnyMatch(vec_or(or_ab, or_cd))) {
+    int idx = FirstMatchIndex(cmpA);
+    if (idx != 16) {
+      return reinterpret_cast<const TValue*>(a + idx);
+    }
+    idx = FirstMatchIndex(cmpB);
+    if (idx != 16) {
+      return reinterpret_cast<const TValue*>(b + idx);
+    }
+    idx = FirstMatchIndex(cmpC);
+    if (idx != 16) {
+      return reinterpret_cast<const TValue*>(c + idx);
+    }
+    return reinterpret_cast<const TValue*>(d + FirstMatchIndex(cmpD));
+  }
+  return nullptr;
+}
+
+// See the SSE2 Check2x2x16Bytes for an explanation of the carry handling.
+template <typename TValue>
+MOZ_ALWAYS_INLINE const TValue* Check2x2x16Bytes(VecU8 needle1, VecU8 needle2,
+                                                 uintptr_t a, uintptr_t b,
+                                                 VecU8* carryIn,
+                                                 VecU8* carryOut,
+                                                 HaystackOverlap overlap) {
+  constexpr int shiftRightAmount = 16 - sizeof(TValue);
+  constexpr int shiftLeftAmount = sizeof(TValue);
+  VecU8 haystackA = LoadVec(a);
+  VecU8 cmpA1 = CmpEq128<TValue>(needle1, haystackA);
+  VecU8 cmpA2 = CmpEq128<TValue>(needle2, haystackA);
+  VecU8 cmpA;
+  if (carryIn) {
+    cmpA = vec_and(vec_or(BSlliN<shiftLeftAmount>(cmpA1), *carryIn), cmpA2);
+  } else {
+    cmpA = vec_and(BSlliN<shiftLeftAmount>(cmpA1), cmpA2);
+  }
+  VecU8 haystackB = LoadVec(b);
+  VecU8 cmpB1 = CmpEq128<TValue>(needle1, haystackB);
+  VecU8 cmpB2 = CmpEq128<TValue>(needle2, haystackB);
+  VecU8 cmpB;
+  if (overlap == HaystackOverlap::Overlapping) {
+    cmpB = vec_and(BSlliN<shiftLeftAmount>(cmpB1), cmpB2);
+  } else {
+    MOZ_ASSERT(overlap == HaystackOverlap::Sequential);
+    VecU8 carryAB = BSrliN<shiftRightAmount>(cmpA1);
+    cmpB = vec_and(vec_or(BSlliN<shiftLeftAmount>(cmpB1), carryAB), cmpB2);
+  }
+  if (AnyMatch(vec_or(cmpA, cmpB))) {
+    int idx = FirstMatchIndex(cmpA);
+    if (idx != 16) {
+      return reinterpret_cast<const TValue*>(a + idx - shiftLeftAmount);
+    }
+    return reinterpret_cast<const TValue*>(b + FirstMatchIndex(cmpB) -
+                                           shiftLeftAmount);
+  }
+
+  if (carryOut) {
+    *carryOut = BSrliN<shiftRightAmount>(cmpB1);
+  }
+
+  return nullptr;
+}
+
+template <typename TValue>
+const TValue* TwoElementLoop(uintptr_t start, uintptr_t end, TValue v1,
+                             TValue v2) {
+  const TValue* cur = reinterpret_cast<const TValue*>(start);
+  const TValue* preEnd = reinterpret_cast<const TValue*>(end - sizeof(TValue));
+  while (cur < preEnd) {
+    if (((cur[0] ^ v1) | (cur[1] ^ v2)) == 0) {
+      return cur;
+    }
+    cur++;
+  }
+  return nullptr;
+}
+
+template <typename TValue>
+const TValue* FindInBuffer(const TValue* ptr, TValue value, size_t length) {
+  static_assert(sizeof(TValue) == 1 || sizeof(TValue) == 2 ||
+                sizeof(TValue) == 4 || sizeof(TValue) == 8);
+  static_assert(std::is_unsigned_v<TValue>);
+
+  size_t numBytes = length * sizeof(TValue);
+  uintptr_t cur = reinterpret_cast<uintptr_t>(ptr);
+  uintptr_t end = cur + numBytes;
+
+  if ((sizeof(TValue) > 1 && numBytes < 16) || numBytes < 8) {
+    while (cur < end) {
+      if (GetAs<TValue>(cur) == value) {
+        return reinterpret_cast<const TValue*>(cur);
+      }
+      cur += sizeof(TValue);
+    }
+    return nullptr;
+  }
+
+  if (numBytes < 16) {
+    uint64_t needle64 = static_cast<uint64_t>(value) * 0x0101010101010101llu;
+    return reinterpret_cast<const TValue*>(
+        Check2x8Bytes(needle64, cur, end - 8));
+  }
+
+  VecU8 needle = SplatNeedle<TValue>(value);
+
+  if (numBytes < 64) {
+    // See the SSE2 path for an explanation of the bit-fiddling.
+    uintptr_t a = cur;
+    uintptr_t b = cur + ((numBytes & 32) >> 1);
+    uintptr_t c = end - 16 - ((numBytes & 32) >> 1);
+    uintptr_t d = end - 16;
+    return Check4x16Bytes<TValue>(needle, a, b, c, d);
+  }
+
+  const TValue* result = Check16Bytes<TValue>(needle, cur);
+  if (result) {
+    return result;
+  }
+
+  cur = HideAlignment(AlignUp16(cur));
+  uintptr_t tailStartPtr = HideAlignment(AlignDown16(end - 48));
+  uintptr_t tailEndPtr = end - 16;
+
+  while (cur < tailStartPtr) {
+    result = Check4x16Bytes<TValue>(needle, cur, cur + 16, cur + 32, cur + 48);
+    if (result) {
+      return result;
+    }
+    cur += 64;
+  }
+
+  return Check4x16Bytes<TValue>(needle, tailStartPtr, tailStartPtr + 16,
+                                tailStartPtr + 32, tailEndPtr);
+}
+
+template <typename TValue>
+const TValue* FindTwoInBuffer(const TValue* ptr, TValue v1, TValue v2,
+                              size_t length) {
+  static_assert(sizeof(TValue) == 1 || sizeof(TValue) == 2);
+  static_assert(std::is_unsigned_v<TValue>);
+
+  size_t numBytes = length * sizeof(TValue);
+  uintptr_t cur = reinterpret_cast<uintptr_t>(ptr);
+  uintptr_t end = cur + numBytes;
+
+  if (numBytes < 32) {
+    return TwoElementLoop<TValue>(cur, end, v1, v2);
+  }
+
+  VecU8 needle1 = SplatNeedle<TValue>(v1);
+  VecU8 needle2 = SplatNeedle<TValue>(v2);
+  VecU8 zero = vec_splats(static_cast<unsigned char>(0));
+
+  VecU8 haystack = LoadVec(cur);
+  VecU8 cmp1 = CmpEq128<TValue>(needle1, haystack);
+  VecU8 cmp2 = CmpEq128<TValue>(needle2, haystack);
+  VecU8 cmp = vec_and(BSlliN<sizeof(TValue)>(cmp1), cmp2);
+  if (AnyMatch(cmp)) {
+    return reinterpret_cast<const TValue*>(cur + FirstMatchIndex(cmp) -
+                                           sizeof(TValue));
+  }
+
+  cur = HideAlignment(AlignUp16(cur));
+  uintptr_t tailEndPtr = end - 16;
+  uintptr_t tailStartPtr = HideAlignment(AlignDown16(tailEndPtr));
+
+  VecU8 carry = zero;
+  while (cur < tailStartPtr) {
+    const TValue* result =
+        Check2x2x16Bytes<TValue>(needle1, needle2, cur, cur + 16, &carry,
+                                 &carry, HaystackOverlap::Sequential);
+    if (result) {
+      return result;
+    }
+    cur += 32;
+  }
+
+  // The carry only applies if the loop stopped right before the tail block.
+  if (cur != tailStartPtr) {
+    carry = zero;
+  }
+  return Check2x2x16Bytes<TValue>(needle1, needle2, tailStartPtr, tailEndPtr,
+                                  &carry, nullptr,
+                                  HaystackOverlap::Overlapping);
+}
+
+// glibc's hand-written memchr for POWER8 pulls ahead of FindInBuffer on long
+// buffers, while FindInBuffer avoids its call and dispatch overhead on short
+// ones.
+const char* SIMD::memchr8(const char* ptr, char value, size_t length) {
+#  ifdef __GLIBC__
+  if (length >= 512) {
+    const void* result = ::memchr(reinterpret_cast<const void*>(ptr),
+                                  static_cast<int>(value), length);
+    return reinterpret_cast<const char*>(result);
+  }
+#  endif
+  const unsigned char* uptr = reinterpret_cast<const unsigned char*>(ptr);
+  unsigned char uvalue = static_cast<unsigned char>(value);
+  const unsigned char* uresult =
+      FindInBuffer<unsigned char>(uptr, uvalue, length);
+  return reinterpret_cast<const char*>(uresult);
+}
+
+const char* SIMD::memchr8SSE2(const char* ptr, char value, size_t length) {
+  return memchr8(ptr, value, length);
+}
+
+const char16_t* SIMD::memchr16(const char16_t* ptr, char16_t value,
+                               size_t length) {
+  return FindInBuffer<char16_t>(ptr, value, length);
+}
+
+const char16_t* SIMD::memchr16SSE2(const char16_t* ptr, char16_t value,
+                                   size_t length) {
+  return memchr16(ptr, value, length);
+}
+
+const uint32_t* SIMD::memchr32(const uint32_t* ptr, uint32_t value,
+                               size_t length) {
+  return FindInBuffer<uint32_t>(ptr, value, length);
+}
+
+const uint64_t* SIMD::memchr64(const uint64_t* ptr, uint64_t value,
+                               size_t length) {
+#  ifdef MOZ_PPC_VEC64
+  return FindInBuffer<uint64_t>(ptr, value, length);
+#  else
+  return FindInBufferNaive<uint64_t>(ptr, value, length);
+#  endif
 }
 
 const char* SIMD::memchr2x8(const char* ptr, char v1, char v2, size_t length) {
