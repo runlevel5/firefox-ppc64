@@ -217,11 +217,7 @@ if CONFIG["TARGET_CPU"] == "aarch64" or CONFIG["BUILD_ARM_NEON"]:
         "SwizzleNEON.h",
     ]
 
-if (
-    CONFIG["TARGET_CPU"].startswith("ppc")
-    and CONFIG["PPC_TARGET_HAS_VSX"]
-    and CONFIG["TARGET_ENDIANNESS"] == "little"
-):
+if CONFIG["TARGET_CPU"].startswith("ppc") and CONFIG["PPC_TARGET_HAS_VSX"]:
     SOURCES += [
         "SwizzleVSX.cpp",
     ]
