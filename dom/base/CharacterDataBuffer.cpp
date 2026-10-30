@@ -166,9 +166,15 @@ static inline int32_t FirstNon8BitUnvectorized(const char16_t* str,
 
 namespace mozilla {
 #ifdef __powerpc__
+#  ifdef __VSX__
+namespace VSX {
+int32_t FirstNon8Bit(const char16_t* str, const char16_t* end);
+}  // namespace VSX
+#  else
 namespace VMX {
 int32_t FirstNon8Bit(const char16_t* str, const char16_t* end);
 }  // namespace VMX
+#  endif
 #endif
 #ifdef MOZILLA_MAY_SUPPORT_LSX
 namespace LSX {
@@ -190,9 +196,14 @@ static inline int32_t FirstNon8Bit(const char16_t* str, const char16_t* end) {
     return mozilla::FirstNon8Bit<xsimd::sse2>(str, end);
   }
 #elif defined(__powerpc__)
+#  ifdef __VSX__
+  // VSX is in the target baseline, so no runtime check is needed.
+  return mozilla::VSX::FirstNon8Bit(str, end);
+#  else
   if (mozilla::supports_vmx()) {
     return mozilla::VMX::FirstNon8Bit(str, end);
   }
+#  endif
 #elif defined(MOZILLA_MAY_SUPPORT_LSX)
   if (mozilla::supports_lsx()) {
     return mozilla::LSX::FirstNon8Bit(str, end);

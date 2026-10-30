@@ -565,10 +565,14 @@ if CONFIG["INTEL_ARCHITECTURE"]:
     SOURCES["CharacterDataBufferSSE2.cpp"].flags += CONFIG["SSE2_FLAGS"]
 
 # Are we targeting PowerPC? If so, we can enable a SIMD version for
-# CharacterDataBuffer.cpp as well.
+# CharacterDataBuffer.cpp as well: VSX when the target baseline has it (it is
+# then used unconditionally), otherwise VMX behind a runtime check.
 if CONFIG["TARGET_CPU"].startswith("ppc"):
-    SOURCES += ["CharacterDataBufferVMX.cpp"]
-    SOURCES["CharacterDataBufferVMX.cpp"].flags += CONFIG["PPC_VMX_FLAGS"]
+    if CONFIG["PPC_TARGET_HAS_VSX"]:
+        SOURCES += ["CharacterDataBufferVSX.cpp"]
+    else:
+        SOURCES += ["CharacterDataBufferVMX.cpp"]
+        SOURCES["CharacterDataBufferVMX.cpp"].flags += CONFIG["PPC_VMX_FLAGS"]
 
 # Are we targeting LoongArch64? If so, we can enable a SIMD version for
 # CharacterDataBuffer.cpp as well.
