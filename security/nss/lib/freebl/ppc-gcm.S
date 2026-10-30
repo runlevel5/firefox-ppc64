@@ -4,8 +4,8 @@
 
 # Registers:
 
-.set SP, 1
-.set TOCP, 2
+#define SP 1
+#define TOCP 2
 
 .macro VEC_LOAD_DATA   VR, DATA, GPR
     addis        \GPR, 2, \DATA@got@ha
