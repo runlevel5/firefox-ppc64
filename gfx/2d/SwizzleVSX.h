@@ -18,28 +18,23 @@
 
 namespace mozilla::gfx {
 
-// The generic templates treat each pixel as a little-endian 32-bit lane with
-// the alpha in the top byte, so these specializations are only built for
-// little-endian targets (see moz.build).
-
 template <class Arch>
   requires std::same_as<Arch, xsimd::vsx>
 static MOZ_ALWAYS_INLINE xsimd::batch<uint8_t, Arch> LoadRemainder_SIMD(
     const uint8_t* aSrc, size_t aLength) {
-  uint64_t lo;
-  uint32_t hi = 0;
-  if (aLength >= 2) {
-    memcpy(&lo, aSrc, 8);
-    if (aLength >= 3) {
-      memcpy(&hi, aSrc + 8, 4);
-    }
-  } else {
-    uint32_t px;
-    memcpy(&px, aSrc, 4);
-    lo = px;
+  alignas(16) uint8_t buffer[16] = {};
+  switch (aLength) {
+    case 3:
+      memcpy(buffer, aSrc, 12);
+      break;
+    case 2:
+      memcpy(buffer, aSrc, 8);
+      break;
+    default:
+      memcpy(buffer, aSrc, 4);
+      break;
   }
-  __vector unsigned long long v = {lo, hi};
-  return (__vector unsigned char)v;
+  return xsimd::batch<uint8_t, Arch>::load_aligned(buffer);
 }
 
 template <class Arch>
@@ -138,17 +133,29 @@ static MOZ_ALWAYS_INLINE xsimd::batch<uint8_t, Arch> UnpremultiplyReverse_SIMD(
   // with a 32-bit multiply and rounded, (channel * Q + 0x8000) >> 16, instead
   // of the 16-bit high/low split the generic version has to use. Masking to a
   // byte makes out-of-range (channel > alpha) input wrap like the scalar path.
+  // c0/c2 are the channels at bytes 0 and 2 of the pixel, g the one at byte 1.
   const xsimd::batch<uint32_t, Arch> low16(0x0000FFFF);
   const xsimd::batch<uint32_t, Arch> lowByte(0x000000FF);
   const xsimd::batch<uint32_t, Arch> half(0x8000);
   auto rb = xsimd::bitwise_cast<uint32_t>(aRb);
   auto ga = xsimd::bitwise_cast<uint32_t>(aGa);
-  auto r = (((rb & low16) * aRecip + half) >> 16) & lowByte;
-  auto b = (((rb >> 16) * aRecip + half) >> 16) & lowByte;
-  auto g = (((ga & low16) * aRecip + half) >> 16) & lowByte;
+  auto lane0 = [&](const xsimd::batch<uint32_t, Arch>& v) {
+    return kSwizzleLE ? v & low16 : v >> 16;
+  };
+  auto lane1 = [&](const xsimd::batch<uint32_t, Arch>& v) {
+    return kSwizzleLE ? v >> 16 : v & low16;
+  };
+  auto c0 = ((lane0(rb) * aRecip + half) >> 16) & lowByte;
+  auto c2 = ((lane1(rb) * aRecip + half) >> 16) & lowByte;
+  auto g = ((lane0(ga) * aRecip + half) >> 16) & lowByte;
   auto alpha = xsimd::bitwise_cast<uint32_t>(aSrc) &
-               xsimd::batch<uint32_t, Arch>(0xFF000000);
-  return xsimd::bitwise_cast<uint8_t>(r | (g << 8) | (b << 16) | alpha);
+               xsimd::batch<uint32_t, Arch>(kAlphaMask32);
+  if constexpr (kSwizzleLE) {
+    return xsimd::bitwise_cast<uint8_t>(c0 | (g << 8) | (c2 << 16) | alpha);
+  } else {
+    return xsimd::bitwise_cast<uint8_t>((c0 << 24) | (g << 16) | (c2 << 8) |
+                                        alpha);
+  }
 }
 
 // xsimd has no byte swizzle for VSX, so expand with vec_perm directly.
@@ -163,7 +170,7 @@ static MOZ_ALWAYS_INLINE xsimd::batch<uint8_t, Arch> UnpackBatchRGB24_SIMD(
                                          6, 7, 8, 0, 9, 10, 11, 0};
   __vector unsigned int px =
       (__vector unsigned int)vec_perm(aSrc.data, aSrc.data, expandMask);
-  return (__vector unsigned char)vec_or(px, vec_splats(0xFF000000u));
+  return (__vector unsigned char)vec_or(px, vec_splats(kAlphaMask32));
 }
 
 }  // namespace mozilla::gfx

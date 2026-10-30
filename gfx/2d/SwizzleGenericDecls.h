@@ -5,6 +5,7 @@
 #ifndef MOZILLA_GFX_SWIZZLE_GENERIC_DECLS_H_
 #define MOZILLA_GFX_SWIZZLE_GENERIC_DECLS_H_
 
+#include <bit>
 #include <xsimd/xsimd.hpp>
 
 #include "Swizzle.h"
@@ -12,6 +13,17 @@
 namespace mozilla::gfx {
 
 extern const uint32_t sUnpremultiplyTable[256];
+
+// Pixels are processed as native 32-bit lanes, so which byte holds the alpha
+// and which 16-bit half of a lane holds the even (R/B) or odd (G/A) channels
+// depends on endianness.
+static constexpr bool kSwizzleLE = std::endian::native == std::endian::little;
+static constexpr uint32_t kAlphaMask32 = kSwizzleLE ? 0xFF000000 : 0x000000FF;
+// The alpha and green bytes within the odd (G/A) 16-bit lane pair of a pixel.
+static constexpr uint32_t kOddAlphaMask32 =
+    kSwizzleLE ? 0x00FF0000 : 0x000000FF;
+static constexpr uint32_t kOddGreenMask32 =
+    kSwizzleLE ? 0x000000FF : 0x00FF0000;
 
 // The following template declarations are for templates our architecture
 // specific headers may choose to overload.
