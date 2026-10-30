@@ -2,11 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "LuminanceVSX.h"
+#include "LuminanceAltiVec.h"
 
 #include <altivec.h>
 
 #include <bit>
+#include <cstring>
 
 using namespace mozilla::gfx;
 
@@ -16,13 +17,34 @@ using namespace mozilla::gfx;
 #define GFX_ARGB32_OFFSET_G 1
 #define GFX_ARGB32_OFFSET_B 0
 
-void ComputesRGBLuminanceMask_VSX(const uint8_t* aSourceData,
-                                  int32_t aSourceStride, uint8_t* aDestData,
-                                  int32_t aDestStride, const IntSize& aSize,
-                                  float aOpacity) {
+void ComputesRGBLuminanceMask_AltiVec(const uint8_t* aSourceData,
+                                      int32_t aSourceStride, uint8_t* aDestData,
+                                      int32_t aDestStride, const IntSize& aSize,
+                                      float aOpacity) {
   typedef __vector unsigned char u8x16;
   typedef __vector unsigned short u16x8;
   typedef __vector unsigned int u32x4;
+  // Plain AltiVec only has aligned vector accesses.
+  auto load16 = [](const uint8_t* aPtr) -> u8x16 {
+#if defined(__VSX__)
+    return vec_xl(0, aPtr);
+#elif defined(__BIG_ENDIAN__)
+    return vec_perm(vec_ld(0, aPtr), vec_ld(15, aPtr), vec_lvsl(0, aPtr));
+#else
+    u8x16 v;
+    memcpy(&v, aPtr, 16);
+    return v;
+#endif
+  };
+  auto store16 = [](uint8_t* aPtr, u8x16 aV) {
+#if defined(__VSX__)
+    vec_xst(aV, 0, aPtr);
+#else
+    alignas(16) uint8_t tmp[16];
+    vec_st(aV, 0, tmp);
+    memcpy(aPtr, tmp, 16);
+#endif
+  };
 
   int32_t redFactor = 55 * aOpacity;     // 255 * 0.2125 * opacity
   int32_t greenFactor = 183 * aOpacity;  // 255 * 0.7154 * opacity
@@ -46,7 +68,7 @@ void ComputesRGBLuminanceMask_VSX(const uint8_t* aSourceData,
   const u32x4 eight = vec_splats(8u);
 
   auto grayOf = [&](const uint8_t* aPx) {
-    u8x16 px = vec_xl(0, aPx);
+    u8x16 px = load16(aPx);
     u32x4 gray = vec_sr(vec_msum(px, factors, zero), eight);
     // Transparent pixels get a zero mask value.
     __vector __bool int transparent =
@@ -65,7 +87,7 @@ void ComputesRGBLuminanceMask_VSX(const uint8_t* aSourceData,
       u32x4 g3 = grayOf(sourcePixel + 48);
       u16x8 g01 = vec_pack(g0, g1);
       u16x8 g23 = vec_pack(g2, g3);
-      vec_xst(vec_pack(g01, g23), 0, destPixel);
+      store16(destPixel, vec_pack(g01, g23));
       sourcePixel += 16 * 4;
       destPixel += 16;
     }

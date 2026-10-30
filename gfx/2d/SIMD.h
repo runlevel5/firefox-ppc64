@@ -7,15 +7,15 @@
 
 /**
  * Consumers of this file need to #define SIMD_COMPILE_SSE2 (or
- * SIMD_COMPILE_VSX) before including it if they want access to the SSE2 (or
- * VSX) functions.
+ * SIMD_COMPILE_ALTIVEC) before including it if they want access to the SSE2
+ * (or AltiVec) functions.
  */
 
 #ifdef SIMD_COMPILE_SSE2
 #  include <xmmintrin.h>
 #endif
 
-#ifdef SIMD_COMPILE_VSX
+#ifdef SIMD_COMPILE_ALTIVEC
 #  include <altivec.h>
 
 #  include <bit>
@@ -1039,180 +1039,163 @@ inline __m128i F32ToI32(__m128 m) { return _mm_cvtps_epi32(m); }
 
 #endif  // SIMD_COMPILE_SSE2
 
-#ifdef SIMD_COMPILE_VSX
+#ifdef SIMD_COMPILE_ALTIVEC
 
-// VSX
+// AltiVec (VMX, with VSX used where available)
 
-typedef __vector unsigned char u8x16_vsx;
+typedef __vector unsigned char u8x16_av;
 // Also used for the unsigned 16-bit lane types; the lane arithmetic is the
 // same and the saturating packs pick the signedness explicitly.
-typedef __vector signed short i16x8_vsx;
-typedef __vector signed int i32x4_vsx;
-typedef __vector float f32x4_vsx;
+typedef __vector signed short i16x8_av;
+typedef __vector signed int i32x4_av;
+typedef __vector float f32x4_av;
 
-static constexpr bool kVsxLittleEndian =
+static constexpr bool kAltiVecLittleEndian =
     std::endian::native == std::endian::little;
 
 template <>
-inline u8x16_vsx Load8<u8x16_vsx>(const uint8_t* aSource) {
-  return vec_xl(0, aSource);
+inline u8x16_av Load8<u8x16_av>(const uint8_t* aSource) {
+  return vec_ld(0, aSource);
 }
 
-inline void Store8(uint8_t* aTarget, u8x16_vsx aM) { vec_xst(aM, 0, aTarget); }
+inline void Store8(uint8_t* aTarget, u8x16_av aM) { vec_st(aM, 0, aTarget); }
 
 template <>
-inline u8x16_vsx FromZero8<u8x16_vsx>() {
+inline u8x16_av FromZero8<u8x16_av>() {
   return vec_splats((unsigned char)0);
 }
 
 template <>
-inline u8x16_vsx From8<u8x16_vsx>(uint8_t a, uint8_t b, uint8_t c, uint8_t d,
-                                  uint8_t e, uint8_t f, uint8_t g, uint8_t h,
-                                  uint8_t i, uint8_t j, uint8_t k, uint8_t l,
-                                  uint8_t m, uint8_t n, uint8_t o, uint8_t p) {
-  u8x16_vsx v = {a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p};
+inline u8x16_av From8<u8x16_av>(uint8_t a, uint8_t b, uint8_t c, uint8_t d,
+                                uint8_t e, uint8_t f, uint8_t g, uint8_t h,
+                                uint8_t i, uint8_t j, uint8_t k, uint8_t l,
+                                uint8_t m, uint8_t n, uint8_t o, uint8_t p) {
+  u8x16_av v = {a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p};
   return v;
 }
 
 template <>
-inline i16x8_vsx FromI16<i16x8_vsx>(int16_t a, int16_t b, int16_t c, int16_t d,
-                                    int16_t e, int16_t f, int16_t g,
-                                    int16_t h) {
-  i16x8_vsx v = {a, b, c, d, e, f, g, h};
+inline i16x8_av FromI16<i16x8_av>(int16_t a, int16_t b, int16_t c, int16_t d,
+                                  int16_t e, int16_t f, int16_t g, int16_t h) {
+  i16x8_av v = {a, b, c, d, e, f, g, h};
   return v;
 }
 
 template <>
-inline i16x8_vsx FromU16<i16x8_vsx>(uint16_t a, uint16_t b, uint16_t c,
-                                    uint16_t d, uint16_t e, uint16_t f,
-                                    uint16_t g, uint16_t h) {
-  i16x8_vsx v = {int16_t(a), int16_t(b), int16_t(c), int16_t(d),
-                 int16_t(e), int16_t(f), int16_t(g), int16_t(h)};
+inline i16x8_av FromU16<i16x8_av>(uint16_t a, uint16_t b, uint16_t c,
+                                  uint16_t d, uint16_t e, uint16_t f,
+                                  uint16_t g, uint16_t h) {
+  i16x8_av v = {int16_t(a), int16_t(b), int16_t(c), int16_t(d),
+                int16_t(e), int16_t(f), int16_t(g), int16_t(h)};
   return v;
 }
 
 template <>
-inline i16x8_vsx FromI16<i16x8_vsx>(int16_t a) {
+inline i16x8_av FromI16<i16x8_av>(int16_t a) {
   return vec_splats(a);
 }
 
 template <>
-inline i16x8_vsx FromU16<i16x8_vsx>(uint16_t a) {
+inline i16x8_av FromU16<i16x8_av>(uint16_t a) {
   return vec_splats(int16_t(a));
 }
 
 template <>
-inline i32x4_vsx From32<i32x4_vsx>(int32_t a, int32_t b, int32_t c, int32_t d) {
-  i32x4_vsx v = {a, b, c, d};
+inline i32x4_av From32<i32x4_av>(int32_t a, int32_t b, int32_t c, int32_t d) {
+  i32x4_av v = {a, b, c, d};
   return v;
 }
 
 template <>
-inline i32x4_vsx From32<i32x4_vsx>(int32_t a) {
+inline i32x4_av From32<i32x4_av>(int32_t a) {
   return vec_splats(a);
 }
 
 template <>
-inline f32x4_vsx FromF32<f32x4_vsx>(float a, float b, float c, float d) {
-  f32x4_vsx v = {a, b, c, d};
+inline f32x4_av FromF32<f32x4_av>(float a, float b, float c, float d) {
+  f32x4_av v = {a, b, c, d};
   return v;
 }
 
 template <>
-inline f32x4_vsx FromF32<f32x4_vsx>(float a) {
+inline f32x4_av FromF32<f32x4_av>(float a) {
   return vec_splats(a);
 }
 
 template <int32_t aNumberOfBits>
-inline i16x8_vsx ShiftRight16(i16x8_vsx aM) {
-  return (i16x8_vsx)vec_sr((__vector unsigned short)aM,
-                           vec_splats((unsigned short)aNumberOfBits));
+inline i16x8_av ShiftRight16(i16x8_av aM) {
+  return (i16x8_av)vec_sr((__vector unsigned short)aM,
+                          vec_splats((unsigned short)aNumberOfBits));
 }
 
 template <int32_t aNumberOfBits>
-inline i32x4_vsx ShiftRight32(i32x4_vsx aM) {
+inline i32x4_av ShiftRight32(i32x4_av aM) {
   return vec_sra(aM, vec_splats((unsigned int)aNumberOfBits));
 }
 
-inline i16x8_vsx Add16(i16x8_vsx aM1, i16x8_vsx aM2) {
-  return vec_add(aM1, aM2);
-}
+inline i16x8_av Add16(i16x8_av aM1, i16x8_av aM2) { return vec_add(aM1, aM2); }
 
-inline i32x4_vsx Add32(i32x4_vsx aM1, i32x4_vsx aM2) {
-  return vec_add(aM1, aM2);
-}
+inline i32x4_av Add32(i32x4_av aM1, i32x4_av aM2) { return vec_add(aM1, aM2); }
 
-inline i16x8_vsx Sub16(i16x8_vsx aM1, i16x8_vsx aM2) {
-  return vec_sub(aM1, aM2);
-}
+inline i16x8_av Sub16(i16x8_av aM1, i16x8_av aM2) { return vec_sub(aM1, aM2); }
 
-inline i32x4_vsx Sub32(i32x4_vsx aM1, i32x4_vsx aM2) {
-  return vec_sub(aM1, aM2);
-}
+inline i32x4_av Sub32(i32x4_av aM1, i32x4_av aM2) { return vec_sub(aM1, aM2); }
 
-inline u8x16_vsx Min8(u8x16_vsx aM1, u8x16_vsx aM2) {
-  return vec_min(aM1, aM2);
-}
+inline u8x16_av Min8(u8x16_av aM1, u8x16_av aM2) { return vec_min(aM1, aM2); }
 
-inline u8x16_vsx Max8(u8x16_vsx aM1, u8x16_vsx aM2) {
-  return vec_max(aM1, aM2);
-}
+inline u8x16_av Max8(u8x16_av aM1, u8x16_av aM2) { return vec_max(aM1, aM2); }
 
-inline i32x4_vsx Min32(i32x4_vsx aM1, i32x4_vsx aM2) {
-  return vec_min(aM1, aM2);
-}
+inline i32x4_av Min32(i32x4_av aM1, i32x4_av aM2) { return vec_min(aM1, aM2); }
 
-inline i32x4_vsx Max32(i32x4_vsx aM1, i32x4_vsx aM2) {
-  return vec_max(aM1, aM2);
-}
+inline i32x4_av Max32(i32x4_av aM1, i32x4_av aM2) { return vec_max(aM1, aM2); }
 
-inline i16x8_vsx Mul16(i16x8_vsx aM1, i16x8_vsx aM2) {
+inline i16x8_av Mul16(i16x8_av aM1, i16x8_av aM2) {
   return vec_mladd(aM1, aM2, vec_splats(int16_t(0)));
 }
 
-inline i16x8_vsx MulU16(i16x8_vsx aM1, i16x8_vsx aM2) {
+inline i16x8_av MulU16(i16x8_av aM1, i16x8_av aM2) {
   return vec_mladd(aM1, aM2, vec_splats(int16_t(0)));
 }
 
-inline void Mul16x4x2x2To32x4x2(i16x8_vsx aFactorsA1B1, i16x8_vsx aFactorsA2B2,
-                                i32x4_vsx& aProductA, i32x4_vsx& aProductB) {
-  i32x4_vsx even = vec_mule(aFactorsA1B1, aFactorsA2B2);
-  i32x4_vsx odd = vec_mulo(aFactorsA1B1, aFactorsA2B2);
+inline void Mul16x4x2x2To32x4x2(i16x8_av aFactorsA1B1, i16x8_av aFactorsA2B2,
+                                i32x4_av& aProductA, i32x4_av& aProductB) {
+  i32x4_av even = vec_mule(aFactorsA1B1, aFactorsA2B2);
+  i32x4_av odd = vec_mulo(aFactorsA1B1, aFactorsA2B2);
   aProductA = vec_mergeh(even, odd);
   aProductB = vec_mergel(even, odd);
 }
 
-inline i32x4_vsx MulAdd16x8x2To32x4(i16x8_vsx aFactorsA, i16x8_vsx aFactorsB) {
+inline i32x4_av MulAdd16x8x2To32x4(i16x8_av aFactorsA, i16x8_av aFactorsB) {
   return vec_msum(aFactorsA, aFactorsB, vec_splats(0));
 }
 
 // Byte permute masks in memory (element) order: lane |aLane| of |aWidth|
 // bytes goes to position |aPos|.
 template <int8_t l0, int8_t l1, int8_t l2, int8_t l3>
-inline u8x16_vsx Lanes32Mask() {
-  u8x16_vsx m = {uint8_t(4 * l0),     uint8_t(4 * l0 + 1), uint8_t(4 * l0 + 2),
-                 uint8_t(4 * l0 + 3), uint8_t(4 * l1),     uint8_t(4 * l1 + 1),
-                 uint8_t(4 * l1 + 2), uint8_t(4 * l1 + 3), uint8_t(4 * l2),
-                 uint8_t(4 * l2 + 1), uint8_t(4 * l2 + 2), uint8_t(4 * l2 + 3),
-                 uint8_t(4 * l3),     uint8_t(4 * l3 + 1), uint8_t(4 * l3 + 2),
-                 uint8_t(4 * l3 + 3)};
+inline u8x16_av Lanes32Mask() {
+  u8x16_av m = {uint8_t(4 * l0),     uint8_t(4 * l0 + 1), uint8_t(4 * l0 + 2),
+                uint8_t(4 * l0 + 3), uint8_t(4 * l1),     uint8_t(4 * l1 + 1),
+                uint8_t(4 * l1 + 2), uint8_t(4 * l1 + 3), uint8_t(4 * l2),
+                uint8_t(4 * l2 + 1), uint8_t(4 * l2 + 2), uint8_t(4 * l2 + 3),
+                uint8_t(4 * l3),     uint8_t(4 * l3 + 1), uint8_t(4 * l3 + 2),
+                uint8_t(4 * l3 + 3)};
   return m;
 }
 
 template <int8_t l0, int8_t l1, int8_t l2, int8_t l3, int8_t l4, int8_t l5,
           int8_t l6, int8_t l7>
-inline u8x16_vsx Lanes16Mask() {
-  u8x16_vsx m = {uint8_t(2 * l0),     uint8_t(2 * l0 + 1), uint8_t(2 * l1),
-                 uint8_t(2 * l1 + 1), uint8_t(2 * l2),     uint8_t(2 * l2 + 1),
-                 uint8_t(2 * l3),     uint8_t(2 * l3 + 1), uint8_t(2 * l4),
-                 uint8_t(2 * l4 + 1), uint8_t(2 * l5),     uint8_t(2 * l5 + 1),
-                 uint8_t(2 * l6),     uint8_t(2 * l6 + 1), uint8_t(2 * l7),
-                 uint8_t(2 * l7 + 1)};
+inline u8x16_av Lanes16Mask() {
+  u8x16_av m = {uint8_t(2 * l0),     uint8_t(2 * l0 + 1), uint8_t(2 * l1),
+                uint8_t(2 * l1 + 1), uint8_t(2 * l2),     uint8_t(2 * l2 + 1),
+                uint8_t(2 * l3),     uint8_t(2 * l3 + 1), uint8_t(2 * l4),
+                uint8_t(2 * l4 + 1), uint8_t(2 * l5),     uint8_t(2 * l5 + 1),
+                uint8_t(2 * l6),     uint8_t(2 * l6 + 1), uint8_t(2 * l7),
+                uint8_t(2 * l7 + 1)};
   return m;
 }
 
 template <int8_t i0, int8_t i1, int8_t i2, int8_t i3>
-inline i32x4_vsx Shuffle32(i32x4_vsx aM) {
+inline i32x4_av Shuffle32(i32x4_av aM) {
   AssertIndex<i0>();
   AssertIndex<i1>();
   AssertIndex<i2>();
@@ -1223,12 +1206,12 @@ inline i32x4_vsx Shuffle32(i32x4_vsx aM) {
 // The blending code shuffles 32-bit lanes of a vector it otherwise treats as
 // 16-bit lanes.
 template <int8_t i0, int8_t i1, int8_t i2, int8_t i3>
-inline i16x8_vsx Shuffle32(i16x8_vsx aM) {
-  return (i16x8_vsx)Shuffle32<i0, i1, i2, i3>((i32x4_vsx)aM);
+inline i16x8_av Shuffle32(i16x8_av aM) {
+  return (i16x8_av)Shuffle32<i0, i1, i2, i3>((i32x4_av)aM);
 }
 
 template <int8_t i0, int8_t i1, int8_t i2, int8_t i3>
-inline i16x8_vsx ShuffleLo16(i16x8_vsx aM) {
+inline i16x8_av ShuffleLo16(i16x8_av aM) {
   AssertIndex<i0>();
   AssertIndex<i1>();
   AssertIndex<i2>();
@@ -1237,7 +1220,7 @@ inline i16x8_vsx ShuffleLo16(i16x8_vsx aM) {
 }
 
 template <int8_t i0, int8_t i1, int8_t i2, int8_t i3>
-inline i16x8_vsx ShuffleHi16(i16x8_vsx aM) {
+inline i16x8_av ShuffleHi16(i16x8_av aM) {
   AssertIndex<i0>();
   AssertIndex<i1>();
   AssertIndex<i2>();
@@ -1247,19 +1230,19 @@ inline i16x8_vsx ShuffleHi16(i16x8_vsx aM) {
 }
 
 template <int8_t aIndex>
-inline i32x4_vsx Splat32(i32x4_vsx aM) {
+inline i32x4_av Splat32(i32x4_av aM) {
   AssertIndex<aIndex>();
   return vec_splat(aM, aIndex);
 }
 
 template <int8_t aIndex>
-inline u8x16_vsx Splat32On8(u8x16_vsx aM) {
+inline u8x16_av Splat32On8(u8x16_av aM) {
   AssertIndex<aIndex>();
-  return (u8x16_vsx)vec_splat((i32x4_vsx)aM, aIndex);
+  return (u8x16_av)vec_splat((i32x4_av)aM, aIndex);
 }
 
 template <int8_t aIndexLo, int8_t aIndexHi>
-inline i16x8_vsx Splat16(i16x8_vsx aM) {
+inline i16x8_av Splat16(i16x8_av aM) {
   AssertIndex<aIndexLo>();
   AssertIndex<aIndexHi>();
   return vec_perm(
@@ -1270,56 +1253,52 @@ inline i16x8_vsx Splat16(i16x8_vsx aM) {
 
 // Zero-extends bytes to 16-bit lanes; the zero half of each lane is the high
 // byte, which is the second byte on little-endian and the first on big-endian.
-inline i16x8_vsx UnpackLo8x8ToI16x8(u8x16_vsx m) {
-  const u8x16_vsx zero = vec_splats((unsigned char)0);
-  if constexpr (kVsxLittleEndian) {
-    return (i16x8_vsx)vec_mergeh(m, zero);
+inline i16x8_av UnpackLo8x8ToI16x8(u8x16_av m) {
+  const u8x16_av zero = vec_splats((unsigned char)0);
+  if constexpr (kAltiVecLittleEndian) {
+    return (i16x8_av)vec_mergeh(m, zero);
   } else {
-    return (i16x8_vsx)vec_mergeh(zero, m);
+    return (i16x8_av)vec_mergeh(zero, m);
   }
 }
 
-inline i16x8_vsx UnpackHi8x8ToI16x8(u8x16_vsx m) {
-  const u8x16_vsx zero = vec_splats((unsigned char)0);
-  if constexpr (kVsxLittleEndian) {
-    return (i16x8_vsx)vec_mergel(m, zero);
+inline i16x8_av UnpackHi8x8ToI16x8(u8x16_av m) {
+  const u8x16_av zero = vec_splats((unsigned char)0);
+  if constexpr (kAltiVecLittleEndian) {
+    return (i16x8_av)vec_mergel(m, zero);
   } else {
-    return (i16x8_vsx)vec_mergel(zero, m);
+    return (i16x8_av)vec_mergel(zero, m);
   }
 }
 
-inline i16x8_vsx UnpackLo8x8ToU16x8(u8x16_vsx m) {
-  return UnpackLo8x8ToI16x8(m);
-}
+inline i16x8_av UnpackLo8x8ToU16x8(u8x16_av m) { return UnpackLo8x8ToI16x8(m); }
 
-inline i16x8_vsx UnpackHi8x8ToU16x8(u8x16_vsx m) {
-  return UnpackHi8x8ToI16x8(m);
-}
+inline i16x8_av UnpackHi8x8ToU16x8(u8x16_av m) { return UnpackHi8x8ToI16x8(m); }
 
-inline u8x16_vsx InterleaveLo8(u8x16_vsx m1, u8x16_vsx m2) {
+inline u8x16_av InterleaveLo8(u8x16_av m1, u8x16_av m2) {
   return vec_mergeh(m1, m2);
 }
 
-inline u8x16_vsx InterleaveHi8(u8x16_vsx m1, u8x16_vsx m2) {
+inline u8x16_av InterleaveHi8(u8x16_av m1, u8x16_av m2) {
   return vec_mergel(m1, m2);
 }
 
-inline i16x8_vsx InterleaveLo16(i16x8_vsx m1, i16x8_vsx m2) {
+inline i16x8_av InterleaveLo16(i16x8_av m1, i16x8_av m2) {
   return vec_mergeh(m1, m2);
 }
 
-inline i16x8_vsx InterleaveHi16(i16x8_vsx m1, i16x8_vsx m2) {
+inline i16x8_av InterleaveHi16(i16x8_av m1, i16x8_av m2) {
   return vec_mergel(m1, m2);
 }
 
-inline i32x4_vsx InterleaveLo32(i32x4_vsx m1, i32x4_vsx m2) {
+inline i32x4_av InterleaveLo32(i32x4_av m1, i32x4_av m2) {
   return vec_mergeh(m1, m2);
 }
 
 template <uint8_t aNumBytes>
-inline u8x16_vsx Rotate8(u8x16_vsx a1234, u8x16_vsx a5678) {
+inline u8x16_av Rotate8(u8x16_av a1234, u8x16_av a5678) {
   constexpr uint8_t n = aNumBytes;
-  const u8x16_vsx mask = {
+  const u8x16_av mask = {
       uint8_t(n),      uint8_t(n + 1),  uint8_t(n + 2),  uint8_t(n + 3),
       uint8_t(n + 4),  uint8_t(n + 5),  uint8_t(n + 6),  uint8_t(n + 7),
       uint8_t(n + 8),  uint8_t(n + 9),  uint8_t(n + 10), uint8_t(n + 11),
@@ -1327,81 +1306,99 @@ inline u8x16_vsx Rotate8(u8x16_vsx a1234, u8x16_vsx a5678) {
   return vec_perm(a1234, a5678, mask);
 }
 
-inline i16x8_vsx PackAndSaturate32To16(i32x4_vsx m1, i32x4_vsx m2) {
+inline i16x8_av PackAndSaturate32To16(i32x4_av m1, i32x4_av m2) {
   return vec_packs(m1, m2);
 }
 
 // Clamps to [0, INT16_MAX] like the scalar SaturateToU16.
-inline i16x8_vsx PackAndSaturate32ToU16(i32x4_vsx m1, i32x4_vsx m2) {
-  const i32x4_vsx zero = vec_splats(0);
+inline i16x8_av PackAndSaturate32ToU16(i32x4_av m1, i32x4_av m2) {
+  const i32x4_av zero = vec_splats(0);
   return vec_packs(vec_max(m1, zero), vec_max(m2, zero));
 }
 
-inline u8x16_vsx PackAndSaturate32To8(i32x4_vsx m1, i32x4_vsx m2, i32x4_vsx m3,
-                                      const i32x4_vsx& m4) {
+inline u8x16_av PackAndSaturate32To8(i32x4_av m1, i32x4_av m2, i32x4_av m3,
+                                     const i32x4_av& m4) {
   return vec_packsu(vec_packs(m1, m2), vec_packs(m3, m4));
 }
 
-inline u8x16_vsx PackAndSaturate16To8(i16x8_vsx m1, i16x8_vsx m2) {
+inline u8x16_av PackAndSaturate16To8(i16x8_av m1, i16x8_av m2) {
   return vec_packsu(m1, m2);
 }
 
-inline i32x4_vsx FastDivideBy255(i32x4_vsx m) {
+inline i32x4_av FastDivideBy255(i32x4_av m) {
   // (m << 8) + m + 255, then an arithmetic shift right by 16.
-  i32x4_vsx v = vec_sl(m, vec_splats(8u));
+  i32x4_av v = vec_sl(m, vec_splats(8u));
   v = vec_add(v, vec_add(m, vec_splats(255)));
   return vec_sra(v, vec_splats(16u));
 }
 
-inline i16x8_vsx FastDivideBy255_16(i16x8_vsx m) {
-  const i16x8_vsx zero = vec_splats(int16_t(0));
-  i32x4_vsx lo, hi;
-  if constexpr (kVsxLittleEndian) {
-    lo = (i32x4_vsx)vec_mergeh(m, zero);
-    hi = (i32x4_vsx)vec_mergel(m, zero);
+inline i16x8_av FastDivideBy255_16(i16x8_av m) {
+  const i16x8_av zero = vec_splats(int16_t(0));
+  i32x4_av lo, hi;
+  if constexpr (kAltiVecLittleEndian) {
+    lo = (i32x4_av)vec_mergeh(m, zero);
+    hi = (i32x4_av)vec_mergel(m, zero);
   } else {
-    lo = (i32x4_vsx)vec_mergeh(zero, m);
-    hi = (i32x4_vsx)vec_mergel(zero, m);
+    lo = (i32x4_av)vec_mergeh(zero, m);
+    hi = (i32x4_av)vec_mergel(zero, m);
   }
   return vec_packs(FastDivideBy255(lo), FastDivideBy255(hi));
 }
 
-inline u8x16_vsx Pick(u8x16_vsx mask, u8x16_vsx a, u8x16_vsx b) {
+inline u8x16_av Pick(u8x16_av mask, u8x16_av a, u8x16_av b) {
   return vec_sel(a, b, mask);
 }
 
-inline i32x4_vsx Pick(i32x4_vsx mask, i32x4_vsx a, i32x4_vsx b) {
+inline i32x4_av Pick(i32x4_av mask, i32x4_av a, i32x4_av b) {
   return vec_sel(a, b, (__vector unsigned int)mask);
 }
 
-inline f32x4_vsx MixF32(f32x4_vsx a, f32x4_vsx b, float t) {
-  return vec_add(a, vec_mul(vec_sub(b, a), vec_splats(t)));
+// Plain AltiVec has no vector float multiply; vmaddfp with a -0.0 addend
+// rounds the product once like a multiply would.
+inline f32x4_av MulF32Raw(f32x4_av a, f32x4_av b) {
+#  ifdef __VSX__
+  return vec_mul(a, b);
+#  else
+  return vec_madd(a, b, vec_splats(-0.0f));
+#  endif
 }
 
-inline f32x4_vsx WSumF32(f32x4_vsx a, f32x4_vsx b, float wa, float wb) {
-  return vec_add(vec_mul(a, vec_splats(wa)), vec_mul(b, vec_splats(wb)));
+inline f32x4_av MixF32(f32x4_av a, f32x4_av b, float t) {
+  return vec_add(a, MulF32Raw(vec_sub(b, a), vec_splats(t)));
 }
 
-inline f32x4_vsx AbsF32(f32x4_vsx a) { return vec_abs(a); }
+inline f32x4_av WSumF32(f32x4_av a, f32x4_av b, float wa, float wb) {
+  return vec_add(MulF32Raw(a, vec_splats(wa)), MulF32Raw(b, vec_splats(wb)));
+}
 
-inline f32x4_vsx AddF32(f32x4_vsx a, f32x4_vsx b) { return vec_add(a, b); }
+inline f32x4_av AbsF32(f32x4_av a) { return vec_abs(a); }
 
-inline f32x4_vsx MulF32(f32x4_vsx a, f32x4_vsx b) { return vec_mul(a, b); }
+inline f32x4_av AddF32(f32x4_av a, f32x4_av b) { return vec_add(a, b); }
 
-inline f32x4_vsx DivF32(f32x4_vsx a, f32x4_vsx b) { return vec_div(a, b); }
+inline f32x4_av MulF32(f32x4_av a, f32x4_av b) { return MulF32Raw(a, b); }
+
+inline f32x4_av DivF32(f32x4_av a, f32x4_av b) {
+#  ifdef __VSX__
+  return vec_div(a, b);
+#  else
+  // Plain AltiVec has no divide; keep the scalar exactness.
+  f32x4_av r = {a[0] / b[0], a[1] / b[1], a[2] / b[2], a[3] / b[3]};
+  return r;
+#  endif
+}
 
 template <uint8_t aIndex>
-inline f32x4_vsx SplatF32(f32x4_vsx m) {
+inline f32x4_av SplatF32(f32x4_av m) {
   AssertIndex<aIndex>();
   return vec_splat(m, aIndex);
 }
 
 // floor(x + 0.5) like the scalar F32ToI32.
-inline i32x4_vsx F32ToI32(f32x4_vsx m) {
+inline i32x4_av F32ToI32(f32x4_av m) {
   return vec_cts(vec_floor(vec_add(m, vec_splats(0.5f))), 0);
 }
 
-#endif  // SIMD_COMPILE_VSX
+#endif  // SIMD_COMPILE_ALTIVEC
 
 }  // namespace simd
 
