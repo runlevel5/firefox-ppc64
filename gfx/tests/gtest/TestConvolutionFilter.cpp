@@ -6,9 +6,10 @@
 #include "gtest/gtest.h"
 #include "mozilla/SSE.h"
 
-// The horizontal convolution kernels are SIMD-specialized only on x86; this
-// mirrors the CONFIG["INTEL_ARCHITECTURE"] guard that compiles them.
-#if defined(MOZILLA_MAY_SUPPORT_SSE2)
+// The horizontal convolution kernels are SIMD-specialized on x86 (mirroring
+// the CONFIG["INTEL_ARCHITECTURE"] guard that compiles them) and on PowerPC
+// with VSX.
+#if defined(MOZILLA_MAY_SUPPORT_SSE2) || defined(USE_VSX)
 
 #  include <algorithm>
 #  include <array>
@@ -22,12 +23,19 @@ using skia::SkConvolutionFilter1D;
 // These have external linkage but are not declared in a public header; the
 // dispatcher in SkConvolver.cpp forward-declares them the same way.
 namespace skia {
+#  if defined(MOZILLA_MAY_SUPPORT_SSE2)
 void convolve_horizontally_sse2(const unsigned char* srcData,
                                 const SkConvolutionFilter1D& filter,
                                 unsigned char* outRow, bool hasAlpha);
 void convolve_horizontally_avx2(const unsigned char* srcData,
                                 const SkConvolutionFilter1D& filter,
                                 unsigned char* outRow, bool hasAlpha);
+#  endif
+#  if defined(USE_VSX)
+void convolve_horizontally_vsx(const unsigned char* srcData,
+                               const SkConvolutionFilter1D& filter,
+                               unsigned char* outRow, bool hasAlpha);
+#  endif
 }  // namespace skia
 
 namespace {
@@ -112,7 +120,9 @@ TEST(Moz2D, ConvolveHorizontallySIMDMatchesReference)
       [](int) { return 24; }, [](int x) { return 1 + (x % 23); },
   };
 
+#  if defined(MOZILLA_MAY_SUPPORT_SSE2)
   const bool haveAvx2 = mozilla::supports_avx2();
+#  endif
 
   constexpr int kNumValues = 41;
   constexpr size_t kOutBytes = size_t(kNumValues) * 4;
@@ -126,6 +136,7 @@ TEST(Moz2D, ConvolveHorizontallySIMDMatchesReference)
     std::array<uint8_t, kOutBytes> ref{};
     ConvolveHorizontallyReference(src.data(), filter, ref.data());
 
+#  if defined(MOZILLA_MAY_SUPPORT_SSE2)
     std::array<uint8_t, kOutBytes> outSse2;
     outSse2.fill(0xAB);
     skia::convolve_horizontally_sse2(src.data(), filter, outSse2.data(),
@@ -139,7 +150,15 @@ TEST(Moz2D, ConvolveHorizontallySIMDMatchesReference)
                                        /* hasAlpha */ true);
       EXPECT_EQ(ref, outAvx2);
     }
+#  endif
+#  if defined(USE_VSX)
+    std::array<uint8_t, kOutBytes> outVsx;
+    outVsx.fill(0xEF);
+    skia::convolve_horizontally_vsx(src.data(), filter, outVsx.data(),
+                                    /* hasAlpha */ true);
+    EXPECT_EQ(ref, outVsx);
+#  endif
   }
 }
 
-#endif  // MOZILLA_MAY_SUPPORT_SSE2
+#endif  // MOZILLA_MAY_SUPPORT_SSE2 || USE_VSX
