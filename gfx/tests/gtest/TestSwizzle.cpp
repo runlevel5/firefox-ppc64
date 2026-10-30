@@ -59,6 +59,9 @@ constexpr SwizzleArch kSwizzleArchs[] = {
 #ifdef USE_NEON
     SwizzleArch::eNEON,
 #endif
+#ifdef USE_VSX
+    SwizzleArch::eVSX,
+#endif
 };
 
 static uint8_t RefPremultiply(uint8_t aColor, uint8_t aAlpha) {
@@ -1546,6 +1549,11 @@ MOZ_GTEST_BENCH_F(Moz2D_SwizzleBench, Unpack_RGB_BGRX_NEON, [this]() -> bool {
                     SurfaceFormat::B8G8R8X8, SwizzleArch::eNEON);
 });
 
+MOZ_GTEST_BENCH_F(Moz2D_SwizzleBench, Unpack_RGB_BGRX_VSX, [this]() -> bool {
+  return SwizzleRow(SwizzleOp::Copy, SurfaceFormat::R8G8B8,
+                    SurfaceFormat::B8G8R8X8, SwizzleArch::eVSX);
+});
+
 MOZ_GTEST_BENCH_F(Moz2D_SwizzleBench, Unpack_RGB_BGRX_SSSE3, [this]() -> bool {
   return SwizzleRow(SwizzleOp::Copy, SurfaceFormat::R8G8B8,
                     SurfaceFormat::B8G8R8X8, SwizzleArch::eSSSE3);
@@ -1573,6 +1581,11 @@ MOZ_GTEST_BENCH_F(Moz2D_SwizzleBench, Swizzle_RGBA_BGRX_Generic,
 MOZ_GTEST_BENCH_F(Moz2D_SwizzleBench, Swizzle_RGBA_BGRX_NEON, [this]() -> bool {
   return SwizzleData(SwizzleOp::Copy, SurfaceFormat::R8G8B8A8,
                      SurfaceFormat::B8G8R8X8, SwizzleArch::eNEON);
+});
+
+MOZ_GTEST_BENCH_F(Moz2D_SwizzleBench, Swizzle_RGBA_BGRX_VSX, [this]() -> bool {
+  return SwizzleData(SwizzleOp::Copy, SurfaceFormat::R8G8B8A8,
+                     SurfaceFormat::B8G8R8X8, SwizzleArch::eVSX);
 });
 
 MOZ_GTEST_BENCH_F(Moz2D_SwizzleBench, Swizzle_RGBA_BGRX_SSE2, [this]() -> bool {
@@ -1613,6 +1626,13 @@ MOZ_GTEST_BENCH_F(Moz2D_SwizzleBench, Swizzle_InvertedCMYK_BGRX_NEON,
                         SurfaceFormat::B8G8R8X8, SwizzleArch::eNEON);
                   });
 
+MOZ_GTEST_BENCH_F(Moz2D_SwizzleBench, Swizzle_InvertedCMYK_BGRX_VSX,
+                  [this]() -> bool {
+                    return SwizzleRow(
+                        SwizzleOp::Copy, SurfaceFormat::InvertedCMYK,
+                        SurfaceFormat::B8G8R8X8, SwizzleArch::eVSX);
+                  });
+
 MOZ_GTEST_BENCH_F(Moz2D_SwizzleBench, Swizzle_InvertedCMYK_BGRX_SSE2,
                   [this]() -> bool {
                     return SwizzleRow(
@@ -1648,6 +1668,13 @@ MOZ_GTEST_BENCH_F(Moz2D_SwizzleBench, Premultiply_RGBA_BGRA_NEON,
                         SurfaceFormat::B8G8R8A8, SwizzleArch::eNEON);
                   });
 
+MOZ_GTEST_BENCH_F(Moz2D_SwizzleBench, Premultiply_RGBA_BGRA_VSX,
+                  [this]() -> bool {
+                    return SwizzleData(
+                        SwizzleOp::Premultiply, SurfaceFormat::R8G8B8A8,
+                        SurfaceFormat::B8G8R8A8, SwizzleArch::eVSX);
+                  });
+
 MOZ_GTEST_BENCH_F(Moz2D_SwizzleBench, Premultiply_RGBA_BGRA_SSE2,
                   [this]() -> bool {
                     return SwizzleData(
@@ -1681,6 +1708,13 @@ MOZ_GTEST_BENCH_F(Moz2D_SwizzleBench, Unpremultiply_RGBA_BGRA_NEON,
                     return SwizzleData(
                         SwizzleOp::Unpremultiply, SurfaceFormat::R8G8B8A8,
                         SurfaceFormat::B8G8R8A8, SwizzleArch::eNEON);
+                  });
+
+MOZ_GTEST_BENCH_F(Moz2D_SwizzleBench, Unpremultiply_RGBA_BGRA_VSX,
+                  [this]() -> bool {
+                    return SwizzleData(
+                        SwizzleOp::Unpremultiply, SurfaceFormat::R8G8B8A8,
+                        SurfaceFormat::B8G8R8A8, SwizzleArch::eVSX);
                   });
 
 MOZ_GTEST_BENCH_F(Moz2D_SwizzleBench, Unpremultiply_RGBA_BGRA_SSE2,
