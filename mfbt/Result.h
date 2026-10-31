@@ -280,6 +280,13 @@ class ResultImplementation<V, E, PackingStrategy::LowBitTagIsError> {
   }
   explicit constexpr ResultImplementation(E aErrorValue) : mBits(1) {
     if constexpr (!std::is_empty_v<E>) {
+      // Clear mBits before copying the error payload. When E is smaller than a
+      // word, big-endian targets memcpy it into the high-order bytes, leaving
+      // the tag bit set by the |mBits(1)| initializer in the low byte; that
+      // trips the assertion below even though |= 1 would set the tag anyway. On
+      // little-endian the memcpy overwrites the initializer, so clearing first
+      // is equivalent there.
+      mBits = 0;
       std::memcpy(&mBits, &aErrorValue, sizeof(E));
       MOZ_ASSERT((mBits & 1) == 0);
       mBits |= 1;
@@ -298,7 +305,13 @@ class ResultImplementation<V, E, PackingStrategy::LowBitTagIsError> {
   constexpr V unwrap() { return inspect(); }
 
   constexpr E inspectErr() const {
-    const auto bits = mBits ^ 1;
+    // Keep the cleared-tag value in StorageType. |mBits ^ 1| integer-promotes to
+    // int when StorageType is narrower than int (e.g. uint8_t when both V and E
+    // are byte-sized), and the memcpy below would then copy sizeof(E) bytes from
+    // the low-address end of that int -- the high-order, zero bytes on
+    // big-endian -- producing a zero-valued error. Truncating back to
+    // StorageType keeps the payload byte where memcpy expects it.
+    const StorageType bits = mBits ^ 1;
     E res;
     std::memcpy(&res, &bits, sizeof(E));
     return res;

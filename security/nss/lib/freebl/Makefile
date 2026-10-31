@@ -299,7 +299,7 @@ ifdef USE_64
         ASFILES += sha512-p8.s
     ifeq ($(OS_TEST),ppc64le)
         EXTRA_SRCS += chacha20poly1305-ppc.c ppc-gcm-wrap.c
-        ASFILES += chacha20-ppc64le.s ppc-gcm.s
+        ASFILES += chacha20-ppc64le.s ppc-gcm.S
         DEFINES += -DHAVE_PLATFORM_GCM
     endif # ppc64le
     endif

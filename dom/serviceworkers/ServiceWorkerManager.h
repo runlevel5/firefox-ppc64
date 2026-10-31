@@ -217,6 +217,13 @@ class ServiceWorkerManager final : public nsIServiceWorkerManager,
                           uint32_t aFlags);
 
   /**
+   * Ask the BigEndianWarning actor of every window controlled by the given
+   * scope to tell the user that the page's code does not support big-endian
+   * hardware.
+   */
+  void NotifyBigEndianUnsupported(const nsACString& aScope);
+
+  /**
    * Report a localized error for the given scope to any window we think might
    * be interested.
    *

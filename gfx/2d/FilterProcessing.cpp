@@ -8,6 +8,10 @@
 
 #include "mozilla/SSE.h"
 
+#ifdef USE_ALTIVEC
+#  include "mozilla/ppc.h"
+#endif
+
 namespace mozilla {
 namespace gfx {
 
@@ -35,6 +39,10 @@ already_AddRefed<DataSourceSurface> FilterProcessing::ExtractAlpha(
 #ifdef USE_SSE2
     ExtractAlpha_SSE2(size, sourceData, sourceStride, alphaData, alphaStride);
 #endif
+#ifdef USE_ALTIVEC
+  } else if (mozilla::supports_vmx()) {
+    ExtractAlpha_AltiVec(size, sourceData, sourceStride, alphaData, alphaStride);
+#endif
   } else {
     ExtractAlpha_Scalar(size, sourceData, sourceStride, alphaData, alphaStride);
   }
@@ -48,6 +56,10 @@ already_AddRefed<DataSourceSurface> FilterProcessing::ConvertToB8G8R8A8(
 #ifdef USE_SSE2
     return ConvertToB8G8R8A8_SSE2(aSurface);
 #endif
+#ifdef USE_ALTIVEC
+  } else if (mozilla::supports_vmx()) {
+    return ConvertToB8G8R8A8_AltiVec(aSurface);
+#endif
   }
   return ConvertToB8G8R8A8_Scalar(aSurface);
 }
@@ -58,6 +70,10 @@ already_AddRefed<DataSourceSurface> FilterProcessing::ApplyBlending(
   if (mozilla::supports_sse2()) {
 #ifdef USE_SSE2
     return ApplyBlending_SSE2(aInput1, aInput2, aBlendMode);
+#endif
+#ifdef USE_ALTIVEC
+  } else if (mozilla::supports_vmx()) {
+    return ApplyBlending_AltiVec(aInput1, aInput2, aBlendMode);
 #endif
   }
   return nullptr;
@@ -71,6 +87,11 @@ void FilterProcessing::ApplyMorphologyHorizontal(
 #ifdef USE_SSE2
     ApplyMorphologyHorizontal_SSE2(aSourceData, aSourceStride, aDestData,
                                    aDestStride, aDestRect, aRadius, aOp);
+#endif
+#ifdef USE_ALTIVEC
+  } else if (mozilla::supports_vmx()) {
+    ApplyMorphologyHorizontal_AltiVec(aSourceData, aSourceStride, aDestData,
+                                  aDestStride, aDestRect, aRadius, aOp);
 #endif
   } else {
     ApplyMorphologyHorizontal_Scalar(aSourceData, aSourceStride, aDestData,
@@ -87,6 +108,11 @@ void FilterProcessing::ApplyMorphologyVertical(
     ApplyMorphologyVertical_SSE2(aSourceData, aSourceStride, aDestData,
                                  aDestStride, aDestRect, aRadius, aOp);
 #endif
+#ifdef USE_ALTIVEC
+  } else if (mozilla::supports_vmx()) {
+    ApplyMorphologyVertical_AltiVec(aSourceData, aSourceStride, aDestData,
+                                aDestStride, aDestRect, aRadius, aOp);
+#endif
   } else {
     ApplyMorphologyVertical_Scalar(aSourceData, aSourceStride, aDestData,
                                    aDestStride, aDestRect, aRadius, aOp);
@@ -99,6 +125,10 @@ already_AddRefed<DataSourceSurface> FilterProcessing::ApplyColorMatrix(
 #ifdef USE_SSE2
     return ApplyColorMatrix_SSE2(aInput, aMatrix);
 #endif
+#ifdef USE_ALTIVEC
+  } else if (mozilla::supports_vmx()) {
+    return ApplyColorMatrix_AltiVec(aInput, aMatrix);
+#endif
   }
   return ApplyColorMatrix_Scalar(aInput, aMatrix);
 }
@@ -109,6 +139,10 @@ void FilterProcessing::ApplyComposition(DataSourceSurface* aSource,
   if (mozilla::supports_sse2()) {
 #ifdef USE_SSE2
     ApplyComposition_SSE2(aSource, aDest, aOperator);
+#endif
+#ifdef USE_ALTIVEC
+  } else if (mozilla::supports_vmx()) {
+    ApplyComposition_AltiVec(aSource, aDest, aOperator);
 #endif
   } else {
     ApplyComposition_Scalar(aSource, aDest, aOperator);
@@ -137,6 +171,11 @@ void FilterProcessing::DoOpacityCalculation(
     DoOpacityCalculation_SSE2(aSize, aTargetData, aTargetStride, aSourceData,
                               aSourceStride, aValue);
 #endif
+#ifdef USE_ALTIVEC
+  } else if (mozilla::supports_vmx()) {
+    DoOpacityCalculation_AltiVec(aSize, aTargetData, aTargetStride, aSourceData,
+                             aSourceStride, aValue);
+#endif
   } else {
     DoOpacityCalculation_Scalar(aSize, aTargetData, aTargetStride, aSourceData,
                                 aSourceStride, aValue);
@@ -159,6 +198,11 @@ already_AddRefed<DataSourceSurface> FilterProcessing::RenderTurbulence(
     return RenderTurbulence_SSE2(aSize, aOffset, aBaseFrequency, aSeed,
                                  aNumOctaves, aType, aStitch, aTileRect);
 #endif
+#ifdef USE_ALTIVEC
+  } else if (mozilla::supports_vmx()) {
+    return RenderTurbulence_AltiVec(aSize, aOffset, aBaseFrequency, aSeed,
+                                aNumOctaves, aType, aStitch, aTileRect);
+#endif
   }
   return RenderTurbulence_Scalar(aSize, aOffset, aBaseFrequency, aSeed,
                                  aNumOctaves, aType, aStitch, aTileRect);
@@ -170,6 +214,10 @@ already_AddRefed<DataSourceSurface> FilterProcessing::ApplyArithmeticCombine(
   if (mozilla::supports_sse2()) {
 #ifdef USE_SSE2
     return ApplyArithmeticCombine_SSE2(aInput1, aInput2, aK1, aK2, aK3, aK4);
+#endif
+#ifdef USE_ALTIVEC
+  } else if (mozilla::supports_vmx()) {
+    return ApplyArithmeticCombine_AltiVec(aInput1, aInput2, aK1, aK2, aK3, aK4);
 #endif
   }
   return ApplyArithmeticCombine_Scalar(aInput1, aInput2, aK1, aK2, aK3, aK4);

@@ -450,6 +450,14 @@ SkBlitter* SkRasterPipelineBlitter::Create(const SkPixmap& dst,
         blitter->appendStore(&p);
         p.run(0,0,1,1);
 
+#ifdef SK_CPU_BENDIAN
+        // The store wrote bytesPerPixel bytes to the start of fMemsetColor,
+        // which on big-endian is its most significant end, while the memsets
+        // below take the value from the least significant end.
+        blitter->fMemsetColor >>= 8 * (sizeof(blitter->fMemsetColor) -
+                                       dst.info().bytesPerPixel());
+#endif
+
         switch (blitter->fDst.shiftPerPixel()) {
             case 0: blitter->fMemset2D = [](SkPixmap* dst, int x,int y, int w,int h, uint64_t c) {
                 void* p = dst->writable_addr(x,y);

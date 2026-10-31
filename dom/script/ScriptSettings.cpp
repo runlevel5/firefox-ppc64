@@ -21,6 +21,7 @@
 #include "js/loader/ScriptLoadRequest.h"
 #include "jsapi.h"
 #include "mozilla/Assertions.h"
+#include "mozilla/AsyncEventDispatcher.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/CycleCollectedJSContext.h"
 #include "mozilla/DebugOnly.h"
@@ -478,6 +479,14 @@ void WarningOnlyErrorReporter(JSContext* aCx, JSErrorReport* aRep) {
   xpcReport->Init(aRep, nullptr, nsContentUtils::IsSystemCaller(aCx),
                   win ? win->WindowID() : 0);
   xpcReport->LogToConsole();
+
+  if (aRep->errorNumber == JSMSG_BIG_ENDIAN_UNSUPPORTED && win) {
+    if (Document* doc = win->GetExtantDoc()) {
+      (new AsyncEventDispatcher(doc, u"MozBigEndianUnsupported"_ns,
+                                CanBubble::eYes, ChromeOnlyDispatch::eYes))
+          ->PostDOMEvent();
+    }
+  }
 }
 
 void AutoJSAPI::ReportException() {

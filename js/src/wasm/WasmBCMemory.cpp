@@ -343,10 +343,13 @@ void BaseCompiler::boundsCheckBelow4GBAccess(uint32_t memoryIndex,
                                              RegI32 ptr, Label* ok) {
   // If the memory's max size is known to be smaller than 64K pages exactly,
   // we can use a 32-bit check and avoid extension and wrapping.
-  masm.wasmBoundsCheck32(Assembler::Below, ptr,
-                         Address(instance, instanceOffsetOfBoundsCheckLimit(
-                                               memoryIndex, byteSize)),
-                         ok);
+  uint32_t offset = instanceOffsetOfBoundsCheckLimit(memoryIndex, byteSize);
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // The bounds check limit is a pointer-sized field; the 32-bit check must
+  // read its low word.
+  offset += sizeof(uint32_t);
+#endif
+  masm.wasmBoundsCheck32(Assembler::Below, ptr, Address(instance, offset), ok);
 }
 
 void BaseCompiler::boundsCheck4GBOrLargerAccess(uint32_t memoryIndex,
@@ -372,7 +375,7 @@ void BaseCompiler::boundsCheckBelow4GBAccess(uint32_t memoryIndex,
 // Make sure the ptr could be used as an index register.
 static inline void ToValidIndex(MacroAssembler& masm, RegI32 ptr) {
 #if defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
-    defined(JS_CODEGEN_RISCV64)
+    defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
   // When ptr is used as an index, it will be added to a 64-bit register.
   // So we should explicitly promote ptr to 64-bit. Since now ptr holds a
   // unsigned 32-bit value, we zero-extend it to 64-bit here.
@@ -645,6 +648,13 @@ void BaseCompiler::executeLoad(MemoryAccessDesc* access, AccessCheck* check,
   } else {
     masm.wasmLoad(*access, memoryBase, ptr, dest.any());
   }
+#elif defined(JS_CODEGEN_PPC64)
+  MOZ_ASSERT(temp.isInvalid());
+  if (dest.tag == AnyReg::I64) {
+    masm.wasmLoadI64(*access, memoryBase, ptr, ptr, dest.i64());
+  } else {
+    masm.wasmLoad(*access, memoryBase, ptr, ptr, dest.any());
+  }
 #else
   MOZ_CRASH("BaseCompiler platform hook: load");
 #endif
@@ -675,10 +685,11 @@ void BaseCompiler::load(MemoryAccessDesc* access, AccessCheck* check,
   // generated is the same for the 64-bit and the 32-bit case.
   return executeLoad(access, check, instance, memoryBase, RegI32(ptr.reg), dest,
                      maybeFromI64(temp));
-#elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64)
-  // On mips64 and loongarch64, the 'prepareMemoryAccess' function will make
-  // sure that ptr holds a valid 64-bit index value. Thus the code generated in
-  // 'executeLoad' is the same for the 64-bit and the 32-bit case.
+#elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
+    defined(JS_CODEGEN_PPC64)
+  // On mips64, loongarch64, and ppc64, the 'prepareMemoryAccess' function will
+  // make sure that ptr holds a valid 64-bit index value. Thus the code
+  // generated in 'executeLoad' is the same for the 64-bit and the 32-bit case.
   return executeLoad(access, check, instance, memoryBase, RegI32(ptr.reg), dest,
                      maybeFromI64(temp));
 #elif defined(JS_CODEGEN_RISCV64)
@@ -788,6 +799,13 @@ void BaseCompiler::executeStore(MemoryAccessDesc* access, AccessCheck* check,
   } else {
     masm.wasmStore(*access, src.any(), memoryBase, ptr);
   }
+#elif defined(JS_CODEGEN_PPC64)
+  MOZ_ASSERT(temp.isInvalid());
+  if (access->type() == Scalar::Int64) {
+    masm.wasmStoreI64(*access, src.i64(), memoryBase, ptr, ptr);
+  } else {
+    masm.wasmStore(*access, src.any(), memoryBase, ptr, ptr);
+  }
 #else
   MOZ_CRASH("BaseCompiler platform hook: store");
 #endif
@@ -812,7 +830,7 @@ void BaseCompiler::store(MemoryAccessDesc* access, AccessCheck* check,
                       maybeFromI64(temp));
 #elif defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM64) ||    \
     defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
-    defined(JS_CODEGEN_RISCV64)
+    defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
   return executeStore(access, check, instance, memoryBase, RegI32(ptr.reg), src,
                       maybeFromI64(temp));
 #else
@@ -1295,7 +1313,8 @@ static void Deallocate(BaseCompiler* bc, RegI32 rv, const Temps& temps) {
   bc->freeI32(temps.t0);
 }
 
-#elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64)
+#elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
+    defined(JS_CODEGEN_PPC64)
 
 struct Temps {
   RegI32 t0, t1, t2;
@@ -1504,7 +1523,7 @@ static void Deallocate(BaseCompiler* bc, AtomicOp op, RegI64 rv, RegI64 temp) {
 }
 
 #elif defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS64) || \
-    defined(JS_CODEGEN_LOONG64)
+    defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_PPC64)
 
 static void PopAndAllocate(BaseCompiler* bc, AtomicOp op, RegI64* rd,
                            RegI64* rv, RegI64* temp) {
@@ -1678,7 +1697,8 @@ static void Deallocate(BaseCompiler* bc, RegI32 rv, const Temps&) {
   bc->freeI32(rv);
 }
 
-#elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64)
+#elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
+    defined(JS_CODEGEN_PPC64)
 
 struct Temps {
   RegI32 t0, t1, t2;
@@ -1844,7 +1864,7 @@ static void Deallocate(BaseCompiler* bc, RegI64 rd, RegI64 rv) {
 }
 
 #elif defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS64) || \
-    defined(JS_CODEGEN_LOONG64)
+    defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_PPC64)
 
 static void PopAndAllocate(BaseCompiler* bc, RegI64* rd, RegI64* rv) {
   *rv = bc->popI64();
@@ -2017,7 +2037,8 @@ static void Deallocate(BaseCompiler* bc, RegI32 rexpect, RegI32 rnew,
   bc->freeI32(rexpect);
 }
 
-#elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64)
+#elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
+    defined(JS_CODEGEN_PPC64)
 
 struct Temps {
   RegI32 t0, t1, t2;
@@ -2287,7 +2308,7 @@ static void Deallocate(BaseCompiler* bc, RegI64 rexpect, RegI64 rnew) {
 }
 
 #elif defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS64) || \
-    defined(JS_CODEGEN_LOONG64)
+    defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_PPC64)
 
 template <typename RegAddressType>
 static void PopAndAllocate(BaseCompiler* bc, RegI64* rexpect, RegI64* rnew,
@@ -2885,6 +2906,11 @@ void BaseCompiler::loadExtend(MemoryAccessDesc* access, Scalar::Type viewType) {
   RegI64 rs = popI64();
   RegV128 rd = needV128();
   masm.moveGPR64ToDouble(rs, rd);
+#ifdef JS_CODEGEN_PPC64
+  // mtvsrd places value in BE dw0 (= LE dw1). widenLow* operates on LE dw0.
+  // Swap dwords to move loaded data to the correct half.
+  masm.as_xxpermdi(rd, rd, rd, 2);
+#endif
   switch (viewType) {
     case Scalar::Int8:
       masm.widenLowInt8x16(rd, rd);

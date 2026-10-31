@@ -19,6 +19,10 @@
 #  include "mozilla/arm.h"
 #endif
 
+#ifdef USE_ALTIVEC
+#  include "mozilla/ppc.h"
+#endif
+
 #include <bit>
 #include <new>
 
@@ -243,6 +247,70 @@ void UnpackRowRGB24_NEON(const uint8_t*, uint8_t*, int32_t);
         UnpackRowRGB24_NEON<ShouldSwapRB(SurfaceFormat::R8G8B8, aDstFormat)>)
 #endif
 
+#ifdef USE_ALTIVEC
+/**
+ * PowerPC AltiVec optimizations
+ */
+
+template <bool aSwapRB, bool aOpaqueAlpha>
+void Premultiply_AltiVec(const uint8_t*, int32_t, uint8_t*, int32_t, IntSize);
+
+#  define PREMULTIPLY_ALTIVEC(aSrcFormat, aDstFormat)             \
+    FORMAT_CASE(                                                  \
+        aSrcFormat, aDstFormat,                                   \
+        Premultiply_AltiVec<ShouldSwapRB(aSrcFormat, aDstFormat), \
+                            ShouldForceOpaque(aSrcFormat, aDstFormat)>)
+
+template <bool aSwapRB, bool aOpaqueAlpha>
+void PremultiplyRow_AltiVec(const uint8_t*, uint8_t*, int32_t);
+
+#  define PREMULTIPLY_ROW_ALTIVEC(aSrcFormat, aDstFormat)            \
+    FORMAT_CASE_ROW(                                                 \
+        aSrcFormat, aDstFormat,                                      \
+        PremultiplyRow_AltiVec<ShouldSwapRB(aSrcFormat, aDstFormat), \
+                               ShouldForceOpaque(aSrcFormat, aDstFormat)>)
+
+template <bool aSwapRB>
+void Unpremultiply_AltiVec(const uint8_t*, int32_t, uint8_t*, int32_t, IntSize);
+
+#  define UNPREMULTIPLY_ALTIVEC(aSrcFormat, aDstFormat) \
+    FORMAT_CASE(aSrcFormat, aDstFormat,                 \
+                Unpremultiply_AltiVec<ShouldSwapRB(aSrcFormat, aDstFormat)>)
+
+template <bool aSwapRB>
+void UnpremultiplyRow_AltiVec(const uint8_t*, uint8_t*, int32_t);
+
+#  define UNPREMULTIPLY_ROW_ALTIVEC(aSrcFormat, aDstFormat) \
+    FORMAT_CASE_ROW(                                        \
+        aSrcFormat, aDstFormat,                             \
+        UnpremultiplyRow_AltiVec<ShouldSwapRB(aSrcFormat, aDstFormat)>)
+
+template <bool aSwapRB, bool aOpaqueAlpha>
+void Swizzle_AltiVec(const uint8_t*, int32_t, uint8_t*, int32_t, IntSize);
+
+#  define SWIZZLE_ALTIVEC(aSrcFormat, aDstFormat)                     \
+    FORMAT_CASE(aSrcFormat, aDstFormat,                               \
+                Swizzle_AltiVec<ShouldSwapRB(aSrcFormat, aDstFormat), \
+                                ShouldForceOpaque(aSrcFormat, aDstFormat)>)
+
+template <bool aSwapRB, bool aOpaqueAlpha>
+void SwizzleRow_AltiVec(const uint8_t*, uint8_t*, int32_t);
+
+#  define SWIZZLE_ROW_ALTIVEC(aSrcFormat, aDstFormat)            \
+    FORMAT_CASE_ROW(                                             \
+        aSrcFormat, aDstFormat,                                  \
+        SwizzleRow_AltiVec<ShouldSwapRB(aSrcFormat, aDstFormat), \
+                           ShouldForceOpaque(aSrcFormat, aDstFormat)>)
+
+template <bool aSwapRB>
+void UnpackRowRGB24_AltiVec(const uint8_t*, uint8_t*, int32_t);
+
+#  define UNPACK_ROW_RGB_ALTIVEC(aDstFormat)                                   \
+    FORMAT_CASE_ROW(SurfaceFormat::R8G8B8, aDstFormat,                         \
+                    UnpackRowRGB24_AltiVec<ShouldSwapRB(SurfaceFormat::R8G8B8, \
+                                                        aDstFormat)>)
+#endif
+
 /**
  * Premultiplying
  */
@@ -420,6 +488,21 @@ bool PremultiplyData(const uint8_t* aSrc, int32_t aSrcStride,
     }
 #endif
 
+#ifdef USE_ALTIVEC
+  if (mozilla::supports_vmx()) switch (FORMAT_KEY(aSrcFormat, aDstFormat)) {
+      PREMULTIPLY_ALTIVEC(SurfaceFormat::B8G8R8A8, SurfaceFormat::B8G8R8A8)
+      PREMULTIPLY_ALTIVEC(SurfaceFormat::B8G8R8A8, SurfaceFormat::B8G8R8X8)
+      PREMULTIPLY_ALTIVEC(SurfaceFormat::B8G8R8A8, SurfaceFormat::R8G8B8A8)
+      PREMULTIPLY_ALTIVEC(SurfaceFormat::B8G8R8A8, SurfaceFormat::R8G8B8X8)
+      PREMULTIPLY_ALTIVEC(SurfaceFormat::R8G8B8A8, SurfaceFormat::R8G8B8A8)
+      PREMULTIPLY_ALTIVEC(SurfaceFormat::R8G8B8A8, SurfaceFormat::R8G8B8X8)
+      PREMULTIPLY_ALTIVEC(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8A8)
+      PREMULTIPLY_ALTIVEC(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8X8)
+      default:
+        break;
+    }
+#endif
+
   switch (FORMAT_KEY(aSrcFormat, aDstFormat)) {
     PREMULTIPLY_FALLBACK(SurfaceFormat::B8G8R8A8)
     PREMULTIPLY_FALLBACK(SurfaceFormat::R8G8B8A8)
@@ -461,6 +544,21 @@ SwizzleRowFn PremultiplyRow(SurfaceFormat aSrcFormat,
       PREMULTIPLY_ROW_NEON(SurfaceFormat::R8G8B8A8, SurfaceFormat::R8G8B8X8)
       PREMULTIPLY_ROW_NEON(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8A8)
       PREMULTIPLY_ROW_NEON(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8X8)
+      default:
+        break;
+    }
+#endif
+
+#ifdef USE_ALTIVEC
+  if (mozilla::supports_vmx()) switch (FORMAT_KEY(aSrcFormat, aDstFormat)) {
+      PREMULTIPLY_ROW_ALTIVEC(SurfaceFormat::B8G8R8A8, SurfaceFormat::B8G8R8A8)
+      PREMULTIPLY_ROW_ALTIVEC(SurfaceFormat::B8G8R8A8, SurfaceFormat::B8G8R8X8)
+      PREMULTIPLY_ROW_ALTIVEC(SurfaceFormat::B8G8R8A8, SurfaceFormat::R8G8B8A8)
+      PREMULTIPLY_ROW_ALTIVEC(SurfaceFormat::B8G8R8A8, SurfaceFormat::R8G8B8X8)
+      PREMULTIPLY_ROW_ALTIVEC(SurfaceFormat::R8G8B8A8, SurfaceFormat::R8G8B8A8)
+      PREMULTIPLY_ROW_ALTIVEC(SurfaceFormat::R8G8B8A8, SurfaceFormat::R8G8B8X8)
+      PREMULTIPLY_ROW_ALTIVEC(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8A8)
+      PREMULTIPLY_ROW_ALTIVEC(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8X8)
       default:
         break;
     }
@@ -619,6 +717,17 @@ bool UnpremultiplyData(const uint8_t* aSrc, int32_t aSrcStride,
     }
 #endif
 
+#ifdef USE_ALTIVEC
+  if (mozilla::supports_vmx()) switch (FORMAT_KEY(aSrcFormat, aDstFormat)) {
+      UNPREMULTIPLY_ALTIVEC(SurfaceFormat::B8G8R8A8, SurfaceFormat::B8G8R8A8)
+      UNPREMULTIPLY_ALTIVEC(SurfaceFormat::B8G8R8A8, SurfaceFormat::R8G8B8A8)
+      UNPREMULTIPLY_ALTIVEC(SurfaceFormat::R8G8B8A8, SurfaceFormat::R8G8B8A8)
+      UNPREMULTIPLY_ALTIVEC(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8A8)
+      default:
+        break;
+    }
+#endif
+
   switch (FORMAT_KEY(aSrcFormat, aDstFormat)) {
     UNPREMULTIPLY_FALLBACK(SurfaceFormat::B8G8R8A8)
     UNPREMULTIPLY_FALLBACK(SurfaceFormat::R8G8B8A8)
@@ -652,6 +761,21 @@ SwizzleRowFn UnpremultiplyRow(SurfaceFormat aSrcFormat,
       UNPREMULTIPLY_ROW_NEON(SurfaceFormat::B8G8R8A8, SurfaceFormat::R8G8B8A8)
       UNPREMULTIPLY_ROW_NEON(SurfaceFormat::R8G8B8A8, SurfaceFormat::R8G8B8A8)
       UNPREMULTIPLY_ROW_NEON(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8A8)
+      default:
+        break;
+    }
+#endif
+
+#ifdef USE_ALTIVEC
+  if (mozilla::supports_vmx()) switch (FORMAT_KEY(aSrcFormat, aDstFormat)) {
+      UNPREMULTIPLY_ROW_ALTIVEC(SurfaceFormat::B8G8R8A8,
+                                SurfaceFormat::B8G8R8A8)
+      UNPREMULTIPLY_ROW_ALTIVEC(SurfaceFormat::B8G8R8A8,
+                                SurfaceFormat::R8G8B8A8)
+      UNPREMULTIPLY_ROW_ALTIVEC(SurfaceFormat::R8G8B8A8,
+                                SurfaceFormat::R8G8B8A8)
+      UNPREMULTIPLY_ROW_ALTIVEC(SurfaceFormat::R8G8B8A8,
+                                SurfaceFormat::B8G8R8A8)
       default:
         break;
     }
@@ -1130,6 +1254,21 @@ bool SwizzleData(const uint8_t* aSrc, int32_t aSrcStride,
     }
 #endif
 
+#ifdef USE_ALTIVEC
+  if (mozilla::supports_vmx()) switch (FORMAT_KEY(aSrcFormat, aDstFormat)) {
+      SWIZZLE_ALTIVEC(SurfaceFormat::B8G8R8A8, SurfaceFormat::R8G8B8A8)
+      SWIZZLE_ALTIVEC(SurfaceFormat::B8G8R8X8, SurfaceFormat::R8G8B8X8)
+      SWIZZLE_ALTIVEC(SurfaceFormat::B8G8R8A8, SurfaceFormat::R8G8B8X8)
+      SWIZZLE_ALTIVEC(SurfaceFormat::B8G8R8X8, SurfaceFormat::R8G8B8A8)
+      SWIZZLE_ALTIVEC(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8A8)
+      SWIZZLE_ALTIVEC(SurfaceFormat::R8G8B8X8, SurfaceFormat::B8G8R8X8)
+      SWIZZLE_ALTIVEC(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8X8)
+      SWIZZLE_ALTIVEC(SurfaceFormat::R8G8B8X8, SurfaceFormat::B8G8R8A8)
+      default:
+        break;
+    }
+#endif
+
   switch (FORMAT_KEY(aSrcFormat, aDstFormat)) {
     SWIZZLE_FALLBACK(SurfaceFormat::B8G8R8A8, SurfaceFormat::R8G8B8A8)
     SWIZZLE_FALLBACK(SurfaceFormat::B8G8R8X8, SurfaceFormat::R8G8B8X8)
@@ -1322,6 +1461,25 @@ SwizzleRowFn SwizzleRow(SurfaceFormat aSrcFormat, SurfaceFormat aDstFormat) {
       SWIZZLE_ROW_NEON(SurfaceFormat::R8G8B8X8, SurfaceFormat::B8G8R8X8)
       SWIZZLE_ROW_NEON(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8X8)
       SWIZZLE_ROW_NEON(SurfaceFormat::R8G8B8X8, SurfaceFormat::B8G8R8A8)
+      default:
+        break;
+    }
+#endif
+
+#ifdef USE_ALTIVEC
+  if (mozilla::supports_vmx()) switch (FORMAT_KEY(aSrcFormat, aDstFormat)) {
+      UNPACK_ROW_RGB_ALTIVEC(SurfaceFormat::R8G8B8X8)
+      UNPACK_ROW_RGB_ALTIVEC(SurfaceFormat::R8G8B8A8)
+      UNPACK_ROW_RGB_ALTIVEC(SurfaceFormat::B8G8R8X8)
+      UNPACK_ROW_RGB_ALTIVEC(SurfaceFormat::B8G8R8A8)
+      SWIZZLE_ROW_ALTIVEC(SurfaceFormat::B8G8R8A8, SurfaceFormat::R8G8B8A8)
+      SWIZZLE_ROW_ALTIVEC(SurfaceFormat::B8G8R8X8, SurfaceFormat::R8G8B8X8)
+      SWIZZLE_ROW_ALTIVEC(SurfaceFormat::B8G8R8A8, SurfaceFormat::R8G8B8X8)
+      SWIZZLE_ROW_ALTIVEC(SurfaceFormat::B8G8R8X8, SurfaceFormat::R8G8B8A8)
+      SWIZZLE_ROW_ALTIVEC(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8A8)
+      SWIZZLE_ROW_ALTIVEC(SurfaceFormat::R8G8B8X8, SurfaceFormat::B8G8R8X8)
+      SWIZZLE_ROW_ALTIVEC(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8X8)
+      SWIZZLE_ROW_ALTIVEC(SurfaceFormat::R8G8B8X8, SurfaceFormat::B8G8R8A8)
       default:
         break;
     }

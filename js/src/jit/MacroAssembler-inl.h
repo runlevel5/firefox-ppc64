@@ -39,6 +39,8 @@
 #  include "jit/loong64/MacroAssembler-loong64-inl.h"
 #elif defined(JS_CODEGEN_RISCV64)
 #  include "jit/riscv64/MacroAssembler-riscv64-inl.h"
+#elif defined(JS_CODEGEN_PPC64)
+#  include "jit/ppc64/MacroAssembler-ppc64-inl.h"
 #elif defined(JS_CODEGEN_WASM32)
 #  include "jit/wasm32/MacroAssembler-wasm32-inl.h"
 #elif !defined(JS_CODEGEN_NONE)
@@ -123,7 +125,17 @@ void MacroAssembler::call(const wasm::CallSiteDesc& desc, wasm::Trap trap) {
 
 CodeOffset MacroAssembler::call(const wasm::CallSiteDesc& desc,
                                 wasm::SymbolicAddress imm) {
+#ifdef JS_CODEGEN_PPC64
+  // On PPC64 a wasm-module SymbolicAddress is patched (StaticallyLink ->
+  // SymbolicAddressTarget) to a builtin thunk's raw wasm-ABI entry when it needs
+  // a thunk, or to a C function pointer (an ELFv1 descriptor on big-endian)
+  // otherwise. Route through callWasmSymbolic, which calls the former straight
+  // and dereferences the latter -- unlike the bare call(SymbolicAddress) used by
+  // stubs, which always targets a C function.
+  CodeOffset raOffset = callWasmSymbolic(imm);
+#else
   CodeOffset raOffset = call(imm);
+#endif
   append(desc, raOffset);
   return raOffset;
 }

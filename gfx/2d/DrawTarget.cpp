@@ -19,23 +19,21 @@
 #  include "LuminanceNEON.h"
 #endif
 
+#ifdef USE_ALTIVEC
+#  include "LuminanceAltiVec.h"
+#  include "mozilla/ppc.h"
+#endif
+
 namespace mozilla {
 namespace gfx {
 
 /**
  * Byte offsets of channels in a native packed gfxColor or cairo image surface.
  */
-#ifdef IS_BIG_ENDIAN
-#  define GFX_ARGB32_OFFSET_A 0
-#  define GFX_ARGB32_OFFSET_R 1
-#  define GFX_ARGB32_OFFSET_G 2
-#  define GFX_ARGB32_OFFSET_B 3
-#else
-#  define GFX_ARGB32_OFFSET_A 3
-#  define GFX_ARGB32_OFFSET_R 2
-#  define GFX_ARGB32_OFFSET_G 1
-#  define GFX_ARGB32_OFFSET_B 0
-#endif
+#define GFX_ARGB32_OFFSET_A 3
+#define GFX_ARGB32_OFFSET_R 2
+#define GFX_ARGB32_OFFSET_G 1
+#define GFX_ARGB32_OFFSET_B 0
 
 // c = n / 255
 // c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)) * 255 + 0.5
@@ -67,6 +65,14 @@ static void ComputesRGBLuminanceMask(const uint8_t* aSourceData,
   if (mozilla::supports_neon()) {
     ComputesRGBLuminanceMask_NEON(aSourceData, aSourceStride, aDestData,
                                   aDestStride, aSize, aOpacity);
+    return;
+  }
+#endif
+
+#ifdef USE_ALTIVEC
+  if (mozilla::supports_vmx()) {
+    ComputesRGBLuminanceMask_AltiVec(aSourceData, aSourceStride, aDestData,
+                                 aDestStride, aSize, aOpacity);
     return;
   }
 #endif

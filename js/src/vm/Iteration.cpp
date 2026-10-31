@@ -832,11 +832,22 @@ static PropertyIteratorObject* CreatePropertyIterator(
     return nullptr;
   }
 
-  void* mem = cx->pod_malloc_with_extra<NativeIterator, uint8_t>(
-      NumTrailingBytes(props.length(), numProtoShapes, hasIndices));
+  size_t trailingBytes =
+      NumTrailingBytes(props.length(), numProtoShapes, hasIndices);
+  void* mem = cx->pod_malloc_with_extra<NativeIterator, uint8_t>(trailingBytes);
   if (!mem) {
     return nullptr;
   }
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // pod_malloc leaves the struct's tail padding (and any trailing-array
+  // alignment gaps) uninitialized. On big-endian the for-in fast paths read
+  // NativeIterator flags/counts with wider (32-bit) loads that pull in those
+  // padding bytes; an uninitialized byte there can be mistaken for live data
+  // and corrupt iteration. Zero the block so every byte the readers may touch
+  // is defined. Inert on little-endian (the low-byte loads never reach the
+  // padding).
+  memset(mem, 0, sizeof(NativeIterator) + trailingBytes);
+#endif
 
   // This also registers |ni| with |propIter|.
   bool hadError = false;

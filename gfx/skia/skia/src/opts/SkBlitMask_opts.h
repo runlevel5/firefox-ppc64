@@ -10,6 +10,7 @@
 
 #include "include/private/base/SkFeatures.h"
 #include "src/core/Sk4px.h"
+#include "src/core/SkColorData.h"  // for BE_CONVERT
 
 #if defined(SK_ARM_HAS_NEON)
     #include <arm_neon.h>
@@ -357,7 +358,8 @@ namespace SK_OPTS_NS {
     static void blit_mask_d32_a8_general(SkPMColor* dst, size_t dstRB,
                                          const SkAlpha* mask, size_t maskRB,
                                          SkColor color, int w, int h) {
-        auto s = Sk4px::DupPMColor(SkPreMultiplyColor(color));
+        // On big-endian, match the byte order of the in-memory destination pixels.
+        auto s = Sk4px::DupPMColor(BE_CONVERT(SkPreMultiplyColor(color)));
         auto fn = [&](const Sk4px& d, const Sk4px& aa) {
             //  = (s + d(1-sa))aa + d(1-aa)
             //  = s*aa + d(1-sa*aa)
@@ -377,7 +379,8 @@ namespace SK_OPTS_NS {
                                         const SkAlpha* mask, size_t maskRB,
                                         SkColor color, int w, int h) {
         SkASSERT(SkColorGetA(color) == 0xFF);
-        auto s = Sk4px::DupPMColor(SkPreMultiplyColor(color));
+        // On big-endian, match the byte order of the in-memory destination pixels.
+        auto s = Sk4px::DupPMColor(BE_CONVERT(SkPreMultiplyColor(color)));
         auto fn = [&](const Sk4px& d, const Sk4px& aa) {
             //  = (s + d(1-sa))aa + d(1-aa)
             //  = s*aa + d(1-sa*aa)

@@ -52,6 +52,7 @@
 #include "vm/Stack.h"
 #include "vm/StringType.h"
 #include "vm/ToSource.h"  // js::ValueToSource
+#include "vm/Warnings.h"
 
 #include "vm/Compartment-inl.h"
 #include "vm/JSContext-inl.h"
@@ -250,6 +251,51 @@ static void exn_finalize(JS::GCContext* gcx, JSObject* obj) {
   }
 }
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+template <typename CharT>
+static bool MentionsEndianness(const CharT* chars, size_t length) {
+  static constexpr char needle[] = "endian";
+  constexpr size_t needleLength = sizeof(needle) - 1;
+  for (size_t i = 0; i + needleLength <= length; i++) {
+    size_t j = 0;
+    while (j < needleLength && (chars[i + j] | 0x20) == needle[j]) {
+      j++;
+    }
+    if (j == needleLength) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Scripts that cannot run on big-endian hardware usually say so in the error
+// they throw, and pages often catch it and show something misleading. Report
+// such errors as a warning so the embedder can tell the user.
+static bool MaybeWarnBigEndianUnsupported(JSContext* cx, HandleString message) {
+  JSLinearString* linear = message->ensureLinear(cx);
+  if (!linear) {
+    return false;
+  }
+  bool mentions;
+  {
+    JS::AutoCheckCannotGC nogc;
+    mentions = linear->hasLatin1Chars()
+                   ? MentionsEndianness(linear->latin1Chars(nogc),
+                                        linear->length())
+                   : MentionsEndianness(linear->twoByteChars(nogc),
+                                        linear->length());
+  }
+  if (!mentions) {
+    return true;
+  }
+  UniqueChars utf8 = JS_EncodeStringToUTF8(cx, message);
+  if (!utf8) {
+    return false;
+  }
+  return WarnNumberUTF8(cx, JSMSG_BIG_ENDIAN_UNSUPPORTED, utf8.get());
+}
+#endif
+
 static ErrorObject* CreateErrorObject(JSContext* cx, const CallArgs& args,
                                       unsigned messageArg, JSExnType exnType,
                                       HandleObject proto) {
@@ -260,6 +306,11 @@ static ErrorObject* CreateErrorObject(JSContext* cx, const CallArgs& args,
     if (!message) {
       return nullptr;
     }
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    if (!MaybeWarnBigEndianUnsupported(cx, message)) {
+      return nullptr;
+    }
+#endif
   }
 
   // Don't interpret the two parameters following the message parameter as the

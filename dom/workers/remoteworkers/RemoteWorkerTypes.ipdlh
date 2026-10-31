@@ -127,6 +127,7 @@ struct ErrorData {
   nsString message;
   nsCString filename;
   ErrorDataNote[] notes;
+  uint32_t errorNumber;
 };
 
 struct CSPViolation {

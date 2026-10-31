@@ -840,11 +840,25 @@ void SMRegExpMacroAssembler::LoadCurrentCharacterUnchecked(int cp_offset,
                                                            int characters) {
   BaseIndex address(input_end_pointer_, current_position_, js::jit::TimesOne,
                     cp_offset * char_size());
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  // The generated comparisons expect multiple characters composed with the
+  // first character in the least significant bits, so multi-character loads
+  // must be swapped to that order on big-endian.
+  constexpr bool kSwapMultiChar = true;
+#else
+  constexpr bool kSwapMultiChar = false;
+#endif
   if (mode_ == LATIN1) {
     if (characters == 4) {
       masm_.load32(address, current_character_);
+      if (kSwapMultiChar) {
+        masm_.byteSwap32(current_character_);
+      }
     } else if (characters == 2) {
       masm_.load16ZeroExtend(address, current_character_);
+      if (kSwapMultiChar) {
+        masm_.byteSwap16ZeroExtend(current_character_);
+      }
     } else {
       MOZ_ASSERT(characters == 1);
       masm_.load8ZeroExtend(address, current_character_);
@@ -853,6 +867,11 @@ void SMRegExpMacroAssembler::LoadCurrentCharacterUnchecked(int cp_offset,
     MOZ_ASSERT(mode_ == UC16);
     if (characters == 2) {
       masm_.load32(address, current_character_);
+      if (kSwapMultiChar) {
+        // Characters are native-endian within each half; swap the halves.
+        masm_.rotateLeft(js::jit::Imm32(16), current_character_,
+                         current_character_);
+      }
     } else {
       MOZ_ASSERT(characters == 1);
       masm_.load16ZeroExtend(address, current_character_);
@@ -987,7 +1006,20 @@ void SMRegExpMacroAssembler::CheckBacktrackStackLimit() {
       AbsoluteAddress(isolate()->regexp_stack()->limit_address_address()),
       backtrack_stack_pointer_, &no_stack_overflow);
 
+#ifdef JS_CODEGEN_PPC64
+  // LR on PowerPC isn't a GPR, so we have to explicitly save it before
+  // calling or the regexp's return address will be clobbered.
+  masm_.xs_mflr(temp1_);
+  masm_.as_stdu(temp1_, masm_.getStackPointer(), -8);
+#endif
+
   masm_.call(&stack_overflow_label_);
+
+#ifdef JS_CODEGEN_PPC64
+  masm_.as_ld(temp1_, masm_.getStackPointer(), 0);
+  masm_.xs_mtlr(temp1_);
+  masm_.as_addi(masm_.getStackPointer(), masm_.getStackPointer(), 8);
+#endif
 
   // Exit with an exception if the call failed
   masm_.branchTest32(Assembler::Zero, temp0_, temp0_,
@@ -1075,6 +1107,13 @@ void SMRegExpMacroAssembler::createStackFrame() {
 
   // Initialize the PSP from the SP.
   masm_.initPseudoStackPtr();
+#endif
+
+#ifdef JS_CODEGEN_PPC64
+  // PPC64's link register is an SPR, not a GPR, so it cannot be included in
+  // SavedNonVolatileRegisters. Save it explicitly before the frame pointer
+  // so that abiret()'s blr can return to the caller after we restore it.
+  masm_.pushReturnAddress();
 #endif
 
   masm_.Push(js::jit::FramePointer);
@@ -1305,6 +1344,9 @@ void SMRegExpMacroAssembler::exitHandler() {
   // Perform a plain Ret(), as abiret() will move SP <- PSP and that is wrong.
   masm_.Ret(vixl::lr);
 #else
+#  ifdef JS_CODEGEN_PPC64
+  masm_.popReturnAddress();
+#  endif
   masm_.abiret();
 #endif
 
@@ -1348,6 +1390,11 @@ void SMRegExpMacroAssembler::stackOverflowHandler() {
 
   // Adjust for the return address on the stack.
   size_t frameOffset = sizeof(void*);
+#ifdef JS_CODEGEN_PPC64
+  // CheckBacktrackStackLimit pushes LR before calling us, so there's a
+  // second return address on the stack.
+  frameOffset += sizeof(void*);
+#endif
 
   volatileRegs.takeUnchecked(temp0_);
   volatileRegs.takeUnchecked(temp1_);

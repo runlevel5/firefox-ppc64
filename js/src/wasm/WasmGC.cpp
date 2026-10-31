@@ -444,6 +444,14 @@ bool wasm::IsPlausibleStackMapKey(const uint8_t* nextPC) {
             insn[-1] == 0x00000013 /* addi zero, zero, 0 */) ||  // jal; nop
            (insn[-1] == 0x00100073 &&
             (insn[-2] & kITypeMask) == RO_CSRRWI)));  // wasm trap
+#  elif defined(JS_CODEGEN_PPC64)
+  const uint32_t* insn = reinterpret_cast<const uint32_t*>(nextPC);
+  MOZ_ASSERT((uintptr_t(insn) & 3) == 0);
+  // xs_trap() = tw 31,r0,r0 (PPC_trap); bctrl = PPC_bctr|1; bl = I-form
+  // opcode 18 (PPC_b) with LK=1, AA=0, checked via 0xFC000003 mask.
+  return insn[-1] == uint32_t(PPC_trap) ||
+         insn[-1] == (uint32_t(PPC_bctr) | 1u) ||
+         (insn[-1] & 0xFC000003u) == (uint32_t(PPC_b) | 1u);
 #  else
   MOZ_CRASH("IsValidStackMapKey: requires implementation on this platform");
 #  endif

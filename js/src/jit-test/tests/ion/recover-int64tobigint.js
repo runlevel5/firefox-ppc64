@@ -1,4 +1,4 @@
-// |jit-test| --ion-limit-script-size=off
+// |jit-test| --ion-limit-script-size=off; skip-if: getBuildConfiguration("big-endian")
 
 setJitCompilerOption("baseline.warmup.trigger", 9);
 setJitCompilerOption("ion.warmup.trigger", 20);
