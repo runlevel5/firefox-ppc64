@@ -15,20 +15,40 @@ function wasmValidateAndEval(bytes, imports) {
     return wasmEval(bytes, imports);
 }
 
+// Wasm memory is little-endian but typed-array views are native-endian, so
+// do element accesses through a DataView with an explicit byte order.
+const leAccessors = new Map([
+    [Int8Array, ["getInt8", "setInt8"]],
+    [Uint8Array, ["getUint8", "setUint8"]],
+    [Int16Array, ["getInt16", "setInt16"]],
+    [Uint16Array, ["getUint16", "setUint16"]],
+    [Int32Array, ["getInt32", "setInt32"]],
+    [Uint32Array, ["getUint32", "setUint32"]],
+    [Float32Array, ["getFloat32", "setFloat32"]],
+    [Float64Array, ["getFloat64", "setFloat64"]],
+    [BigInt64Array, ["getBigInt64", "setBigInt64"]],
+]);
+
 function get(arr, loc, len) {
+    let [getter] = leAccessors.get(arr.constructor);
+    let dv = new DataView(arr.buffer);
+    let sz = arr.BYTES_PER_ELEMENT;
     let res = [];
     for ( let i=0; i < len; i++ ) {
-        res.push(arr[loc+i]);
+        res.push(dv[getter]((loc+i)*sz, true));
     }
     return res;
 }
 
 function set(arr, loc, vals) {
+    let [, setter] = leAccessors.get(arr.constructor);
+    let dv = new DataView(arr.buffer);
+    let sz = arr.BYTES_PER_ELEMENT;
     for ( let i=0; i < vals.length; i++ ) {
         if (arr instanceof BigInt64Array) {
-            arr[loc+i] = BigInt(vals[i]);
+            dv[setter]((loc+i)*sz, BigInt(vals[i]), true);
         } else {
-            arr[loc+i] = vals[i];
+            dv[setter]((loc+i)*sz, vals[i], true);
         }
     }
 }
@@ -176,8 +196,8 @@ for (let k of [4, 2]) {
         var maxResult = new Ty(k);
         for (let j = 0; j < k; j++) {
             const {a, b, min, max } = minMaxTests[(j + i) % minMaxTests.length];
-            mem[j + k] = a;
-            mem[j + k * 2] = b;
+            set(mem, j + k, [a]);
+            set(mem, j + k * 2, [b]);
             minResult[j] = min;
             maxResult[j] = max;
         }

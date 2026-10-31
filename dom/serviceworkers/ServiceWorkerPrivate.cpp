@@ -11,6 +11,7 @@
 #include "ServiceWorkerRegistrationInfo.h"
 #include "ServiceWorkerUtils.h"
 #include "js/ErrorReport.h"
+#include "js/friend/ErrorMessages.h"  // JSMSG_*
 #include "mozIThirdPartyUtil.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/ContentBlockingAllowList.h"
@@ -1965,6 +1966,11 @@ void ServiceWorkerPrivate::ErrorReceived(const ErrorValue& aError) {
   MOZ_ASSERT(swm);
 
   ServiceWorkerInfo* info = mInfo;
+
+  if (aError.type() == ErrorValue::TErrorData &&
+      aError.get_ErrorData().errorNumber() == JSMSG_BIG_ENDIAN_UNSUPPORTED) {
+    swm->NotifyBigEndianUnsupported(info->Scope());
+  }
 
   swm->HandleError(nullptr, info->Principal(), info->Scope(),
                    info->ScriptSpec(), u""_ns, ""_ns, u""_ns, 0, 0,

@@ -4,6 +4,15 @@
 // license that can be found in the LICENSE file.
 
 #![allow(clippy::too_many_arguments)]
+// The PowerPC intrinsics are not stable yet, so the `vsx` feature requires a nightly compiler.
+#![cfg_attr(
+    all(feature = "vsx", target_arch = "powerpc64"),
+    feature(
+        stdarch_powerpc,
+        stdarch_powerpc_feature_detection,
+        powerpc_target_feature
+    )
+)]
 
 use std::fmt::Debug;
 use std::ops::{
@@ -20,12 +29,22 @@ mod aarch64;
 #[cfg(target_arch = "wasm32")]
 mod wasm32;
 
+#[cfg(target_arch = "powerpc64")]
+mod powerpc64;
+
 pub mod float16;
 pub mod scalar;
 
 #[cfg(all(target_arch = "aarch64", feature = "neon"))]
 pub use aarch64::neon::NeonDescriptor;
 pub use float16::f16;
+#[cfg(all(
+    target_arch = "powerpc64",
+    feature = "vsx",
+    target_feature = "vsx",
+    target_feature = "power8-vector"
+))]
+pub use powerpc64::vsx::{Power8, Power9, VsxDescriptor, VsxLevel};
 pub use scalar::ScalarDescriptor;
 #[cfg(all(target_arch = "wasm32", feature = "simd128"))]
 pub use wasm32::simd128::Simd128Descriptor;
@@ -612,7 +631,11 @@ pub trait SimdMask16:
 
 macro_rules! impl_f32_array_interface {
     () => {
-        type UnderlyingArray = [f32; Self::LEN];
+        crate::impl_f32_array_interface!(Self::LEN);
+    };
+    // Generic vector types cannot use `Self::LEN` in the array length, so they pass it explicitly.
+    ($len:expr) => {
+        type UnderlyingArray = [f32; $len];
 
         #[inline(always)]
         fn make_array_slice(slice: &[f32]) -> &[Self::UnderlyingArray] {
@@ -644,7 +667,11 @@ pub(crate) use impl_f32_array_interface;
 
 macro_rules! impl_i16_array_interface {
     () => {
-        type UnderlyingArray = [i16; Self::LEN];
+        crate::impl_i16_array_interface!(Self::LEN);
+    };
+    // Generic vector types cannot use `Self::LEN` in the array length, so they pass it explicitly.
+    ($len:expr) => {
+        type UnderlyingArray = [i16; $len];
 
         #[inline(always)]
         fn make_array_slice(slice: &[i16]) -> &[Self::UnderlyingArray] {

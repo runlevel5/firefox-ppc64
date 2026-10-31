@@ -133,7 +133,7 @@ notes = "Patched version of upstream"
 
 [policy.jxl_simd]
 audit-as-crates-io = true
-notes = "Upstream 0.8.0 with a local Mac/x86_64 workaround patched in (see bug 2043090) and path-sourced via a [patch.crates-io] entry in the root Cargo.toml."
+notes = "Upstream 0.8.0 with a local Mac/x86_64 workaround (see bug 2043090) and a PowerPC VSX backend patched in and path-sourced via a [patch.crates-io] entry in the root Cargo.toml."
 
 [policy."khronos_api:3.1.0@git:71c792dbfe0ec5caeb242fc90937e19098386342"]
 audit-as-crates-io = true

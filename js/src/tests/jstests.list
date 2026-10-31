@@ -13,6 +13,11 @@ slow script test262/built-ins/decodeURIComponent/S15.1.3.2_A2.5_T1.js
 # x86 NaN generation rules are different from those of riscv64 (bug 1983202)
 skip-if(this.hasOwnProperty("getBuildConfiguration")&&getBuildConfiguration("riscv64-simulator")) script test262/built-ins/TypedArray/prototype/map/return-new-typedarray-conversion-operation-consistent-nan.js
 
+# Endianness-dependent: the expected values reinterpret float bytes through an
+# integer-typed view of the same buffer, which is baked for little-endian. The
+# big-endian result is correct, just byte-mirrored, so skip on big-endian.
+skip-if(this.hasOwnProperty("getBuildConfiguration")&&getBuildConfiguration("big-endian")) script test262/built-ins/TypedArray/prototype/set/typedarray-arg-set-values-same-buffer-other-type.js
+
 
 ###########################################################################
 # Generated jstests.list for test262 when inline |reftest| isn't possible #

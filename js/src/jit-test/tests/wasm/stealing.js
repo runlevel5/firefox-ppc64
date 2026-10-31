@@ -6,7 +6,8 @@ var exp = wasmEvalText(`(module
 )`).exports;
 
 var ab = exp.mem.buffer;
-new Int32Array(ab)[0] = 42;
+// Wasm memory is little-endian, so write with explicit byte order.
+new DataView(ab).setInt32(0, 42, true);
 
 assertEq(exp.f(), 42);
 

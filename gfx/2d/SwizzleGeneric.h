@@ -9,6 +9,36 @@
 
 namespace mozilla::gfx {
 
+// SplitEvenOdd_SIMD and CombineEvenOdd_SIMD keep each channel in the low byte
+// of its 16-bit lane on both endiannesses (see kSwizzleLE).
+// Splits pixels into their even-byte (R/B or C/Y) and odd-byte (G/A or M/K)
+// channels, each in the low byte of a 16-bit lane.
+template <class Arch>
+static MOZ_ALWAYS_INLINE void SplitEvenOdd_SIMD(
+    const xsimd::batch<uint8_t, Arch>& aPx, xsimd::batch<uint16_t, Arch>& aEven,
+    xsimd::batch<uint16_t, Arch>& aOdd) {
+  auto px16 = xsimd::bitwise_cast<uint16_t>(aPx);
+  const xsimd::batch<uint16_t, Arch> lowByte(0x00FF);
+  if constexpr (kSwizzleLE) {
+    aEven = px16 & lowByte;
+    aOdd = px16 >> 8;
+  } else {
+    aEven = px16 >> 8;
+    aOdd = px16 & lowByte;
+  }
+}
+
+template <class Arch>
+static MOZ_ALWAYS_INLINE xsimd::batch<uint8_t, Arch> CombineEvenOdd_SIMD(
+    const xsimd::batch<uint16_t, Arch>& aEven,
+    const xsimd::batch<uint16_t, Arch>& aOdd) {
+  if constexpr (kSwizzleLE) {
+    return xsimd::bitwise_cast<uint8_t>(aEven | (aOdd << 8));
+  } else {
+    return xsimd::bitwise_cast<uint8_t>((aEven << 8) | aOdd);
+  }
+}
+
 // We should generally prefer to specialize LoadRemainder_SIMD and
 // StoreRemainder_SIMD to avoid the memcpy call which doesn't get optimized out.
 // The implementations below should provide an acceptable baseline though.
@@ -40,7 +70,13 @@ template <class Arch>
 static MOZ_ALWAYS_INLINE xsimd::batch<uint16_t, Arch> ExtractAlpha_SIMD(
     const xsimd::batch<uint8_t, Arch>& aSrc,
     const xsimd::batch<uint16_t, Arch>& aGreenAlpha) {
-  auto a32 = xsimd::bitwise_cast<uint32_t>(aSrc) >> 24;
+  auto px32 = xsimd::bitwise_cast<uint32_t>(aSrc);
+  xsimd::batch<uint32_t, Arch> a32;
+  if constexpr (kSwizzleLE) {
+    a32 = px32 >> 24;
+  } else {
+    a32 = px32 & xsimd::batch<uint32_t, Arch>(0x000000FF);
+  }
   return xsimd::bitwise_cast<uint16_t>(a32 | (a32 << 16));
 }
 
@@ -159,8 +195,9 @@ static MOZ_ALWAYS_INLINE xsimd::batch<uint16_t, Arch> SwapRB16_SIMD(
 template <class Arch>
 static MOZ_ALWAYS_INLINE xsimd::batch<uint8_t, Arch> OpaqueAlpha_SIMD(
     const xsimd::batch<uint8_t, Arch>& aPx) {
-  return xsimd::bitwise_cast<uint8_t>(xsimd::bitwise_cast<uint32_t>(aPx) |
-                                      xsimd::batch<uint32_t, Arch>(0xFF000000));
+  return xsimd::bitwise_cast<uint8_t>(
+      xsimd::bitwise_cast<uint32_t>(aPx) |
+      xsimd::batch<uint32_t, Arch>(kAlphaMask32));
 }
 
 // Swizzle a vector of pixels, swapping and making opaque as desired.
@@ -203,12 +240,9 @@ static MOZ_ALWAYS_INLINE xsimd::batch<uint8_t, Arch> SwizzleCmykVector_SIMD(
   } else {
     src = aSrc;
   }
-  // Isolate iC and iY with mask.
-  auto px16 = xsimd::bitwise_cast<uint16_t>(src);
-  const xsimd::batch<uint16_t, Arch> lowByte(0x00FF);
-  auto icy = px16 & lowByte;
-  // Isolate iM and iK by shifting down to bottom of word.
-  auto imk = px16 >> 8;
+  // Isolate iC/iY and iM/iK into their own 16-bit lanes.
+  xsimd::batch<uint16_t, Arch> icy, imk;
+  SplitEvenOdd_SIMD<Arch>(src, icy, imk);
   auto ik16 = ExtractAlpha_SIMD<Arch>(src, imk);
   // Multiply each channel by the iK, add 1, divide by 255, all in place. This
   // is equivalent to iC * iK / 255.
@@ -221,7 +255,7 @@ static MOZ_ALWAYS_INLINE xsimd::batch<uint8_t, Arch> SwizzleCmykVector_SIMD(
     icy = SwapRB16_SIMD<Arch>(icy);
   }
   // Combine back to final pixel.
-  return OpaqueAlpha_SIMD<Arch>(xsimd::bitwise_cast<uint8_t>(icy | (imk << 8)));
+  return OpaqueAlpha_SIMD<Arch>(CombineEvenOdd_SIMD<Arch>(icy, imk));
 }
 
 template <class Arch, bool aSwapRB, bool aInverted>
@@ -235,18 +269,15 @@ void MOZ_ALWAYS_INLINE SwizzleCmykRow_SIMD(const uint8_t* aSrc, uint8_t* aDst,
 template <class Arch, bool aSwapRB, bool aOpaqueAlpha>
 static MOZ_ALWAYS_INLINE xsimd::batch<uint8_t, Arch> PremultiplyVector_SIMD(
     const xsimd::batch<uint8_t, Arch>& aSrc) {
-  // Isolate R and B with mask.
-  auto px16 = xsimd::bitwise_cast<uint16_t>(aSrc);
-  const xsimd::batch<uint16_t, Arch> lowByte(0x00FF);
-  auto rb = px16 & lowByte;
-  // Isolate G and A by shifting down to bottom of word.
-  auto ga = px16 >> 8;
+  // Isolate R/B and G/A into their own 16-bit lanes.
+  xsimd::batch<uint16_t, Arch> rb, ga;
+  SplitEvenOdd_SIMD<Arch>(aSrc, rb, ga);
   auto a16 = ExtractAlpha_SIMD<Arch>(aSrc, ga);
   // If format is not opaque, force A to 255 so that A*alpha/255 = alpha.
   if constexpr (!aOpaqueAlpha) {
-    ga =
-        xsimd::bitwise_cast<uint16_t>(xsimd::bitwise_cast<uint32_t>(ga) |
-                                      xsimd::batch<uint32_t, Arch>(0x00FF0000));
+    ga = xsimd::bitwise_cast<uint16_t>(
+        xsimd::bitwise_cast<uint32_t>(ga) |
+        xsimd::batch<uint32_t, Arch>(kOddAlphaMask32));
   }
   // Multiply each channel by the alpha, rounding to nearest when dividing by
   // 255.
@@ -259,7 +290,7 @@ static MOZ_ALWAYS_INLINE xsimd::batch<uint8_t, Arch> PremultiplyVector_SIMD(
     rb = SwapRB16_SIMD<Arch>(rb);
   }
   // Combine back to final pixel.
-  auto px = xsimd::bitwise_cast<uint8_t>(rb | (ga << 8));
+  auto px = CombineEvenOdd_SIMD<Arch>(rb, ga);
   if constexpr (aOpaqueAlpha) {
     px = OpaqueAlpha_SIMD<Arch>(px);
   }
@@ -286,7 +317,13 @@ template <class Arch>
 static MOZ_ALWAYS_INLINE xsimd::batch<uint32_t, Arch> UnpremultiplyLookup_SIMD(
     const xsimd::batch<uint8_t, Arch>& aSrc,
     const xsimd::batch<uint16_t, Arch>& aGa) {
-  auto alpha = xsimd::bitwise_cast<uint32_t>(aSrc) >> 24;
+  auto px32 = xsimd::bitwise_cast<uint32_t>(aSrc);
+  xsimd::batch<uint32_t, Arch> alpha;
+  if constexpr (kSwizzleLE) {
+    alpha = px32 >> 24;
+  } else {
+    alpha = px32 & xsimd::batch<uint32_t, Arch>(0x000000FF);
+  }
   return xsimd::batch<uint32_t, Arch>::gather(sUnpremultiplyTable, alpha);
 }
 
@@ -306,9 +343,9 @@ static MOZ_ALWAYS_INLINE xsimd::batch<uint8_t, Arch> UnpremultiplyReverse_SIMD(
   auto qLo16 = xsimd::bitwise_cast<uint16_t>(qLo);
   auto qHi16 = xsimd::bitwise_cast<uint16_t>(qHi);
   // Isolate G now so that we don't accidentally unpremultiply A.
-  auto ga =
-      xsimd::bitwise_cast<uint16_t>(xsimd::bitwise_cast<uint32_t>(aGa) &
-                                    xsimd::batch<uint32_t, Arch>(0x000000FF));
+  auto ga = xsimd::bitwise_cast<uint16_t>(
+      xsimd::bitwise_cast<uint32_t>(aGa) &
+      xsimd::batch<uint32_t, Arch>(kOddGreenMask32));
   // Rounded (channel * reciprocal) >> 16 in 16-bit lanes. Since
   //   channel*Q = channel*qHi*0x10000 + channel*qLo,
   //   (channel*Q) >> 16 = channel*qHi + ((channel*qLo) >> 16)
@@ -324,26 +361,23 @@ static MOZ_ALWAYS_INLINE xsimd::batch<uint8_t, Arch> UnpremultiplyReverse_SIMD(
   // Combine back to final pixel with rb | (ga << 8) | (aSrc & 0xFF000000),
   // which will add back on the original alpha value unchanged.
   auto alpha =
-      xsimd::bitwise_cast<uint16_t>(xsimd::bitwise_cast<uint32_t>(aSrc) &
-                                    xsimd::batch<uint32_t, Arch>(0xFF000000));
-  return xsimd::bitwise_cast<uint8_t>(rb | (ga << 8) | alpha);
+      xsimd::bitwise_cast<uint8_t>(xsimd::bitwise_cast<uint32_t>(aSrc) &
+                                   xsimd::batch<uint32_t, Arch>(kAlphaMask32));
+  return CombineEvenOdd_SIMD<Arch>(rb, ga) | alpha;
 }
 
 // Unpremultiply a vector of pixels, swapping and making opaque as desired.
 template <class Arch, bool aSwapRB>
 static MOZ_ALWAYS_INLINE xsimd::batch<uint8_t, Arch> UnpremultiplyVector_SIMD(
     const xsimd::batch<uint8_t, Arch>& aSrc) {
-  // Isolate R and B with mask.
-  const xsimd::batch<uint16_t, Arch> lowByte(0x00FF);
-  auto px16 = xsimd::bitwise_cast<uint16_t>(aSrc);
-  auto rb = px16 & lowByte;
+  // Isolate R/B and G/A into their own 16-bit lanes.
+  xsimd::batch<uint16_t, Arch> rb, ga;
+  SplitEvenOdd_SIMD<Arch>(aSrc, rb, ga);
   // Swap R and B if necessary.
   if constexpr (aSwapRB) {
     rb = SwapRB16_SIMD<Arch>(rb);
   }
 
-  // Isolate G and A by shifting down to bottom of word.
-  auto ga = px16 >> 8;
   // Extract the reciprocals from the lookup table.
   auto recip = UnpremultiplyLookup_SIMD<Arch>(aSrc, ga);
   // Perform the unpremultiply.
