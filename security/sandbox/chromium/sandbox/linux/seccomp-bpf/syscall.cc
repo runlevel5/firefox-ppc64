@@ -19,7 +19,7 @@ namespace sandbox {
 namespace {
 
 #if defined(ARCH_CPU_X86_FAMILY) || defined(ARCH_CPU_ARM_FAMILY) || \
-    defined(ARCH_CPU_MIPS_FAMILY)
+    defined(ARCH_CPU_MIPS_FAMILY) || defined(ARCH_CPU_PPC64_FAMILY)
 // Number that's not currently used by any Linux kernel ABIs.
 const int kInvalidSyscallNumber = 0x351d3;
 #else
@@ -309,6 +309,40 @@ asm(// We need to be able to tell the kernel exactly where we made a
     "2:ret\n"
     ".cfi_endproc\n"
     ".size SyscallAsm, .-SyscallAsm\n"
+#elif defined(__powerpc64__)
+    ".text\n"
+    ".align 2\n"
+    ".type SyscallAsm, @function\n"
+    "SyscallAsm:\n"
+    ".cfi_startproc\n"
+    // Not the ABI's calling convention: the number is in r3 and a pointer
+    // to the arguments in r4. A negative number asks for the address the
+    // kernel sees after "sc", for BPF code to inspect.
+    "cmpdi 3, 0\n"
+    "bge 1f\n"
+    "mflr 0\n"
+    "bl 3f\n"
+    "3:mflr 3\n"
+    "addi 3, 3, 2f-3b\n"
+    "mtlr 0\n"
+    "blr\n"
+    // The number goes in r0 and the arguments in r3-r8, all volatile.
+    "1:mr 0, 3\n"
+    "ld 3, 0(4)\n"
+    "ld 5, 16(4)\n"
+    "ld 6, 24(4)\n"
+    "ld 7, 32(4)\n"
+    "ld 8, 40(4)\n"
+    "ld 4, 8(4)\n"
+    // Enter the kernel
+    "sc\n"
+    // The kernel flags an error in CR0.SO with a positive errno in r3;
+    // callers expect -errno.
+    "2:bns+ 4f\n"
+    "neg 3, 3\n"
+    "4:blr\n"
+    ".cfi_endproc\n"
+    ".size SyscallAsm, .-SyscallAsm\n"
 #endif
     );  // asm
 
@@ -425,6 +459,19 @@ intptr_t Syscall::Call(int nr,
                  : "memory", "x1", "x2", "x3", "x4", "x5", "x8", "x30");
     ret = inout;
   }
+#elif defined(__powerpc64__)
+  intptr_t ret;
+  {
+    register intptr_t inout __asm__("r3") = nr;
+    register const intptr_t* data __asm__("r4") = args;
+    asm volatile("bl SyscallAsm\n"
+                 : "+r"(inout), "+r"(data)
+                 :
+                 : "memory", "lr", "ctr", "xer", "cr0", "cr1", "cr5", "cr6",
+                   "cr7", "r0", "r5", "r6", "r7", "r8", "r9", "r10", "r11",
+                   "r12");
+    ret = inout;
+  }
 
 #else
 #error "Unimplemented architecture"
@@ -444,6 +491,20 @@ void Syscall::PutValueInUcontext(intptr_t ret_val, ucontext_t* ctx) {
     SECCOMP_PARM4(ctx) = 1;
   } else
     SECCOMP_PARM4(ctx) = 0;
+#elif defined(__powerpc64__)
+  // A syscall made with "sc" reports an error through CR0.SO with a positive
+  // errno in r3; one made with "scv" returns -errno in r3 like the
+  // Syscall::Call() convention that |ret_val| follows. The trap slot says
+  // which instruction this syscall used.
+  if ((SECCOMP_TRAP(ctx) & ~SECCOMP_PPC64_TRAP_MASK) !=
+      SECCOMP_PPC64_TRAP_SCV) {
+    if (ret_val <= -1 && ret_val >= -4095) {
+      ret_val = -ret_val;
+      SECCOMP_CCR(ctx) |= SECCOMP_PPC64_CR0_SO;
+    } else {
+      SECCOMP_CCR(ctx) &= ~SECCOMP_PPC64_CR0_SO;
+    }
+  }
 #endif
   SECCOMP_RESULT(ctx) = static_cast<greg_t>(ret_val);
 }

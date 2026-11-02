@@ -44,4 +44,8 @@
 #include "sandbox/linux/system_headers/arm64_linux_syscalls.h"
 #endif
 
+#if defined(__powerpc64__)
+#include "sandbox/linux/system_headers/ppc64_linux_syscalls.h"
+#endif
+
 #endif  // SANDBOX_LINUX_SYSTEM_HEADERS_LINUX_SYSCALLS_H_

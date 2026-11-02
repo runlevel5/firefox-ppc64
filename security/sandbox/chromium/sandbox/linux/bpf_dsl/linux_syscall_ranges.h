@@ -56,6 +56,12 @@
 #define MAX_PUBLIC_SYSCALL  (MIN_SYSCALL + 1024u)
 #define MAX_SYSCALL MAX_PUBLIC_SYSCALL
 
+#elif defined(__powerpc64__)
+
+#define MIN_SYSCALL 0u
+#define MAX_PUBLIC_SYSCALL  (MIN_SYSCALL + 1024u)
+#define MAX_SYSCALL MAX_PUBLIC_SYSCALL
+
 #else
 #error "Unsupported architecture"
 #endif
