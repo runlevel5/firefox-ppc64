@@ -4208,8 +4208,8 @@ def sandbox_default(target, tsan, asan):
         # Bug 1287971: LSan also conflicts with sandboxing on Linux.
         if tsan or asan:
             return False
-        # Linux sandbox is only available on x86{,_64} and arm{,64}.
-        return target.cpu in ("x86", "x86_64", "arm", "aarch64")
+        # Linux sandbox is available on x86{,_64}, arm{,64} and ppc64.
+        return target.cpu in ("x86", "x86_64", "arm", "aarch64", "ppc64")
     return target.kernel in ("WINNT", "Darwin", "OpenBSD")
 
 

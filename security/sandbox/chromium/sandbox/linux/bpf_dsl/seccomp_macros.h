@@ -343,6 +343,95 @@ struct regs_struct {
 #define SECCOMP_PT_PARM4(_regs) (_regs).regs[3]
 #define SECCOMP_PT_PARM5(_regs) (_regs).regs[4]
 #define SECCOMP_PT_PARM6(_regs) (_regs).regs[5]
+
+#elif defined(__powerpc64__)
+// The kernel's struct pt_regs. glibc's gregset_t has the same layout, which
+// is how a ucontext_t exposes it; <asm/ptrace.h> names the slots after the
+// GPRs (PT_NIP, PT_CCR, ...).
+struct regs_struct {
+  unsigned long gpr[32];
+  unsigned long nip;
+  unsigned long msr;
+  unsigned long orig_gpr3;
+  unsigned long ctr;
+  unsigned long link;
+  unsigned long xer;
+  unsigned long ccr;
+  unsigned long softe;
+  unsigned long trap;
+  unsigned long dar;
+  unsigned long dsisr;
+  unsigned long result;
+};
+
+#if defined(ARCH_CPU_LITTLE_ENDIAN)
+#define SECCOMP_ARCH AUDIT_ARCH_PPC64LE
+#else
+#define SECCOMP_ARCH AUDIT_ARCH_PPC64
+#endif
+
+#define SECCOMP_PPC64_PT_NIP 32
+#define SECCOMP_PPC64_PT_ORIG_R3 34
+#define SECCOMP_PPC64_PT_CCR 38
+#define SECCOMP_PPC64_PT_TRAP 40
+// CR0.SO, which "sc" sets to flag an error.
+#define SECCOMP_PPC64_CR0_SO 0x10000000UL
+// The trap slot's value when the syscall came from "scv".
+#define SECCOMP_PPC64_TRAP_SCV 0x3000UL
+#define SECCOMP_PPC64_TRAP_MASK 0x1fUL
+
+// glibc's ucontext for ppc64 has gregset_t but no greg_t.
+typedef unsigned long greg_t;
+
+#define SECCOMP_REG(_ctx, _reg) ((_ctx)->uc_mcontext.gp_regs[_reg])
+
+// The syscall number is in r0 and the arguments in r3-r8. While seccomp
+// runs the kernel has replaced r3 with -ENOSYS and keeps the first argument
+// in orig_gpr3 (see do_seccomp() in arch/powerpc/kernel/ptrace); the result
+// goes back in r3.
+#define SECCOMP_RESULT(_ctx) SECCOMP_REG(_ctx, 3)
+#define SECCOMP_SYSCALL(_ctx) SECCOMP_REG(_ctx, 0)
+#define SECCOMP_IP(_ctx) SECCOMP_REG(_ctx, SECCOMP_PPC64_PT_NIP)
+#define SECCOMP_CCR(_ctx) SECCOMP_REG(_ctx, SECCOMP_PPC64_PT_CCR)
+#define SECCOMP_TRAP(_ctx) SECCOMP_REG(_ctx, SECCOMP_PPC64_PT_TRAP)
+#define SECCOMP_PARM1(_ctx) SECCOMP_REG(_ctx, SECCOMP_PPC64_PT_ORIG_R3)
+#define SECCOMP_PARM2(_ctx) SECCOMP_REG(_ctx, 4)
+#define SECCOMP_PARM3(_ctx) SECCOMP_REG(_ctx, 5)
+#define SECCOMP_PARM4(_ctx) SECCOMP_REG(_ctx, 6)
+#define SECCOMP_PARM5(_ctx) SECCOMP_REG(_ctx, 7)
+#define SECCOMP_PARM6(_ctx) SECCOMP_REG(_ctx, 8)
+
+#define SECCOMP_NR_IDX (offsetof(struct arch_seccomp_data, nr))
+#define SECCOMP_ARCH_IDX (offsetof(struct arch_seccomp_data, arch))
+#if defined(ARCH_CPU_LITTLE_ENDIAN)
+#define SECCOMP_IP_MSB_IDX \
+  (offsetof(struct arch_seccomp_data, instruction_pointer) + 4)
+#define SECCOMP_IP_LSB_IDX \
+  (offsetof(struct arch_seccomp_data, instruction_pointer) + 0)
+#define SECCOMP_ARG_MSB_IDX(nr) \
+  (offsetof(struct arch_seccomp_data, args) + 8 * (nr) + 4)
+#define SECCOMP_ARG_LSB_IDX(nr) \
+  (offsetof(struct arch_seccomp_data, args) + 8 * (nr) + 0)
+#else
+#define SECCOMP_IP_MSB_IDX \
+  (offsetof(struct arch_seccomp_data, instruction_pointer) + 0)
+#define SECCOMP_IP_LSB_IDX \
+  (offsetof(struct arch_seccomp_data, instruction_pointer) + 4)
+#define SECCOMP_ARG_MSB_IDX(nr) \
+  (offsetof(struct arch_seccomp_data, args) + 8 * (nr) + 0)
+#define SECCOMP_ARG_LSB_IDX(nr) \
+  (offsetof(struct arch_seccomp_data, args) + 8 * (nr) + 4)
+#endif
+
+#define SECCOMP_PT_RESULT(_regs) (_regs).gpr[3]
+#define SECCOMP_PT_SYSCALL(_regs) (_regs).gpr[0]
+#define SECCOMP_PT_IP(_regs) (_regs).nip
+#define SECCOMP_PT_PARM1(_regs) (_regs).gpr[3]
+#define SECCOMP_PT_PARM2(_regs) (_regs).gpr[4]
+#define SECCOMP_PT_PARM3(_regs) (_regs).gpr[5]
+#define SECCOMP_PT_PARM4(_regs) (_regs).gpr[6]
+#define SECCOMP_PT_PARM5(_regs) (_regs).gpr[7]
+#define SECCOMP_PT_PARM6(_regs) (_regs).gpr[8]
 #else
 #error Unsupported target platform
 
