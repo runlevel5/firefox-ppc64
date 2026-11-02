@@ -30,6 +30,10 @@
 #  define SANDBOX_ARCH_NAME "arm"
 #elif defined(__aarch64__)
 #  define SANDBOX_ARCH_NAME "arm64"
+#elif defined(__powerpc64__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#  define SANDBOX_ARCH_NAME "ppc64le"
+#elif defined(__powerpc64__)
+#  define SANDBOX_ARCH_NAME "ppc64"
 #else
 #  error "unrecognized architecture"
 #endif

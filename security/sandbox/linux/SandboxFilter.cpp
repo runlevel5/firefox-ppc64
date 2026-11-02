@@ -6,6 +6,10 @@
 
 #include <asm/ioctls.h>    // For TCGETS2
 #include <asm/termbits.h>  // For termios2
+#ifndef TCGETS2
+// powerpc has no termios2.
+#  define TCGETS2 TCGETS
+#endif
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/ioctl.h>
@@ -150,14 +154,38 @@ static_assert(F_DUPFD_QUERY == (F_LINUX_SPECIFIC_BASE + 3));
 namespace {
 static const unsigned long kIoctlTypeMask = _IOC_TYPEMASK << _IOC_TYPESHIFT;
 static const unsigned long kTtyIoctls = TIOCSTI & kIoctlTypeMask;
+#if defined(__powerpc64__)
+// powerpc kept the pre-asm-generic ioctl numbering, so the tty-related
+// ioctls span three types: the termios ones are 't', the FIO ones 'f' and
+// the rest of the TIOC group 'T'.
+static const unsigned long kTermiosIoctls = TCSETA & kIoctlTypeMask;
+static const unsigned long kFioIoctls = FIOASYNC & kIoctlTypeMask;
+static_assert(kTtyIoctls != kTermiosIoctls && kTtyIoctls != kFioIoctls &&
+                  kTermiosIoctls != kFioIoctls,
+              "tty-related ioctls use three types");
+
+// Whether an ioctl request's type field, masked in place, is one of the
+// tty-related groups.
+static sandbox::bpf_dsl::BoolExpr IsTtyIoctl(
+    const sandbox::bpf_dsl::Arg<unsigned long>& aShiftedType) {
+  return sandbox::bpf_dsl::AnyOf(aShiftedType == kTtyIoctls,
+                                 aShiftedType == kTermiosIoctls,
+                                 aShiftedType == kFioIoctls);
+}
+#else
 // On some older architectures (but not x86 or ARM), ioctls are
 // assigned type fields differently, and the TIOC/TC/FIO group
-// isn't all the same type.  If/when we support those archs,
-// this would need to be revised (but really this should be a
-// default-deny policy; see below).
+// isn't all the same type (see above for powerpc; really this
+// should be a default-deny policy; see below).
 static_assert(kTtyIoctls == (TCSETA & kIoctlTypeMask) &&
                   kTtyIoctls == (FIOASYNC & kIoctlTypeMask),
               "tty-related ioctls use the same type");
+
+static sandbox::bpf_dsl::BoolExpr IsTtyIoctl(
+    const sandbox::bpf_dsl::Arg<unsigned long>& aShiftedType) {
+  return aShiftedType == kTtyIoctls;
+}
+#endif
 };  // namespace
 
 // This file defines the seccomp-bpf system call filter policies.
@@ -1615,9 +1643,9 @@ class ContentSandboxPolicy : public SandboxPolicyCommon {
             // Rust's stdlib also uses FIONBIO instead of equivalent fcntls.
             .ElseIf(request == FIONBIO, Allow())
             // Allow anything that isn't a tty ioctl, if level < 6
-            .ElseIf(
-                BelowLevel(6) ? shifted_type != kTtyIoctls : BoolConst(false),
-                Allow())
+            .ElseIf(BelowLevel(6) ? Not(IsTtyIoctl(shifted_type))
+                                  : BoolConst(false),
+                    Allow())
             .Else(SandboxPolicyCommon::EvaluateSyscall(sysno));
       }
 
@@ -2414,7 +2442,7 @@ class SocketProcessSandboxPolicy final : public SandboxPolicyCommon {
                    Allow())
             .Default(
                 // Allow anything that isn't a tty ioctl (if level < 2)
-                If(BelowLevel(2) ? shifted_type != kTtyIoctls
+                If(BelowLevel(2) ? Not(IsTtyIoctl(shifted_type))
                                  : BoolConst(false),
                    Allow())
                     .Else(SandboxPolicyCommon::EvaluateSyscall(sysno)));
