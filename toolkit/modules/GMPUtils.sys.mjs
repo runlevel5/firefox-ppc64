@@ -105,6 +105,82 @@ export var GMPUtils = {
     );
   },
 
+  /**
+   * Checks whether a given plugin is the x86_64 Widevine CDM run through a
+   * proxy CDM and an emulated helper process, as on Linux ppc64le. Such a
+   * plugin is not served for the platform by the update servers: it is taken
+   * from the local source config, which aliases the x86_64 package, and the
+   * proxy is installed beside the downloaded library (see
+   * GMPInstallManager.installProxyCdm). The ppc64 ABI covers both byte
+   * orders; the emulated helper exists for little-endian only.
+   *
+   * @param   aPlugin
+   *          The plugin to check.
+   */
+  _usesProxyCdm(aPlugin) {
+    return (
+      aPlugin.id == WIDEVINE_L3_ID &&
+      AppConstants.platform == "linux" &&
+      Services.appinfo.XPCOMABI.startsWith("ppc64-") &&
+      new Uint8Array(new Uint16Array([1]).buffer)[0] === 1
+    );
+  },
+
+  /**
+   * Names what stops a proxy CDM installed in aDir from starting its helper,
+   * or returns null when gmp-helper, wvhost and box64 can all be run.
+   *
+   * @param   aDir
+   *          The plugin's install directory.
+   */
+  proxyCdmProblem(aDir) {
+    for (let name of ["gmp-helper", "wvhost"]) {
+      let path = PathUtils.join(aDir, name);
+      if (!this._isExecutable(path)) {
+        return `${path} is missing or not executable`;
+      }
+    }
+    if (!this.box64Path()) {
+      let fromEnv = Services.env.get("WV_BOX64");
+      return fromEnv
+        ? `box64 not found at ${fromEnv}, named by WV_BOX64`
+        : "box64 was not found on PATH; install box64 or set WV_BOX64";
+    }
+    return null;
+  },
+
+  /**
+   * The box64 the plugin's gmp-helper will run, or null when there is none.
+   * box64 is packaged separately from the proxy, so it is taken from PATH
+   * unless WV_BOX64 names one, which is how gmp-helper resolves it too.
+   */
+  box64Path() {
+    let fromEnv = Services.env.get("WV_BOX64");
+    if (fromEnv) {
+      return this._isExecutable(fromEnv) ? fromEnv : null;
+    }
+    for (let dir of (Services.env.get("PATH") || "").split(":")) {
+      if (!dir.startsWith("/")) {
+        continue;
+      }
+      let path = PathUtils.join(dir, "box64");
+      if (this._isExecutable(path)) {
+        return path;
+      }
+    }
+    return null;
+  },
+
+  _isExecutable(aPath) {
+    try {
+      let file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+      file.initWithPath(aPath);
+      return file.exists() && file.isExecutable();
+    } catch (e) {
+      return false;
+    }
+  },
+
   _getChromiumUpdateParameters(aPlugin) {
     let params = "";
     if (AppConstants.platform === "win") {
@@ -120,7 +196,7 @@ export var GMPUtils = {
     const abi = Services.appinfo.XPCOMABI;
     if (abi.match(/aarch64/)) {
       params += "&arch=arm64&os_arch=arm64";
-    } else if (abi.match(/x86_64/)) {
+    } else if (abi.match(/x86_64/) || this._usesProxyCdm(aPlugin)) {
       params += "&arch=x64&os_arch=x64";
     } else if (abi.match(/x86/)) {
       params += "&arch=x86&os_arch=x86";
@@ -178,6 +254,7 @@ export var GMPPrefs = {
   KEY_PLUGIN_ALLOW_CHROMIUM_UPDATE: "media.{0}.allow-chromium-update",
   KEY_PLUGIN_FORCE_CHROMIUM_UPDATE: "media.{0}.force-chromium-update",
   KEY_PLUGIN_FORCE_CHROMIUM_BETA: "media.{0}.force-chromium-beta",
+  KEY_PLUGIN_PROXY_DIR: "media.{0}.proxy-dir",
   KEY_ALLOW_LOCAL_SOURCES: "media.gmp-manager.allowLocalSources",
   KEY_URL: "media.gmp-manager.url",
   KEY_URL_OVERRIDE: "media.gmp-manager.url.override",
