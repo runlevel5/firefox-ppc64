@@ -1,0 +1,13 @@
+GCC_3.0 {
+  global:
+    _Unwind_DeleteException;
+    _Unwind_GetIP;
+    _Unwind_GetLanguageSpecificData;
+    _Unwind_GetRegionStart;
+    _Unwind_RaiseException;
+    _Unwind_Resume;
+    _Unwind_SetGR;
+    _Unwind_SetIP;
+    __udivti3;
+  local: *;
+};
