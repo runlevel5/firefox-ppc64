@@ -1,0 +1,15 @@
+#!/bin/sh
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+# Started by Firefox's GMP child, before its sandbox engages, with the helper
+# end of the proxy's socket as the only argument. Runs the x86_64 helper and
+# the real CDM under box64.
+d=$(dirname "$(readlink -f "$0")")
+# box64 is packaged separately from the proxy, so it comes from PATH unless
+# WV_BOX64 names one. GMPUtils.box64Path in Firefox resolves it the same way.
+box64=${WV_BOX64:-box64}
+export BOX64_LD_LIBRARY_PATH="${BOX64_LD_LIBRARY_PATH:-$d/x64lib}"
+export BOX64_NOBANNER=1
+exec "$box64" "$d/wvhost" "$d/libwidevinecdm-x86_64.so" "$1"

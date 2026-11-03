@@ -1,0 +1,1 @@
+{ global: InitializeCdmModule_4; DeinitializeCdmModule; CreateCdmInstance; GetCdmVersion; local: *; };
