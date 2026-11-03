@@ -1043,6 +1043,10 @@ def eme_choices(target, wmf):
         return ("widevine",)
     if target.os in ("OSX"):
         return ("widevine",)
+    # Linux ppc64 runs the x86_64 Widevine CDM through a native proxy CDM and
+    # an emulated helper process; see dom/media/gmp/widevine-adapter.
+    if target.kernel == "Linux" and target.cpu == "ppc64":
+        return ("widevine",)
 
 
 # Widevine is enabled by default in desktop browser builds.
