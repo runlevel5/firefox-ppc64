@@ -2879,7 +2879,6 @@ interface nsIRemoteTab extends nsISupports, Enums<typeof nsIRemoteTab_Navigation
   readonly osPid: i32;
   readonly browsingContext: BrowsingContext;
   readonly hasPresented: boolean;
-  transmitPermissionsForPrincipal(aPrincipal: nsIPrincipal): void;
   createAboutBlankDocumentViewer(aPrincipal: nsIPrincipal, aPartitionedPrincipal: nsIPrincipal): void;
   maybeCancelContentJSExecution(aNavigationType: nsIRemoteTab.NavigationType, aCancelContentJSOptions?: any): void;
 }

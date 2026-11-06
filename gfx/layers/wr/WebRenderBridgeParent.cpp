@@ -1325,6 +1325,9 @@ bool WebRenderBridgeParent::SetDisplayList(
     pipelineId = gfx::GetTemporaryWebRenderPipelineId(pipelineId);
   }
 
+  if (StaticPrefs::gfx_webrender_enforce_embed_policy_AtStartup()) {
+    aTxn.SetEmbedPolicy(pipelineId, ComputeEmbedPolicy());
+  }
   aTxn.SetDisplayList(aWrEpoch, mLateInit->mIdNamespace, pipelineId, aDLDesc,
                       dlItems, dlSpatialTreeData);
 
@@ -1383,6 +1386,32 @@ void WebRenderBridgeParent::SanitizeScrollData(
     return;
   }
   ClearUnconfirmedReferentIds(aScrollData, GetLayersId());
+}
+
+Maybe<nsTArray<uint32_t>> WebRenderBridgeParent::ComputeEmbedPolicy() const {
+  if (IsRootWebRenderBridgeParent()) {
+    return Nothing();
+  }
+  nsTArray<uint32_t> namespaces;
+  if (mCompositorBridge) {
+    namespaces.AppendElement(mCompositorBridge->GetNamespace());
+  }
+  CompositorBridgeParent::CollectEmbeddedChildNamespaces(GetLayersId(),
+                                                         namespaces);
+  return Some(std::move(namespaces));
+}
+
+void WebRenderBridgeParent::RefreshEmbedPolicy() {
+  MOZ_ASSERT(CompositorThreadHolder::IsInCompositorThread());
+  // Before initialization no display list was sent, and the first one carries
+  // the policy.
+  if (mDestroyed || !mLateInit || IsRootWebRenderBridgeParent()) {
+    return;
+  }
+  wr::TransactionBuilder txn(mLateInit->mApi);
+  txn.SetLowPriority(true);
+  txn.SetEmbedPolicy(mPipelineId, ComputeEmbedPolicy());
+  mLateInit->mApi->SendTransaction(txn);
 }
 
 bool WebRenderBridgeParent::ProcessDisplayListData(

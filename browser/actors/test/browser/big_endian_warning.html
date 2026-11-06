@@ -1,0 +1,45 @@
+<!doctype html>
+<meta charset="utf-8">
+<script>
+  function throwAndCatch(message) {
+    try {
+      throw new Error(message);
+    } catch (e) {}
+  }
+
+  window.endianError = async () =>
+    throwAndCatch("Non little-endian hardware is not yet supported");
+
+  window.otherError = async () => throwAndCatch("Incorrect password");
+
+  window.dedicatedWorker = () =>
+    new Promise(resolve => {
+      let worker = new Worker("big_endian_warning_worker.js");
+      worker.onmessage = () => resolve();
+    });
+
+  window.sharedWorker = () =>
+    new Promise(resolve => {
+      let worker = new SharedWorker("big_endian_warning_worker.js");
+      worker.port.onmessage = () => resolve();
+      worker.port.start();
+    });
+
+  window.serviceWorker = async () => {
+    let registration = await navigator.serviceWorker.register(
+      "big_endian_warning_worker.js"
+    );
+    if (!navigator.serviceWorker.controller) {
+      await new Promise(resolve =>
+        navigator.serviceWorker.addEventListener("controllerchange", resolve, {
+          once: true,
+        })
+      );
+    }
+    await new Promise(resolve => {
+      navigator.serviceWorker.onmessage = () => resolve();
+      navigator.serviceWorker.controller.postMessage("throw");
+    });
+    await registration.unregister();
+  };
+</script>

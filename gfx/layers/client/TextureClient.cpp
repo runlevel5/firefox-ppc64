@@ -503,7 +503,14 @@ void TextureClient::Destroy() {
     mActor->Lock();
   }
 
-  mBorrowedDrawTarget = nullptr;
+  if (mBorrowedDrawTarget) {
+    if (mData) {
+      mData->ReturnDrawTarget(mBorrowedDrawTarget.forget());
+    } else {
+      mBorrowedDrawTarget->DetachAllSnapshots();
+      mBorrowedDrawTarget = nullptr;
+    }
+  }
   mBorrowedSnapshot = false;
 
   RefPtr<TextureChild> actor = std::move(mActor);
@@ -978,6 +985,35 @@ already_AddRefed<gfx::SourceSurface> TextureClient::BorrowSnapshot() {
 void TextureData::ReturnSnapshot(
     already_AddRefed<gfx::SourceSurface> aSnapshot) {
   RefPtr<gfx::SourceSurface> snapshot(aSnapshot);
+}
+
+already_AddRefed<gfx::SourceSurface> TextureClient::GetBufferSnapshot() {
+  MutexAutoLock lock(mMutex);
+  if (!mData) {
+    return nullptr;
+  }
+  auto* bufferData = mData->AsBufferTextureData();
+  if (!bufferData) {
+    return nullptr;
+  }
+
+  RefPtr<gfx::DrawTarget> drawTarget = bufferData->BorrowDrawTarget();
+  if (!drawTarget) {
+    return nullptr;
+  }
+  RefPtr<gfx::SourceSurface> surface = drawTarget->Snapshot();
+  if (!surface) {
+    return nullptr;
+  }
+
+  static gfx::UserDataKey sShmemHolderKey;
+  RefPtr<ShmemHolder> shmemHolder = bufferData->GetShmemHolder();
+  if (shmemHolder && !surface->GetUserData(&sShmemHolderKey)) {
+    surface->AddUserData(
+        &sShmemHolderKey, shmemHolder.forget().take(),
+        [](void* aData) { static_cast<ShmemHolder*>(aData)->Release(); });
+  }
+  return surface.forget();
 }
 
 void TextureClient::ReturnSnapshot(

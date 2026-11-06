@@ -109,6 +109,17 @@ void TransactionBuilder::RemovePipeline(PipelineId aPipelineId) {
   wr_transaction_remove_pipeline(mTxn, aPipelineId);
 }
 
+void TransactionBuilder::SetEmbedPolicy(
+    PipelineId aPipelineId, const Maybe<nsTArray<uint32_t>>& aNamespaces) {
+  if (aNamespaces) {
+    wr_transaction_set_embed_policy(mTxn, aPipelineId, true,
+                                    aNamespaces->Elements(),
+                                    aNamespaces->Length());
+  } else {
+    wr_transaction_set_embed_policy(mTxn, aPipelineId, false, nullptr, 0);
+  }
+}
+
 void TransactionBuilder::SetDisplayList(
     Epoch aEpoch, wr::IdNamespace aIdNamespace, wr::WrPipelineId pipeline_id,
     wr::BuiltDisplayListDescriptor dl_descriptor,

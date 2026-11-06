@@ -6,6 +6,7 @@
 
 #include "xpcprivate.h"
 #include "XPCMaps.h"
+#include "jsapi.h"
 #include "js/Wrapper.h"
 
 #include "mozilla/MemoryReporting.h"
@@ -83,8 +84,10 @@ bool XPCNativeMember::Resolve(XPCCallContext& ccx, XPCNativeInterface* iface,
     callback = XPC_WN_GetterSetter;
   }
 
-  jsid name = GetName();
-  JS_MarkCrossZoneId(ccx, name);
+  RootedId name(ccx, GetName());
+  if (!JS_WrapId(ccx, &name)) {
+    return false;
+  }
 
   JSFunction* fun;
   if (name.isString()) {

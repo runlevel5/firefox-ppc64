@@ -36,6 +36,7 @@ std::unique_ptr<RtpPacketizer> RtpPacketizer::Create(
     PayloadSizeLimits limits,
     // Codec-specific details.
     const RTPVideoHeader& rtp_video_header) {
+  limits = limits.Sanitize();
   switch (format) {
     case PacketizationFormat::kRaw: {
       return std::make_unique<RtpPacketizerGeneric>(payload, limits);

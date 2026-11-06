@@ -488,7 +488,7 @@ mozilla::ipc::IPCResult BackgroundParentImpl::RecvCreateFileSystemManagerParent(
   // so system principals must be allowed there.
   EnumSet<dom::ValidatePrincipalOptions> options;
   if (BackgroundParent::GetRemoteType(this) == INFERENCE_REMOTE_TYPE) {
-    options += dom::ValidatePrincipalOptions::AllowSystem;
+    options += dom::ValidatePrincipalOptions::AllowSystemIfLoaded;
   }
   if (!BackgroundParent::ValidatePrincipalInfo(this, aPrincipalInfo, options)) {
     aResolver(NS_ERROR_FAILURE);
@@ -514,8 +514,9 @@ mozilla::ipc::IPCResult BackgroundParentImpl::RecvCreateWebTransportParent(
     return IPC_FAIL(this, "CreateWebTransport aPrincipal is invalid");
   }
 
-  if (!dom::ClientIsValidPrincipalInfo(aClientInfo.principalInfo(),
-                                       BackgroundParent::GetRemoteType(this))) {
+  if (!dom::ClientIsValidPrincipalInfo(
+          aClientInfo.principalInfo(),
+          BackgroundParent::GetLoadedOrigins(this))) {
     return IPC_FAIL(
         this,
         "CreateWebTransport ClientInfo principal not valid for remote type");
@@ -1302,8 +1303,7 @@ mozilla::ipc::IPCResult BackgroundParentImpl::RecvCreateMLSTransaction(
 
   RefPtr<ThreadsafeContentParentHandle> parent =
       BackgroundParent::GetContentParentHandle(this);
-  if (parent && !dom::ValidatePrincipalCouldPotentiallyBeLoadedBy(
-                    aPrincipal, parent->GetRemoteType(), {})) {
+  if (parent && !parent->ValidatePrincipal(aPrincipal)) {
     dom::ContentParent::LogAndAssertFailedPrincipalValidationInfo(aPrincipal,
                                                                   __func__);
     return IPC_FAIL(this, "Principal validation failed");
@@ -1436,8 +1436,9 @@ BackgroundParentImpl::RecvPServiceWorkerRegistrationConstructor(
     return IPC_FAIL(this, "Invalid principal for PServiceWorkerRegistration");
   }
 
-  if (!dom::ClientIsValidPrincipalInfo(aForClient.principalInfo(),
-                                       BackgroundParent::GetRemoteType(this))) {
+  if (!dom::ClientIsValidPrincipalInfo(
+          aForClient.principalInfo(),
+          BackgroundParent::GetLoadedOrigins(this))) {
     return IPC_FAIL(this, "Invalid ClientInfo for PServiceWorkerRegistration");
   }
 

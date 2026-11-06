@@ -368,8 +368,9 @@ int32_t WebrtcGmpVideoEncoder::Encode(
     GMP_LOG_VERBOSE("GMP Encode: not enabled");
     MutexAutoLock lock(mCallbackMutex);
     if (mCallback) {
-      mCallback->OnDroppedFrame(
-          webrtc::EncodedImageCallback::DropReason::kDroppedByEncoder);
+      mCallback->OnFrameDropped(aInputImage.rtp_timestamp(),
+                                /* spatial_id = */ 0,
+                                /* is_end_of_temporal_unit = */ true);
     }
     return WEBRTC_VIDEO_CODEC_OK;
   }
@@ -411,8 +412,9 @@ void WebrtcGmpVideoEncoder::Encode_g(
   auto reportDroppedOnExit = MakeScopeExit([&] {
     MutexAutoLock lock(mCallbackMutex);
     if (mCallback) {
-      mCallback->OnDroppedFrame(
-          webrtc::EncodedImageCallback::DropReason::kDroppedByEncoder);
+      mCallback->OnFrameDropped(aInputImage.rtp_timestamp(),
+                                /* spatial_id = */ 0,
+                                /* is_end_of_temporal_unit = */ true);
     }
   });
 
@@ -643,6 +645,11 @@ void WebrtcGmpVideoEncoder::Encoded(
     --numFramesDropped;
     data = Some(mInputImageMap.ElementAt(nextIdx - 1));
   }
+  AutoTArray<uint32_t, kMaxImagesInFlight> droppedRtpTimestamps;
+  for (size_t i = 0; i < numFramesDropped; ++i) {
+    droppedRtpTimestamps.AppendElement(
+        mInputImageMap.ElementAt(i).rtp_timestamp);
+  }
   mInputImageMap.RemoveElementsAt(0, numToRemove);
 
   webrtc::VideoFrameType frt;
@@ -671,9 +678,9 @@ void WebrtcGmpVideoEncoder::Encoded(
     return;
   }
 
-  for (size_t i = 0; i < numFramesDropped; ++i) {
-    mCallback->OnDroppedFrame(
-        webrtc::EncodedImageCallback::DropReason::kDroppedByEncoder);
+  for (const uint32_t rtpTimestamp : droppedRtpTimestamps) {
+    mCallback->OnFrameDropped(rtpTimestamp, /* spatial_id = */ 0,
+                              /* is_end_of_temporal_unit = */ true);
   }
 
   if (data.isNothing()) {
@@ -783,6 +790,11 @@ void WebrtcGmpVideoEncoder::Dropped(uint64_t aTimestamp) {
   MOZ_ASSERT(nextIdx != 0);
   MOZ_ASSERT(mInputImageMap.ElementAt(nextIdx - 1).gmp_timestamp_us ==
              aTimestamp);
+  AutoTArray<uint32_t, kMaxImagesInFlight> droppedRtpTimestamps;
+  for (size_t i = 0; i < numDropped; ++i) {
+    droppedRtpTimestamps.AppendElement(
+        mInputImageMap.ElementAt(i).rtp_timestamp);
+  }
   mInputImageMap.RemoveElementsAt(0, numDropped);
 
   GMP_LOG_DEBUG(
@@ -794,9 +806,9 @@ void WebrtcGmpVideoEncoder::Dropped(uint64_t aTimestamp) {
     return;
   }
 
-  for (size_t i = 0; i < numDropped; ++i) {
-    mCallback->OnDroppedFrame(
-        webrtc::EncodedImageCallback::DropReason::kDroppedByEncoder);
+  for (const uint32_t rtpTimestamp : droppedRtpTimestamps) {
+    mCallback->OnFrameDropped(rtpTimestamp, /* spatial_id = */ 0,
+                              /* is_end_of_temporal_unit = */ true);
   }
 }
 

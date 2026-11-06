@@ -6340,6 +6340,13 @@ nsresult Document::EditingStateChanged() {
   bool spellRecheckAll = false;
   bool putOffToRemoveScriptBlockerUntilModifyingEditingState = false;
 
+  if (makeWindowEditable && NS_WARN_IF(!IsHTMLOrXHTML())) {
+    // Don't allow editing on non-HTML/XHTML documents.
+    // Return NS_OK so that the setter of designMode on non-HTML documents
+    // does not fail.
+    return NS_OK;
+  }
+
   RefPtr<HTMLEditor> htmlEditor;
   {
     nsAutoEditingState push(this, EditingState::eSettingUp);
@@ -6408,14 +6415,8 @@ nsresult Document::EditingStateChanged() {
 
     // XXX Need to call TearDownEditorOnWindow for all failures.
     htmlEditor = docshell->GetHTMLEditor();
-    if (!htmlEditor) {
-      // Return NS_OK even though we've failed to create an editor here.  This
-      // is so that the setter of designMode on non-HTML documents does not
-      // fail.
-      // This is OK to do because in nsEditingSession::SetupEditorOnWindow() we
-      // would detect that we can't support the mimetype if appropriate and
-      // would fall onto the eEditorErrorCantEditMimeType path.
-      return NS_OK;
+    if (NS_WARN_IF(!htmlEditor)) {
+      return NS_ERROR_FAILURE;
     }
 
     if (collapseSelectionAtBeginningOfDocument) {
@@ -6438,19 +6439,6 @@ nsresult Document::EditingStateChanged() {
   }
 
   if (makeWindowEditable) {
-    // TODO: We should do this earlier in this method.
-    //       Previously, we called `ExecCommand` with `insertBrOnReturn` command
-    //       whose argument is false here.  Then, if it returns error, we
-    //       stopped making it editable.  However, after bug 1697078 fixed,
-    //       `ExecCommand` returns error only when the document is not XHTML's
-    //       nor HTML's.  Therefore, we use same error handling for now.
-    if (MOZ_UNLIKELY(NS_WARN_IF(!IsHTMLOrXHTML()))) {
-      // Editor setup failed. Editing is not on after all.
-      // XXX Should we reset the editable flag on nodes?
-      editSession->TearDownEditorOnWindow(window);
-      mEditingState = EditingState::eOff;
-      return NS_ERROR_DOM_INVALID_STATE_ERR;
-    }
     // Set the editor to not insert <br> elements on return when in <p> elements
     // by default.
     htmlEditor->SetReturnInParagraphCreatesNewParagraph(true);
@@ -16274,7 +16262,7 @@ void Document::HidePopoverStackUntil(Element* aEndpoint,
   Span<RefPtr<Element>> toRemain(popoverList.Elements(), lastHideIndex);
 
   // 5. For each popover of toHide: run the hide popover algorithm given
-  // popover, focusPreviousElement, fireEvents, false, and null.
+  // popover, focusPreviousElement, fireEvents, false, null, and document.
   for (RefPtr<Element> popover : mozilla::Reversed(toHide)) {
     HidePopover(*popover, aFocusPreviousElement, aFireEvents,
                 /* aSource */ nullptr, IgnoreErrors());
@@ -16291,7 +16279,7 @@ void Document::HidePopoverStackUntil(Element* aEndpoint,
       continue;
     }
     // 8.2. Run the hide popover algorithm given popover, focusPreviousElement,
-    // false, false, and null.
+    // false, false, null, and document.
     HidePopover(*popover, aFocusPreviousElement, /* aFireEvents */ false,
                 /* aSource */ nullptr, IgnoreErrors());
   }
@@ -16330,11 +16318,11 @@ void Document::HidePopover(Element& aPopover, bool aFocusPreviousElement,
   NS_ASSERTION(popoverHTMLEl, "Not a HTML element");
 
   // 1. Let validityResult be the result of running check popover validity
-  // given element, true, and null.
+  // given element, true, and expectedDocument.
   // 2. If validityResult is not true, then run cleanupSteps if throwExceptions
   // and throw, otherwise return.
   if (!popoverHTMLEl->CheckPopoverValidity(PopoverVisibilityState::Showing,
-                                           nullptr, aRv)) {
+                                           this, aRv)) {
     return;
   }
 
@@ -16360,12 +16348,8 @@ void Document::HidePopover(Element& aPopover, bool aFocusPreviousElement,
       if (!nestedHide) {
         popoverData->SetIsPopoverHiding(false);
       }
-      // 8.2. If element's popover close watcher is not null, then:
-      // 8.2.1. Destroy element's popover close watcher.
-      // 8.2.2. Set element's popover close watcher to null.
-      popoverData->DestroyCloseWatcher();
     }
-    // 8.3. Decrement document's hiding popover nesting count.
+    // 8.2. Decrement document's hiding popover nesting count.
     DecrementHidingPopoverNestingCount();
   });
 
@@ -16405,10 +16389,10 @@ void Document::HidePopover(Element& aPopover, bool aFocusPreviousElement,
     }
 
     // 11.4. Set validityResult to the result of running check popover validity
-    // given element, true, and null.
+    // given element, true, and document.
     // 11.5. If validityResult is not true:
     if (!popoverHTMLEl->CheckPopoverValidity(PopoverVisibilityState::Showing,
-                                             nullptr, aRv)) {
+                                             this, aRv)) {
       // 11.5.1. Run cleanupSteps.
       // 11.5.2. If throwExceptions is true and validityResult is a
       // DOMException, then throw validityResult.
@@ -16428,9 +16412,10 @@ void Document::HidePopover(Element& aPopover, bool aFocusPreviousElement,
                                    aSource);
 
     // 12.2. Set validityResult to the result of running check popover validity
-    // given element, true, and null. If not true, run cleanupSteps and return.
+    // given element, true, and document. If not true, run cleanupSteps and
+    // return.
     if (!popoverHTMLEl->CheckPopoverValidity(PopoverVisibilityState::Showing,
-                                             nullptr, aRv)) {
+                                             this, aRv)) {
       // (Runs cleanup steps from step 8).
       return;
     }
@@ -16444,6 +16429,7 @@ void Document::HidePopover(Element& aPopover, bool aFocusPreviousElement,
 
   // 13. Otherwise, remove an element from the top layer immediately given
   // element.
+  MOZ_DIAGNOSTIC_ASSERT(popoverHTMLEl->OwnerDoc() == this);
   RemovePopoverFromTopLayer(aPopover);
 
   if (PopoverData* popoverData = popoverHTMLEl->GetPopoverData()) {
@@ -16485,7 +16471,14 @@ void Document::HidePopover(Element& aPopover, bool aFocusPreviousElement,
     popoverHTMLEl->ForgetPreviouslyFocusedElementAfterHidingPopover();
   }
 
-  // 21. Run cleanupSteps.
+  // 21. If element's popover close watcher is not null, then:
+  // 21.1. Destroy element's popover close watcher.
+  // 21.2. Set element's popover close watcher to null.
+  if (PopoverData* popoverData = popoverHTMLEl->GetPopoverData()) {
+    popoverData->DestroyCloseWatcher();
+  }
+
+  // 22. Run cleanupSteps.
 }
 
 nsTArray<RefPtr<Element>> Document::PopoverListOf(

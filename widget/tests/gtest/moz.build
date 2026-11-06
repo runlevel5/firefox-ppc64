@@ -13,6 +13,7 @@ UNIFIED_SOURCES = [
 
 if CONFIG["MOZ_WIDGET_TOOLKIT"] == "cocoa":
     UNIFIED_SOURCES += [
+        "TestCocoaFilePickerQueue.mm",
         "TestNativeKeyBindings.cpp",
     ]
 

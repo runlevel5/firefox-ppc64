@@ -383,8 +383,6 @@ class GPUProcessManager final : public GPUProcessHost::Listener {
   mozilla::ipc::TaskFactory<GPUProcessManager> mTaskFactory;
   RefPtr<VsyncIOThreadHolder> mVsyncIOThread;
   uint32_t mNextNamespace;
-  uint32_t mIdNamespace;
-  uint32_t mResourceId;
 
   uint32_t mUnstableProcessAttempts;
   uint32_t mTotalProcessAttempts;

@@ -302,6 +302,10 @@ mozilla::ipc::IPCResult FetchEventOpChild::RecvRespondWith(
     ParentToParentFetchEventRespondWithResult&& aResult) {
   AssertIsOnMainThread();
 
+  if (NS_WARN_IF(mInterceptedChannelHandled)) {
+    return IPC_OK();
+  }
+
   RefPtr<RemoteWorkerControllerChild> mgr =
       static_cast<RemoteWorkerControllerChild*>(Manager());
 

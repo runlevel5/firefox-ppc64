@@ -542,6 +542,10 @@ class nsHttpChannel final : public HttpBaseChannel,
   [[nodiscard]] nsresult SetupByteRangeRequest(int64_t partialLen);
   void UntieByteRangeRequest();
   void UntieValidationRequest();
+  // Drop everything OnCacheEntryCheck armed on this channel (conditional or
+  // byte-range headers, the cached response head, the cache input stream and
+  // the alt-data type) once the entry it examined is not going to be used.
+  void DiscardCacheEntryCheckState();
   [[nodiscard]] nsresult OpenCacheInputStream(nsICacheEntry* cacheEntry,
                                               bool startBuffering);
 
@@ -832,6 +836,14 @@ class nsHttpChannel final : public HttpBaseChannel,
   nsresult OnSuspendTimeout();
   void CancelNetworkRequest(nsresult aStatus);
 
+  // Backstop for a wedged cache entry: arm/cancel a one-shot timer while the
+  // channel is parked in AwaitingCacheCallbacks(), and force the load to the
+  // network if the cache callback never arrives.  See
+  // network.cache.entry_wait_timeout_ms.
+  void MaybeStartCacheWaitTimer();
+  void CancelCacheWaitTimer();
+  nsresult OnCacheWaitTimeout();
+
   nsresult LogConsoleError(const char* aTag);
 
   void SetHTTPSSVCRecord(already_AddRefed<nsIDNSHTTPSSVCRecord> aRecord);
@@ -847,12 +859,33 @@ class nsHttpChannel final : public HttpBaseChannel,
   // cache. When the timer fires we'll notify the cache entry to make
   // all other listeners continue.
   nsCOMPtr<nsITimer> mSuspendTimer;
+  // Backstop timer armed while parked in AwaitingCacheCallbacks(); if the
+  // cache entry callback never arrives we give up and race to the network.
+  nsCOMPtr<nsITimer> mCacheWaitTimer;
+  // Serializes OnCacheEntryCheck, which the cache may run on its I/O thread,
+  // with the main-thread backstop timeout.  OnCacheEntryCheck holds it for its
+  // whole run, so the timeout either fires before the check (which then sees
+  // mCacheWaitTimedOut and declines) or after it has completely armed the
+  // cached state (which the timeout then discards); never in between.
+  Mutex mCacheWaitLock{"nsHttpChannel::mCacheWaitLock"};
+  // Set once the cache-wait backstop has fired and we've forced the network,
+  // so a late OnCacheEntryCheck or OnCacheEntryAvailable callback is declined.
+  // Written on the main thread under mCacheWaitLock; OnCacheEntryCheck reads
+  // it under the lock, main-thread readers need no lock.
+  bool mCacheWaitTimedOut{false};
   // Tri-state to track whether anti-tracking classification happened
   // and has completed or not.
   // Nothing: No anti-tracking classification
   // Some(true): classification ongoing
   // Some(false): classification done
   Maybe<Atomic<bool>> mSuspendAfterExamineResponse;
+  // Set while a Suspend() taken by MaybeSuspendAfterExamineResponse() is
+  // outstanding, i.e. not yet undone by
+  // CancelSuspendOrResumeAfterExamineResponse(). Guards the compensating
+  // Resume() so it fires at most once per real Suspend(), even though
+  // CancelSuspendOrResumeAfterExamineResponse() can now be reached both from
+  // the classification callback and from CancelInternal.
+  Atomic<bool> mSuspendedForExamineResponse{false};
   bool mWritingToCache = false;
   bool mWaitingForProxy = false;
   bool mStaleRevalidation = false;

@@ -18,7 +18,7 @@
 #include "vm/FunctionFlags.h"          // FunctionFlags
 #include "vm/FunctionPrefixKind.h"     // FunctionPrefixKind
 #include "vm/GeneratorAndAsyncKind.h"  // GeneratorKind, FunctionAsyncKind
-#include "vm/JSAtomUtils.h"            // AtomIsMarked
+#include "vm/JSAtomUtils.h"            // ZoneHasRef
 #include "vm/JSObject.h"
 #include "vm/JSScript.h"
 #include "wasm/WasmTypeDef.h"
@@ -376,7 +376,7 @@ class JSFunction : public js::NativeObject {
   }
 
   void initAtom(JSAtom* atom) {
-    MOZ_ASSERT_IF(atom, js::AtomIsMarked(zone(), atom));
+    MOZ_ASSERT_IF(atom, js::ZoneHasRef(zone(), atom));
     MOZ_ASSERT(getFixedSlot(AtomSlot).isUndefined());
     if (atom) {
       initFixedSlot(AtomSlot, JS::StringValue(atom));
@@ -384,7 +384,7 @@ class JSFunction : public js::NativeObject {
   }
 
   void setAtom(JSAtom* atom) {
-    MOZ_ASSERT_IF(atom, js::AtomIsMarked(zone(), atom));
+    MOZ_ASSERT_IF(atom, js::ZoneHasRef(zone(), atom));
     setFixedSlot(AtomSlot, atom ? JS::StringValue(atom) : JS::UndefinedValue());
   }
 
@@ -458,7 +458,19 @@ class JSFunction : public js::NativeObject {
   }
 
  public:
+  // flagsAndArgCount is stored as the payload of a PrivateUint32Value. JIT code
+  // reads the packed uint32 with a 32-bit load, so this returns the byte offset
+  // of that payload: on big-endian it is at +4 within the 8-byte slot (the tag
+  // word occupies +0). Use offsetOfFlagsAndArgCountSlot() to address the whole
+  // Value (e.g. to copy or guard it).
   static constexpr size_t offsetOfFlagsAndArgCount() {
+    return getFixedSlotOffset(FlagsAndArgCountSlot)
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+           + sizeof(uint32_t)
+#endif
+        ;
+  }
+  static constexpr size_t offsetOfFlagsAndArgCountSlot() {
     return getFixedSlotOffset(FlagsAndArgCountSlot);
   }
   static size_t offsetOfEnvironment() { return offsetOfNativeOrEnv(); }

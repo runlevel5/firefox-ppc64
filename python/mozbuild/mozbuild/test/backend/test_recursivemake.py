@@ -482,6 +482,44 @@ class TestRecursiveMakeBackend(BackendTester):
         lines = [l.strip() for l in open(root_deps_path).readlines()]
         self.assertIn("consumer/pre-compile: producer/pre-compile", lines)
 
+    def test_generated_files_host_tool(self):
+        env = self._consume("generated-files-host-tool", RecursiveMakeBackend)
+
+        backend_path = mozpath.join(env.topobjdir, "data", "backend.mk")
+        with open(backend_path) as fh:
+            lines = [l.strip() for l in fh.readlines()[2:]]
+
+        expected = [
+            "include $(topsrcdir)/config/AB_rCD.mk",
+            "PRE_COMPILE_TARGETS += $(MDDEPDIR)/big.dat.stub",
+            "big.dat: $(MDDEPDIR)/big.dat.stub ;",
+            "EXTRA_MDDEPEND_FILES += $(MDDEPDIR)/big.dat.pp",
+            "$(MDDEPDIR)/big.dat.stub: "
+            f"{env.topsrcdir}/data/convert.py "
+            "$(srcdir)/little.dat "
+            "$(DEPTH)/dist/host/bin/tool",
+            "$(REPORT_BUILD)",
+            "$(call py_action,file_generate big.dat,"
+            f"{env.topsrcdir}/data/convert.py main "
+            "big.dat $(MDDEPDIR)/big.dat.pp "
+            "$(MDDEPDIR)/big.dat.stub $(srcdir)/little.dat)",
+            "@$(TOUCH) $@",
+            "",
+        ]
+
+        self.maxDiff = None
+        self.assertEqual(lines[: len(expected)], expected)
+
+        root_backend_path = mozpath.join(env.topobjdir, "backend.mk")
+        with open(root_backend_path) as fh:
+            self.assertNotIn("big.dat", fh.read())
+
+        root_deps_path = mozpath.join(env.topobjdir, "root-deps.mk")
+        with open(root_deps_path) as fh:
+            lines = [l.strip() for l in fh.readlines()]
+        self.assertIn("data/pre-compile: tool/host", lines)
+        self.assertIn("data/target-objects: data/pre-compile", lines)
+
     def test_generated_files_force(self):
         """Ensure GENERATED_FILES with .force is handled properly."""
         env = self._consume("generated-files-force", RecursiveMakeBackend)

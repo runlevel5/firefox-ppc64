@@ -45,7 +45,7 @@ IPCResult ClientHandleOpParent::Init(ClientOpConstructorArgs&& aArgs) {
   }
 
   if (!IsValidClientOpConstructorArgs(
-          aArgs, BackgroundParent::GetRemoteType(backgroundActor))) {
+          aArgs, BackgroundParent::GetLoadedOrigins(backgroundActor))) {
     return IPC_FAIL(this, "Invalid ClientOpConstructorArgs!");
   }
 

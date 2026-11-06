@@ -97,8 +97,6 @@ void GPUProcessManager::Shutdown() {
 GPUProcessManager::GPUProcessManager()
     : mTaskFactory(this),
       mNextNamespace(0),
-      mIdNamespace(0),
-      mResourceId(0),
       mUnstableProcessAttempts(0),
       mTotalProcessAttempts(0),
       mDeviceResetCount(0),
@@ -107,8 +105,6 @@ GPUProcessManager::GPUProcessManager()
       mProcessToken(0),
       mGPUChild(nullptr) {
   MOZ_COUNT_CTOR(GPUProcessManager);
-
-  mIdNamespace = AllocateNamespace();
 
   mDeviceResetLastTime = TimeStamp::Now();
 
@@ -1644,27 +1640,13 @@ bool GPUProcessManager::IsLayerTreeIdMapped(LayersId aLayersId,
 }
 
 LayersId GPUProcessManager::AllocateLayerTreeId() {
-  // Allocate tree id by using id namespace.
-  // By it, tree id does not conflict with external image id and
-  // async image pipeline id.
+  // Each layer tree gets its own id namespace, which keeps its pipelines apart
+  // from those of other trees, external image ids and async image pipeline
+  // ids. Its pipeline uses handle 0 and GetTemporaryWebRenderPipelineId uses
+  // handle 1.
   MOZ_ASSERT(NS_IsMainThread());
-  // Increment the resource id by two instead of one so that each
-  // WebRenderLayerManager and WebRenderBridgeParent gets two distinct
-  // pipeline IDs they can use.
-  // This is gross but the steps to create a temporary pipeline
-  // ID from the content process or the compositor thread are too
-  // complex and expensive.
-  // TODO: Ideally, we'd allocate only the namespace here and let the
-  // WR layer manager produce any number of pipeline IDs.
-  mResourceId += 2;
-  if (mResourceId >= UINT32_MAX - 1) {
-    // Move to next id namespace.
-    mIdNamespace = AllocateNamespace();
-    mResourceId = 2;
-  }
-
-  uint64_t layerTreeId = mIdNamespace;
-  layerTreeId = (layerTreeId << 32) | mResourceId;
+  uint64_t layerTreeId = AllocateNamespace();
+  layerTreeId <<= 32;
   return LayersId{layerTreeId};
 }
 
@@ -1672,9 +1654,7 @@ LayersId GPUProcessManager::AllocateLayerTreeId() {
 // For now this is only used for view-transition snapshots of the old state,
 // it's probably best to avoid using this for anything else.
 wr::PipelineId GetTemporaryWebRenderPipelineId(wr::PipelineId aMainPipeline) {
-  // Sanity check that we are have the expected even number for
-  // the main pipeline handle.
-  MOZ_ASSERT(aMainPipeline.mHandle % 2 == 0);
+  MOZ_ASSERT(aMainPipeline.mHandle == 0);
   auto id = aMainPipeline;
   id.mHandle += 1;
   return id;

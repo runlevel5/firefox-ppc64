@@ -100,6 +100,8 @@ FINAL_TARGET_FILES.actors += [
     "AboutReaderParent.sys.mjs",
     "AboutTabCrashedChild.sys.mjs",
     "AboutTabCrashedParent.sys.mjs",
+    "BigEndianWarningChild.sys.mjs",
+    "BigEndianWarningParent.sys.mjs",
     "BlockedSiteChild.sys.mjs",
     "BlockedSiteParent.sys.mjs",
     "BrowserProcessChild.sys.mjs",

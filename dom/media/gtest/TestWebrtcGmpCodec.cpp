@@ -56,7 +56,7 @@ struct MockEncodedImageCallback : public webrtc::EncodedImageCallback {
   MOCK_METHOD(Result, OnEncodedImage,
               (const webrtc::EncodedImage&, const webrtc::CodecSpecificInfo*),
               (override));
-  MOCK_METHOD(void, OnDroppedFrame, (DropReason), (override));
+  MOCK_METHOD(void, OnFrameDropped, (uint32_t, int, bool), (override));
 };
 
 auto CreateBlackFrame(int width, int height) {
@@ -134,9 +134,8 @@ TEST_F(TestWebrtcGmpVideoEncoder, BackPressure) {
         countIteration();
         return Result(Result::OK);
       });
-  EXPECT_CALL(
-      callback,
-      OnDroppedFrame(MockEncodedImageCallback::DropReason::kDroppedByEncoder))
+  EXPECT_CALL(callback, OnFrameDropped(_, /* spatial_id = */ 0,
+                                       /* is_end_of_temporal_unit = */ true))
       .Times(AtLeast(iterations / 10))
       .WillRepeatedly(countIteration);
   mEncoder->RegisterEncodeCompleteCallback(&callback);
@@ -248,9 +247,8 @@ TEST_F(TestWebrtcGmpVideoEncoder, TrackedFrameDrops) {
       handleEvent();
       return Result(Result::OK);
     });
-    EXPECT_CALL(
-        callback,
-        OnDroppedFrame(MockEncodedImageCallback::DropReason::kDroppedByEncoder))
+    EXPECT_CALL(callback, OnFrameDropped(_, /* spatial_id = */ 0,
+                                         /* is_end_of_temporal_unit = */ true))
         .WillOnce(handleEvent);
   }
   mEncoder->RegisterEncodeCompleteCallback(&callback);

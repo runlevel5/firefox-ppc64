@@ -1687,9 +1687,7 @@ class Document : public nsINode,
 
   MOZ_CAN_RUN_SCRIPT_BOUNDARY nsresult TurnEditingOff();
 
-  // MOZ_CAN_RUN_SCRIPT_BOUNDARY because this is called from all sorts
-  // of places, and I'm pretty sure the exact ExecCommand call it
-  // makes cannot actually run script.
+  // TODO: Convert this to MOZ_CAN_RUN_SCRIPT
   MOZ_CAN_RUN_SCRIPT_BOUNDARY nsresult EditingStateChanged();
 
   void MaybeEditingStateChanged();
@@ -3675,7 +3673,7 @@ class Document : public nsINode,
                                             bool aFocusPreviousElement,
                                             bool aFireEvents);
 
-  // Hides the given popover element, see
+  // Hides the given popover element, using this document as expectedDocument.
   // https://html.spec.whatwg.org/multipage/popover.html#hide-popover-algorithm
   MOZ_CAN_RUN_SCRIPT void HidePopover(Element& popover,
                                       bool aFocusPreviousElement,

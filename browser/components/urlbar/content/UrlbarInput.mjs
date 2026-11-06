@@ -5702,7 +5702,11 @@ ${
 
     lazy.ClipboardHelper.copyStringToClipboard(
       val,
-      Services.clipboard.kSelectionClipboard
+      Services.clipboard.kSelectionClipboard,
+      null,
+      this.isPrivate
+        ? Ci.nsIClipboardHelper.Sensitive
+        : Ci.nsIClipboardHelper.NotSensitive
     );
   }
 
@@ -6455,7 +6459,13 @@ class CopyCutController {
       urlbar.inputField.dispatchEvent(event);
     }
 
-    lazy.ClipboardHelper.copyString(val);
+    lazy.ClipboardHelper.copyString(
+      val,
+      null,
+      urlbar.isPrivate
+        ? Ci.nsIClipboardHelper.Sensitive
+        : Ci.nsIClipboardHelper.NotSensitive
+    );
   }
 
   /**

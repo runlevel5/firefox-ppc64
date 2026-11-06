@@ -1445,7 +1445,7 @@ IPCResult BrowserParent::RecvNewWindowGlobal(
 
   // Ensure we never load a document with a content principal in
   // the wrong type of webIsolated process
-  // NOTE: Keep this in sync with the similar check in
+  // NOTE: Keep the AllowSystem condition in sync with the similar check in
   // DocumentLoadListener::TriggerRedirectToRealChannel.
   EnumSet<ValidatePrincipalOptions> validationOptions = {};
   if (xpc::IsInAutomation()) {
@@ -1460,7 +1460,7 @@ IPCResult BrowserParent::RecvNewWindowGlobal(
     if (isChromeReftest ||
         (NS_IsAboutBlank(docURI) && parentWgp && parentWgp->Manager() == this &&
          parentWgp->DocumentPrincipal()->IsSystemPrincipal())) {
-      validationOptions += ValidatePrincipalOptions::AllowSystem;
+      validationOptions += ValidatePrincipalOptions::AllowSystemIfLoaded;
     }
   }
   if (!Manager()->ValidatePrincipal(aInit.principal(), validationOptions)) {

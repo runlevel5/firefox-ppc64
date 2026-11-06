@@ -46,7 +46,8 @@
 // code in this file.
 
 #if defined(JS_SIMULATOR_ARM64) || defined(JS_SIMULATOR_ARM) || \
-    defined(JS_SIMULATOR_MIPS64) || defined(JS_SIMULATOR_LOONG64)
+    defined(JS_SIMULATOR_MIPS64) || defined(JS_SIMULATOR_LOONG64) || \
+    defined(JS_SIMULATOR_PPC64)
 // On some x86 (32-bit) systems this will not work because the compiler does not
 // open-code 64-bit atomics.  If so, try linking with -latomic.  If that doesn't
 // work, you're mostly on your own.

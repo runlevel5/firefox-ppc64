@@ -822,6 +822,11 @@ child:
     async RemoteType(nsCString aRemoteType, nsCString aProfile);
 
     /**
+     * Record an origin which is being loaded in this content process.
+     */
+    async AddLoadedOrigin(nsIPrincipal aPrincipal);
+
+    /**
      * Initialize the RemoteWorkerService thread in the content process.
      */
     async InitRemoteWorkerService(Endpoint<PRemoteWorkerServiceChild> aEndpoint,
@@ -1194,8 +1199,6 @@ parent:
 
     sync SyncMessage(nsString aMessage, StructuredCloneData aData)
       returns (StructuredCloneData[] retval);
-
-    async AddSecurityState(MaybeDiscardedWindowContext aContext, uint32_t aStateFlags);
 
     // Creates a helper for forwarding data from an nsExternalAppHandler
     // running in the content process, to one running in the parent

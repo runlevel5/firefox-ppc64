@@ -376,7 +376,13 @@ class CompositorBridgeParent final : public CompositorBridgeParentBase {
    */
   void ForceIsFirstPaint();
 
-  void NotifyChildCreated(LayersId aChild, LayersId aEmbedderId);
+  // Returns the embedder aChild had before, if any.
+  LayersId NotifyChildCreated(LayersId aChild, LayersId aEmbedderId);
+
+  // Sends the embed policies of aNewEmbedder and aOldEmbedder to WebRender
+  // after one of their children was added or moved between them.
+  static void RefreshEmbedPolicies(LayersId aNewEmbedder,
+                                   LayersId aOldEmbedder);
 
   void AsyncRender();
 
@@ -488,6 +494,10 @@ class CompositorBridgeParent final : public CompositorBridgeParentBase {
   // Erases the entry for |aId| if present.
   static void EraseLayerTreeStateUnderLock(
       LayersId aId, const StaticMonitorAutoLock& aProofOfLock);
+
+  // Appends the id namespace of every layer tree embedded by aEmbedder.
+  static void CollectEmbeddedChildNamespaces(LayersId aEmbedder,
+                                             nsTArray<uint32_t>& aOut);
 
   /**
    * Given the layers id for a content process, get the GeckoContentController

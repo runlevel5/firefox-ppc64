@@ -3140,9 +3140,15 @@ bool VerifyPrincipalInfo(ThreadsafeContentParentHandle* aContentParentHandle,
     return false;
   }
 
+  EnumSet<ValidatePrincipalOptions> validationOptions;
+  if (!gClientValidation) {
+    // Tests disable client validation to allow using LocalStorage without
+    // loading them. Disable loaded principal checking in that case.
+    validationOptions += ValidatePrincipalOptions::AllowNotLoadedOrigin;
+  }
   if (aContentParentHandle &&
-      NS_WARN_IF(!ValidatePrincipalCouldPotentiallyBeLoadedBy(
-          prinResult.inspect(), aContentParentHandle->GetRemoteType(), {}))) {
+      NS_WARN_IF(!aContentParentHandle->ValidatePrincipal(prinResult.inspect(),
+                                                          validationOptions))) {
     return false;
   }
 

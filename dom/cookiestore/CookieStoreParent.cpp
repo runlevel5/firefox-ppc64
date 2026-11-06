@@ -224,8 +224,7 @@ mozilla::ipc::IPCResult CookieStoreParent::RecvGetSubscriptionsRequest(
 
   RefPtr<ThreadsafeContentParentHandle> parent =
       BackgroundParent::GetContentParentHandle(Manager());
-  if (parent && !ValidatePrincipalCouldPotentiallyBeLoadedBy(
-                    principal, parent->GetRemoteType(), {})) {
+  if (parent && !parent->ValidatePrincipal(principal)) {
     return IPC_FAIL(this, "principal not allowed for remote type");
   }
 
@@ -278,8 +277,7 @@ mozilla::ipc::IPCResult CookieStoreParent::RecvSubscribeOrUnsubscribeRequest(
 
   RefPtr<ThreadsafeContentParentHandle> parent =
       BackgroundParent::GetContentParentHandle(Manager());
-  if (parent && !ValidatePrincipalCouldPotentiallyBeLoadedBy(
-                    principal, parent->GetRemoteType(), {})) {
+  if (parent && !parent->ValidatePrincipal(principal)) {
     return IPC_FAIL(this, "principal not allowed for remote type");
   }
 

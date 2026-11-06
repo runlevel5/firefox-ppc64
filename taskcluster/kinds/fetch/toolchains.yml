@@ -509,7 +509,7 @@ fix-stacks:
     fetch:
         type: git
         repo: https://github.com/mozilla/fix-stacks/
-        revision: 1fb1bcc8cb4dd65fbe342853954651563a0a88e7
+        revision: 0cabeccc13b8254962599b81d5bcc658e9730baf
 
 7zz:
     description: 7-zip 26.01 source code

@@ -185,7 +185,8 @@ enum class IsolationBehavior {
   PrivilegedMozilla,
   // Load this URI explicitly in the parent process.
   Parent,
-  // Load this URI wherever the browsing context is currently loaded. This is
+  // Load this URI wherever the browsing context is currently loaded, so long as
+  // the load was triggered by that remote type or the parent process. This is
   // generally used for error pages.
   Anywhere,
   // May only be returned for subframes. Inherits the remote type of the parent
@@ -433,7 +434,7 @@ static nsAutoCString OriginSuffixForRemoteType(OriginAttributes aAttrs,
                                                bool aDisableJit) {
   nsAutoCString originSuffix;
   aAttrs.StripAttributes(OriginAttributes::STRIP_FIRST_PARTY_DOMAIN |
-                         OriginAttributes::STRIP_PARITION_KEY);
+                         OriginAttributes::STRIP_PARTITION_KEY);
   aAttrs.CreateSuffix(originSuffix);
 
   if (aDisableJit) {
@@ -670,6 +671,17 @@ Result<NavigationIsolationOptions, nsresult> IsolationOptionsForNavigation(
     isNullPrincipalPrecursor = true;
   }
 
+  nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
+
+  // Get the remote type which is responsible for triggering this navigation.
+  nsCString triggeringRemoteType;
+  rv = loadInfo->GetTriggeringRemoteType(triggeringRemoteType);
+  if (NS_FAILED(rv)) {
+    MOZ_LOG(gProcessIsolationLog, LogLevel::Error,
+            ("failed to get channel triggering remote type"));
+    return Err(rv);
+  }
+
   NavigationIsolationOptions options;
   options.mReplaceBrowsingContext = aHasCOOPMismatch;
   options.mShouldCrossOriginIsolate =
@@ -684,6 +696,12 @@ Result<NavigationIsolationOptions, nsresult> IsolationOptionsForNavigation(
     if (NS_WARN_IF(!resultPrincipal->GetIsNullPrincipal())) {
       MOZ_LOG(gProcessIsolationLog, LogLevel::Error,
               ("invalid remote type override on non-null principal"));
+      return Err(NS_ERROR_DOM_SECURITY_ERR);
+    }
+
+    if (NS_WARN_IF(triggeringRemoteType != NOT_REMOTE_TYPE)) {
+      MOZ_LOG(gProcessIsolationLog, LogLevel::Error,
+              ("invalid remote type override from non-parent process"));
       return Err(NS_ERROR_DOM_SECURITY_ERR);
     }
 
@@ -726,7 +744,6 @@ Result<NavigationIsolationOptions, nsresult> IsolationOptionsForNavigation(
   // behaviour for loads which meet the requirements.
   if (StaticPrefs::browser_tabs_remote_systemTriggeredAboutBlankAnywhere() &&
       NS_IsAboutBlank(aChannelCreationURI)) {
-    nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
     if (loadInfo->TriggeringPrincipal()->IsSystemPrincipal() &&
         resultOrPrecursor->GetIsNullPrincipal()) {
       MOZ_LOG(gProcessIsolationLog, LogLevel::Warning,
@@ -782,7 +799,7 @@ Result<NavigationIsolationOptions, nsresult> IsolationOptionsForNavigation(
       // and it's safe for it to end in the parent process, we should finish the
       // load there.
       bool isUIResource = false;
-      if (aCurrentRemoteType.IsEmpty() &&
+      if (aCurrentRemoteType.IsEmpty() && triggeringRemoteType.IsEmpty() &&
           (aChannelCreationURI->SchemeIs("about") ||
            (NS_SUCCEEDED(NS_URIChainHasFlags(
                 aChannelCreationURI, nsIProtocolHandler::URI_IS_UI_RESOURCE,
@@ -801,6 +818,19 @@ Result<NavigationIsolationOptions, nsresult> IsolationOptionsForNavigation(
                                          /* aForChannelCreationURI */ false,
                                          /* aIsWorker */ false);
     }
+  }
+
+  // Redirect `Anywhere` loads into a shared web remote type if not triggered by
+  // `aCurrentRemoteType` or the parent process.
+  if (behavior == IsolationBehavior::Anywhere &&
+      triggeringRemoteType != NOT_REMOTE_TYPE &&
+      triggeringRemoteType != aCurrentRemoteType) {
+    MOZ_LOG(gProcessIsolationLog, LogLevel::Warning,
+            ("Unexpected Anywhere page load triggered by %s onto %s, forcing "
+             "web remote type",
+             triggeringRemoteType.get(),
+             PromiseFlatCString(aCurrentRemoteType).get()));
+    behavior = IsolationBehavior::ForceWebRemoteType;
   }
 
   // If we're currently loaded in the extension process, and are going to switch
@@ -1490,7 +1520,32 @@ bool IsIsolateHighValueSiteEnabled() {
 
 bool ValidatePrincipalCouldPotentiallyBeLoadedBy(
     nsIPrincipal* aPrincipal, const nsACString& aRemoteType,
-    const EnumSet<ValidatePrincipalOptions>& aOptions) {
+    const EnumSet<ValidatePrincipalOptions>& aOptions,
+    LoadedOriginSet* aLoadedOriginSet) {
+#ifdef DEBUG
+  if (!aLoadedOriginSet) {
+    MOZ_ASSERT(
+        aOptions.contains(ValidatePrincipalOptions::AllowNotLoadedOrigin),
+        "`AllowNotLoadedOrigin` is required if calling "
+        "ValidatePrincipalCouldPotentiallyBeLoadedBy directly");
+    MOZ_ASSERT(
+        !aOptions.contains(ValidatePrincipalOptions::AllowSystemIfLoaded),
+        "`AllowSystemIfLoaded` is invalid if calling "
+        "ValidatePrincipalCouldPotentiallyBeLoadedBy directly");
+  }
+#endif
+
+  // FIXME(bug 2064204): Currently we only match site, and ignore OAs.
+  // In the future, we hope to tighten these checks.
+  auto isPrincipalLoaded = [&](nsIPrincipal* prin) {
+    auto threshold = aOptions.contains(
+                         ValidatePrincipalOptions::Internal_ValidatingPrecursor)
+                         ? LoadedOriginSet::Level::PrecursorOnly
+                         : LoadedOriginSet::Level::SiteOnly;
+    return !StaticPrefs::dom_ipc_validatePrincipal_validateSiteLoaded() ||
+           aLoadedOriginSet->Has(prin, threshold, OriginAttributes::STRIP_ALL);
+  };
+
   // Don't bother validating principals from the parent process.
   if (aRemoteType == NOT_REMOTE_TYPE) {
     return true;
@@ -1501,15 +1556,25 @@ bool ValidatePrincipalCouldPotentiallyBeLoadedBy(
     return aOptions.contains(ValidatePrincipalOptions::AllowNullPtr);
   }
 
-  // We currently do not track relationships between specific null principals
-  // and content processes, so we can not validate much here.
+  // We currently do not reliably track relationships between specific null
+  // principals and content processes, so we can not validate much here unless
+  // it has a precursor content principal.
   if (aPrincipal->GetIsNullPrincipal()) {
+    if (nsCOMPtr<nsIPrincipal> precursor =
+            aPrincipal->GetPrecursorPrincipal()) {
+      return ValidatePrincipalCouldPotentiallyBeLoadedBy(
+          precursor, aRemoteType,
+          aOptions + ValidatePrincipalOptions::Internal_ValidatingPrecursor,
+          aLoadedOriginSet);
+    }
     return true;
   }
 
-  // If we have a system principal, only allow it if AllowSystem is passed.
+  // If we have a system principal, only allow it when explicitly requested.
   if (aPrincipal->IsSystemPrincipal()) {
-    return aOptions.contains(ValidatePrincipalOptions::AllowSystem);
+    return aOptions.contains(ValidatePrincipalOptions::AlwaysAllowSystem) ||
+           (aOptions.contains(ValidatePrincipalOptions::AllowSystemIfLoaded) &&
+            isPrincipalLoaded(aPrincipal));
   }
 
   // Performing checks against the remote type requires the IOService and
@@ -1531,8 +1596,8 @@ bool ValidatePrincipalCouldPotentiallyBeLoadedBy(
         do_QueryInterface(aPrincipal);
     const auto& allowList = expandedPrincipal->AllowList();
     for (const auto& innerPrincipal : allowList) {
-      if (!ValidatePrincipalCouldPotentiallyBeLoadedBy(innerPrincipal,
-                                                       aRemoteType, aOptions)) {
+      if (!ValidatePrincipalCouldPotentiallyBeLoadedBy(
+              innerPrincipal, aRemoteType, aOptions, aLoadedOriginSet)) {
         return false;
       }
     }
@@ -1555,9 +1620,36 @@ bool ValidatePrincipalCouldPotentiallyBeLoadedBy(
     return false;
   }
 
-  // We can load a `resource://` URI in any process. This usually comes up due
-  // to pdf.js and the JSON viewer. See bug 1686200.
+  // We can load a `resource://` URI in any process without the parent process
+  // being involved. This usually comes up due to pdf.js and the JSON viewer.
+  // See bug 1686200.
   if (originScheme == "resource"_ns) {
+    return true;
+  }
+
+  // Web content can contain extension content frames and contain extension
+  // content scripts, so any content process may send us an extension's
+  // principal.
+  // NOTE: We don't check AddonPolicy here, as that can disappear if the add-on
+  // is disabled or uninstalled. As this is a lax check, looking at the scheme
+  // should be sufficient.
+  if (originScheme == "moz-extension"_ns) {
+    return true;
+  }
+
+  // All other content principal schemes are always loaded via. the parent
+  // process, so we can early-return if `isPrincipalLoaded` returns false.
+  if (!aOptions.contains(ValidatePrincipalOptions::AllowNotLoadedOrigin) &&
+      !isPrincipalLoaded(aPrincipal)) {
+    return false;
+  }
+
+  // With this test-only pref set a data: URL will always load in 'web',
+  // ignoring the precursor, so skip precursor validation in that case.
+  if (aOptions.contains(
+          ValidatePrincipalOptions::Internal_ValidatingPrecursor) &&
+      StaticPrefs::browser_tabs_remote_dataUriInDefaultWebProcess() &&
+      RemoteTypePrefix(aRemoteType) == WEB_REMOTE_TYPE) {
     return true;
   }
 
@@ -1591,7 +1683,11 @@ bool ValidatePrincipalCouldPotentiallyBeLoadedBy(
                                     /* aForChannelCreationURI */ true,
                                     /* aIsWorker */ false)) {
       case IsolationBehavior::Parent:
-        return false;
+        // An about: URI with parent process isolation could legitimately be the
+        // precursor for a content process null principal, as we try to load
+        // null principals in the content process when possible.
+        return aOptions.contains(
+            ValidatePrincipalOptions::Internal_ValidatingPrecursor);
       case IsolationBehavior::Anywhere:
         return true;
       case IsolationBehavior::AboutReader:
@@ -1619,15 +1715,6 @@ bool ValidatePrincipalCouldPotentiallyBeLoadedBy(
         MOZ_CRASH("Unexpected IsolationBehaviorForURI for about: URI");
         return false;
     }
-  }
-
-  // Web content can contain extension content frames, so any content process
-  // may send us an extension's principal.
-  // NOTE: We don't check AddonPolicy here, as that can disappear if the add-on
-  // is disabled or uninstalled. As this is a lax check, looking at the scheme
-  // should be sufficient.
-  if (originScheme == "moz-extension"_ns) {
-    return true;
   }
 
   // If the remote type doesn't have an origin suffix, we can do no further
@@ -1676,6 +1763,7 @@ bool ValidatePrincipalCouldPotentiallyBeLoadedBy(
     MOZ_ASSERT_UNREACHABLE("Failed when not late in shutdown?");
     return false;
   }
+  // FIXME(bug 2064204): We should validate OAs when possible.
   return siteOriginNoSuffix == typeOriginNoSuffix;
 }
 

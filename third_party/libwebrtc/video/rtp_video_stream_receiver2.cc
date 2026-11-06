@@ -88,7 +88,6 @@
 #include "rtc_base/logging.h"
 #include "rtc_base/numerics/sequence_number_util.h"
 #include "rtc_base/strings/string_builder.h"
-#include "rtc_base/thread.h"
 #include "rtc_base/trace_event.h"
 #include "system_wrappers/include/ntp_time.h"
 #include "video/buffered_frame_decryptor.h"
@@ -130,6 +129,7 @@ std::unique_ptr<ModuleRtpRtcpImpl2> CreateRtpRtcpModule(
     PacketRouter* packet_router,
     bool non_sender_rtt_measurement,
     RtcpEventObserver* rtcp_event_observer,
+    std::optional<uint32_t> remote_ssrc,
     uint32_t local_ssrc) {
   RtpRtcpInterface::Configuration configuration;
   configuration.audio = false;
@@ -142,10 +142,11 @@ std::unique_ptr<ModuleRtpRtcpImpl2> CreateRtpRtcpModule(
   configuration.rtcp_cname_callback = rtcp_cname_callback;
   configuration.rtcp_event_observer = rtcp_event_observer;
   configuration.non_sender_rtt_measurement = non_sender_rtt_measurement;
+  configuration.rtcp_mode = RtcpMode::kCompound;
+  configuration.remote_ssrc = remote_ssrc;
 
   auto rtp_rtcp = ModuleRtpRtcpImpl2::CreateReceiveModule(
       env, configuration, [local_ssrc] { return local_ssrc; });
-  rtp_rtcp->SetRTCPStatus(RtcpMode::kCompound);
 
   return rtp_rtcp;
 }
@@ -318,6 +319,7 @@ RtpVideoStreamReceiver2::RtpVideoStreamReceiver2(
           packet_router,
           config_.rtp.rtcp_xr.receiver_reference_time_report,
           config_.rtp.rtcp_event_observer,
+          config->rtp.remote_ssrc,
           config_.rtp.local_ssrc)),
       nack_periodic_processor_(nack_periodic_processor),
       complete_frame_callback_(complete_frame_callback),
@@ -351,7 +353,6 @@ RtpVideoStreamReceiver2::RtpVideoStreamReceiver2(
          "reserved for internal usage.";
 
   rtp_rtcp_->SetRTCPStatus(config_.rtp.rtcp_mode);
-  rtp_rtcp_->SetRemoteSSRC(config_.rtp.remote_ssrc);
 
   if (config_.rtp.nack.rtp_history_ms > 0) {
     rtp_receive_statistics_->SetMaxReorderingThreshold(config_.rtp.remote_ssrc,
@@ -1041,8 +1042,8 @@ void RtpVideoStreamReceiver2::SetDepacketizerToDecoderFrameTransformer(
   RTC_DCHECK_RUN_ON(&worker_task_checker_);
   frame_transformer_delegate_ =
       make_ref_counted<RtpVideoStreamReceiverFrameTransformerDelegate>(
-          this, &env_.clock(), std::move(frame_transformer), Thread::Current(),
-          config_.rtp.remote_ssrc);
+          this, &env_.clock(), std::move(frame_transformer),
+          TaskQueueBase::Current(), config_.rtp.remote_ssrc);
   frame_transformer_delegate_->Init();
 }
 

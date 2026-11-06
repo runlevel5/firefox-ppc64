@@ -320,6 +320,10 @@ class WebRenderBridgeParent final : public PWebRenderBridgeParent,
   void RemoveEpochDataPriorTo(const wr::Epoch& aRenderedEpoch);
 
   bool IsRootWebRenderBridgeParent() const;
+
+  // Sends this bridge's embed policy to WebRender, for when the set of layer
+  // trees it embeds changes.
+  void RefreshEmbedPolicy();
   LayersId GetLayersId() const;
 
   void BeginRecording(const TimeStamp& aRecordingStart);
@@ -363,6 +367,11 @@ class WebRenderBridgeParent final : public PWebRenderBridgeParent,
                               const VsyncId& aVsyncId);
 
   void SanitizeScrollData(WebRenderScrollData& aScrollData);
+
+  // The namespaces of the pipelines this bridge's display lists may embed:
+  // those of its process's async image pipelines and of the layer trees it
+  // embeds. Nothing() if they may embed any pipeline.
+  Maybe<nsTArray<uint32_t>> ComputeEmbedPolicy() const;
 
   bool SetDisplayList(const LayoutDeviceRect& aRect, ipc::ByteBuf&& aDLItems,
                       ipc::ByteBuf&& aSpatialTreeDL,

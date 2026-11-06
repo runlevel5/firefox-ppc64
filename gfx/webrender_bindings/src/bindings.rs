@@ -182,12 +182,17 @@ pub struct DocumentHandle {
 
 impl DocumentHandle {
     pub fn new(
-        api: RenderApi,
+        mut api: RenderApi,
         hit_tester: Option<Arc<dyn ApiHitTester>>,
         size: DeviceIntSize,
         id: u32,
     ) -> DocumentHandle {
         let doc = api.add_document_with_id(size, id);
+        if static_prefs::pref!("gfx.webrender.enforce-embed-policy") {
+            let mut txn = Transaction::new();
+            txn.set_embed_policy_enforcement(true);
+            api.send_transaction(doc, txn);
+        }
         let hit_tester_request = if hit_tester.is_none() {
             // Request the hit tester early to reduce the likelihood of blocking on the
             // first hit testing query.
@@ -2358,6 +2363,22 @@ pub extern "C" fn wr_transaction_set_root_pipeline(txn: &mut Transaction, pipeli
 #[no_mangle]
 pub extern "C" fn wr_transaction_remove_pipeline(txn: &mut Transaction, pipeline_id: WrPipelineId) {
     txn.remove_pipeline(pipeline_id);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn wr_transaction_set_embed_policy(
+    txn: &mut Transaction,
+    pipeline_id: WrPipelineId,
+    restricted: bool,
+    namespaces: *const u32,
+    namespace_count: usize,
+) {
+    let policy = if restricted {
+        webrender::api::EmbedPolicy::Restricted(make_slice(namespaces, namespace_count).to_vec())
+    } else {
+        webrender::api::EmbedPolicy::Unrestricted
+    };
+    txn.set_embed_policy(pipeline_id, policy);
 }
 
 #[no_mangle]

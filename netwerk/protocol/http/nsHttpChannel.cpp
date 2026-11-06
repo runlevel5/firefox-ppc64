@@ -608,8 +608,8 @@ void nsHttpChannel::CancelSuspendOrResumeAfterExamineResponse() {
   if (mSuspendAfterExamineResponse.isNothing()) {
     return;
   }
-  bool oldValue = mSuspendAfterExamineResponse.ref().exchange(false);
-  if (!oldValue) {
+  mSuspendAfterExamineResponse.ref() = false;
+  if (mSuspendedForExamineResponse.exchange(false)) {
     Resume();
   }
 }
@@ -620,6 +620,7 @@ void nsHttpChannel::MaybeSuspendAfterExamineResponse() {
   }
   bool oldValue = mSuspendAfterExamineResponse.ref().exchange(false);
   if (oldValue) {
+    mSuspendedForExamineResponse = true;
     Suspend();
   }
 }
@@ -1490,6 +1491,9 @@ nsresult nsHttpChannel::ConnectOnTailUnblock() {
     LOG(("nsHttpChannel::Connect %p AwaitingCacheCallbacks forces async\n",
          this));
     MOZ_ASSERT(NS_SUCCEEDED(rv), "Unexpected state");
+
+    // Backstop against a wedged cache entry that never delivers its callback.
+    MaybeStartCacheWaitTimer();
 
     if (mNetworkTriggered && mWaitingForProxy) {
       // Someone has called TriggerNetwork(), meaning we are racing the
@@ -3682,6 +3686,13 @@ nsresult nsHttpChannel::ContinueProcessNormal(nsresult rv) {
   // being called inside our OnDataAvailable (see bug 136678).
   StoreCachedContentIsPartial(false);
 
+  // The body we are about to deliver comes from the network, so no cached
+  // alternative data describes it.  Normally InitCacheEntry() has already
+  // dropped it, but not when we no longer hold the entry it came from.
+  mAvailableCachedAltDataType.Truncate();
+  StoreDeliveringAltData(false);
+  mAltDataLength = -1;
+
   UpdateInhibitPersistentCachingFlag();
 
   // We may need to install the cache listener before CallonStartRequest,
@@ -5096,6 +5107,28 @@ void nsHttpChannel::UntieValidationRequest() {
   MOZ_ASSERT(NS_SUCCEEDED(rv));
 }
 
+void nsHttpChannel::DiscardCacheEntryCheckState() {
+  StoreCachedContentIsValid(CachedContentValidity::Invalid);
+
+  if (mDidReval) {
+    LOG(("  Removing conditional request headers"));
+    UntieValidationRequest();
+    mDidReval = false;
+  }
+
+  if (LoadCachedContentIsPartial()) {
+    LOG(("  Removing byte range request headers"));
+    UntieByteRangeRequest();
+    StoreCachedContentIsPartial(false);
+  }
+
+  mCachedResponseHead = nullptr;
+  mCacheInputStream.CloseAndRelease();
+  mAvailableCachedAltDataType.Truncate();
+  StoreDeliveringAltData(false);
+  mAltDataLength = -1;
+}
+
 NS_IMETHODIMP
 nsHttpChannel::OnCacheEntryCheck(nsICacheEntry* entry, uint32_t* aResult) {
   nsresult rv = NS_OK;
@@ -5104,6 +5137,20 @@ nsHttpChannel::OnCacheEntryCheck(nsICacheEntry* entry, uint32_t* aResult) {
                             Flow::FromPointer(this));
   LOG(("nsHttpChannel::OnCacheEntryCheck enter [channel=%p entry=%p]", this,
        entry));
+
+  // Held for the whole check: this may run on the cache I/O thread while the
+  // backstop timeout runs on the main thread, and the timeout must not slip in
+  // between the test below and the state we arm from here on.
+  MutexAutoLock lock(mCacheWaitLock);
+
+  if (mCacheWaitTimedOut) {
+    LOG(("  cache entry check arrived after backstop timeout, declining"));
+    *aResult = ENTRY_NOT_WANTED;
+    return NS_OK;
+  }
+
+  // Each check starts from a clean slate.
+  DiscardCacheEntryCheckState();
 
   nsAutoCString cacheControlRequestHeader;
   (void)mRequestHead.GetHeader(nsHttp::Cache_Control,
@@ -5493,9 +5540,22 @@ nsHttpChannel::OnCacheEntryAvailable(nsICacheEntry* entry, bool aNew,
        "new=%d status=%" PRIx32 "] for %s",
        this, entry, aNew, static_cast<uint32_t>(status), mSpec.get()));
 
+  // The cache callback arrived (or we're tearing down); the backstop timer is
+  // no longer needed.
+  CancelCacheWaitTimer();
+
   // if the channel's already fired onStopRequest, then we should ignore
   // this event.
   if (!LoadIsPending()) {
+    mCacheInputStream.CloseAndRelease();
+    return NS_OK;
+  }
+
+  // If the backstop already fired we gave up on the cache and raced to the
+  // network; ignore this late callback so we don't reprocess the entry.
+  if (mCacheWaitTimedOut) {
+    LOG(("  cache callback arrived after backstop timeout, ignoring [this=%p]",
+         this));
     mCacheInputStream.CloseAndRelease();
     return NS_OK;
   }
@@ -5544,23 +5604,9 @@ nsresult nsHttpChannel::OnNormalCacheEntryAvailable(nsICacheEntry* aEntry,
   StoreWaitForCacheEntry(LoadWaitForCacheEntry() & ~WAIT_FOR_CACHE_ENTRY);
 
   if (NS_FAILED(aEntryStatus) || aNew) {
-    // Make sure this flag is dropped.  It may happen the entry is doomed
-    // between OnCacheEntryCheck and OnCacheEntryAvailable.
-    StoreCachedContentIsValid(CachedContentValidity::Invalid);
-
-    // From the same reason remove any conditional headers added
-    // in OnCacheEntryCheck.
-    if (mDidReval) {
-      LOG(("  Removing conditional request headers"));
-      UntieValidationRequest();
-      mDidReval = false;
-    }
-
-    if (LoadCachedContentIsPartial()) {
-      LOG(("  Removing byte range request headers"));
-      UntieByteRangeRequest();
-      StoreCachedContentIsPartial(false);
-    }
+    // It may happen the entry is doomed between OnCacheEntryCheck and
+    // OnCacheEntryAvailable; whatever the check armed from it must go.
+    DiscardCacheEntryCheckState();
 
     if (mLoadFlags & LOAD_ONLY_FROM_CACHE) {
       // if this channel is only allowed to pull from the cache, then
@@ -5961,6 +6007,7 @@ nsresult nsHttpChannel::ReadFromCache(void) {
 }
 
 void nsHttpChannel::CloseCacheEntry(bool doomOnFailure) {
+  CancelCacheWaitTimer();
   mCacheInputStream.CloseAndRelease();
 
   if (!mCacheEntry) return;
@@ -7340,6 +7387,18 @@ nsresult nsHttpChannel::CancelInternal(nsresult status) {
     needAsyncAbort = false;
     (void)AsyncAbort(status);
   }
+
+  // If we suspended after examining the response to await asynchronous
+  // tracking-protection annotation (bug 2030021), a cancel while suspended
+  // would otherwise defer the terminal teardown below (CloseCacheEntry /
+  // AsyncAbort) to a Resume() that may never arrive.  For a cache writer that
+  // leaves the entry perpetually "being written" -- its output stream never
+  // closed and the entry never doomed -- wedging every later same-URL
+  // revalidating consumer forever (bug 2052908).  Undo the annotation
+  // suspension now so the cancelled pump delivers OnStopRequest and the
+  // write-only entry is closed/doomed normally.  Safe if we only primed but
+  // never actually suspended.
+  CancelSuspendOrResumeAfterExamineResponse();
 
   // If suspended waiting for dictionary prefetch, unblock it so the channel
   // can proceed to cleanup. The prefetch callback may never fire, so we must
@@ -12076,9 +12135,76 @@ nsHttpChannel::TimerCallback::Notify(nsITimer* aTimer) {
   if (aTimer == mChannel->mSuspendTimer) {
     return mChannel->OnSuspendTimeout();
   }
+  if (aTimer == mChannel->mCacheWaitTimer) {
+    return mChannel->OnCacheWaitTimeout();
+  }
   MOZ_CRASH("Unknown timer");
 
   return NS_OK;
+}
+
+void nsHttpChannel::MaybeStartCacheWaitTimer() {
+  MOZ_ASSERT(NS_IsMainThread());
+
+  uint32_t delay = StaticPrefs::network_cache_entry_wait_timeout_ms();
+  if (!delay || mCacheWaitTimer || mCacheWaitTimedOut || mNetworkTriggered) {
+    return;
+  }
+
+  mCacheWaitTimer = NS_NewTimer();
+  if (mCacheWaitTimer) {
+    RefPtr<TimerCallback> timerCallback = new TimerCallback(this);
+    mCacheWaitTimer->InitWithCallback(timerCallback, delay,
+                                      nsITimer::TYPE_ONE_SHOT);
+    LOG(("nsHttpChannel::MaybeStartCacheWaitTimer [this=%p] fires in %ums",
+         this, delay));
+  }
+}
+
+void nsHttpChannel::CancelCacheWaitTimer() {
+  if (mCacheWaitTimer) {
+    mCacheWaitTimer->Cancel();
+    mCacheWaitTimer = nullptr;
+  }
+}
+
+nsresult nsHttpChannel::OnCacheWaitTimeout() {
+  MOZ_ASSERT(NS_IsMainThread());
+
+  LOG(("nsHttpChannel::OnCacheWaitTimeout [this=%p]\n", this));
+  mCacheWaitTimer = nullptr;
+
+  // Backstop for a wedged cache entry: if we're still parked waiting for a
+  // cache entry callback that never arrived (e.g. a writer that was suspended
+  // or cancelled without ever closing its output stream, so the entry stays
+  // perpetually "being written"), stop waiting and race to the network so the
+  // load can make progress instead of hanging forever.
+  if (!LoadIsPending() || !AwaitingCacheCallbacks()) {
+    return NS_OK;
+  }
+
+  LOG(("  cache entry wait timed out, forcing network [this=%p]", this));
+  {
+    // Waits for an OnCacheEntryCheck in flight on the cache I/O thread.
+    MutexAutoLock lock(mCacheWaitLock);
+    mCacheWaitTimedOut = true;
+  }
+
+  // Stop treating the outstanding cache open as blocking.  A late
+  // OnCacheEntryAvailable will be ignored (see mCacheWaitTimedOut).
+  StoreWaitForCacheEntry(LoadWaitForCacheEntry() & ~WAIT_FOR_CACHE_ENTRY);
+
+  // OnCacheEntryCheck may already have run for an entry we now won't get
+  // (e.g. it asked to be rechecked once a wedged writer finishes); the network
+  // response must not carry its conditional headers or alt-data.
+  DiscardCacheEntryCheckState();
+
+  nsresult rv = TriggerNetwork();
+  if (NS_FAILED(rv)) {
+    CloseCacheEntry(false);
+    (void)AsyncAbort(rv);
+  }
+  return rv;
 }
 
 bool nsHttpChannel::EligibleForTailing() {

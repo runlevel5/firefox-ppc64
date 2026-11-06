@@ -29,6 +29,7 @@
 #include "nsNetUtil.h"
 #include "nsPIDOMWindowInlines.h"
 #include "ExpandedPrincipal.h"
+#include "jsapi.h"
 #include "WrapperFactory.h"
 #include "xpcprivate.h"
 #include "xpc_make_class.h"
@@ -260,10 +261,8 @@ static bool SandboxImport(JSContext* cx, unsigned argc, Value* vp) {
       return false;
     }
   }
-  JS_MarkCrossZoneIdValue(cx, StringValue(funname));
-
   RootedId id(cx);
-  if (!JS_StringToId(cx, funname, &id)) {
+  if (!JS_StringToId(cx, funname, &id) || !JS_WrapId(cx, &id)) {
     return false;
   }
 

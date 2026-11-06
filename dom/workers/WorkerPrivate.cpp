@@ -3157,6 +3157,21 @@ already_AddRefed<WorkerPrivate> WorkerPrivate::Constructor(
     aLoadInfo = stackLoadInfo.ptr();
   }
 
+  // Until the worker is registered and holds mSelfRef, a failure destroys it
+  // on this thread. For a nested worker that is the parent's worker thread, so
+  // the main-thread-only load info members have to be proxy released.
+  RefPtr<WorkerPrivate> worker;
+  auto releaseLoadInfoOnFailure = MakeScopeExit([&] {
+    if (!parent) {
+      return;
+    }
+    if (worker) {
+      worker->ProxyReleaseMainThreadObjects();
+    } else if (stackLoadInfo) {
+      MOZ_ALWAYS_TRUE(stackLoadInfo->ProxyReleaseMainThreadObjects(parent));
+    }
+  });
+
   // NB: This has to be done before creating the WorkerPrivate, because it will
   // attempt to use static variables that are initialized in the RuntimeService
   // constructor.
@@ -3183,7 +3198,7 @@ already_AddRefed<WorkerPrivate> WorkerPrivate::Constructor(
   AgentClusterIdAndCoop idAndCoop = ComputeAgentClusterIdAndCoop(
       parent, aWorkerKind, aLoadInfo, aIsChromeWorker);
 
-  RefPtr<WorkerPrivate> worker = new WorkerPrivate(
+  worker = new WorkerPrivate(
       parent, aScriptURL, aIsChromeWorker, aWorkerKind, aRequestCredentials,
       aWorkerType, aWorkerName, aServiceWorkerScope, *aLoadInfo, std::move(aId),
       idAndCoop.mId, idAndCoop.mCoop, std::move(aCancellationCallback),
@@ -3215,6 +3230,7 @@ already_AddRefed<WorkerPrivate> WorkerPrivate::Constructor(
   // ClearSelfAndParentEventTargetRef().
   worker->mSelfRef = worker;
   worker->mParentRef = MakeRefPtr<WorkerParentRef>(worker);
+  releaseLoadInfoOnFailure.release();
 
   // Enable remote worker debugger when the worker is really scheduled.
   /*

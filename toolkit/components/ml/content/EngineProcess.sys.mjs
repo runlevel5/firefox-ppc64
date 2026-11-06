@@ -1170,6 +1170,13 @@ export class EngineProcess {
     }
 
     try {
+      // The inference engine starts system-principal ChromeWorker instances
+      // within the content process, so needs to be marked as having loaded that
+      // principal. Remove this when we stop using system workers for inference.
+      keepAlive.domProcess.aboutToLoadOrigin(
+        Services.scriptSecurityManager.getSystemPrincipal()
+      );
+
       const actor = keepAlive.domProcess.getActor(actorName);
 
       // keep track of the childID for the inference process, so we can observe its shutdowns.

@@ -365,6 +365,17 @@ interface nsILoadInfo : nsISupports
   nsIPrincipal FindPrincipalToInherit(in nsIChannel aChannel);
 
   /**
+   * Some callers clobber PrincipalToInherit with a new principal which should
+   * not be validated against triggeringRemoteType.
+   * Those callers use this setter, which sets `isPrincipalToInheritTrusted()`.
+   * The trust flag is not serialized over IPC.
+   */
+  [noscript]
+  void setTrustedPrincipalToInherit(in nsIPrincipal principal);
+  [noscript, notxpcom, nostdcall]
+  boolean isPrincipalToInheritTrusted();
+
+  /**
    * This is the ownerDocument of the LoadingNode. Unless the LoadingNode
    * is a Document, in which case the LoadingDocument is the same as the
    * LoadingNode.

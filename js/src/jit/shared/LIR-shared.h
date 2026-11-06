@@ -1009,7 +1009,17 @@ class LWasmStackResult : public LInstructionHelper<1, 1, 0> {
   MWasmStackResult* mir() const { return mir_->toWasmStackResult(); }
   LStackSlot result(uint32_t base) const {
     auto width = LStackSlot::width(LDefinition::TypeFrom(mir()->type()));
-    return LStackSlot(base - mir()->result().offset(), width);
+    uint32_t slot = base - mir()->result().offset();
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // An i32 stack result occupies a pointer-sized slot and is written as a
+    // 64-bit store, so on big-endian its value is the low word at byte offset
+    // +4. Stack slot numbers grow downward in memory, so subtracting moves the
+    // 4-byte read window up to the value.
+    if (mir()->type() == MIRType::Int32) {
+      slot -= sizeof(int32_t);
+    }
+#endif
+    return LStackSlot(slot, width);
   }
 };
 

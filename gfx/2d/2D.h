@@ -338,7 +338,7 @@ class LinearGradientPatternT : public Pattern {
  public:
   /// For constructor parameter description, see member data documentation.
   LinearGradientPatternT(const Point& aBegin, const Point& aEnd,
-                         RefPtr<GradientStops> aStops,
+                         REF<GradientStops> aStops,
                          const Matrix& aMatrix = Matrix())
       : mBegin(aBegin),
         mEnd(aEnd),
@@ -348,7 +348,8 @@ class LinearGradientPatternT : public Pattern {
   PatternType GetType() const override { return PatternType::LINEAR_GRADIENT; }
 
   Pattern* CloneWeak() const override {
-    return new Weak(mBegin, mEnd, do_AddRef(mStops), mMatrix);
+    return new Weak(mBegin, mEnd, ThreadSafeWeakPtr<GradientStops>{mStops},
+                    mMatrix);
   }
 
   bool IsWeak() const override {
@@ -398,7 +399,7 @@ class RadialGradientPatternT : public Pattern {
   /// For constructor parameter description, see member data documentation.
   RadialGradientPatternT(const Point& aCenter1, const Point& aCenter2,
                          Float aRadius1, Float aRadius2,
-                         RefPtr<GradientStops> aStops,
+                         REF<GradientStops> aStops,
                          const Matrix& aMatrix = Matrix())
       : mCenter1(aCenter1),
         mCenter2(aCenter2),
@@ -410,8 +411,8 @@ class RadialGradientPatternT : public Pattern {
   PatternType GetType() const override { return PatternType::RADIAL_GRADIENT; }
 
   Pattern* CloneWeak() const override {
-    return new Weak(mCenter1, mCenter2, mRadius1, mRadius2, do_AddRef(mStops),
-                    mMatrix);
+    return new Weak(mCenter1, mCenter2, mRadius1, mRadius2,
+                    ThreadSafeWeakPtr<GradientStops>{mStops}, mMatrix);
   }
 
   bool IsWeak() const override {
@@ -460,7 +461,7 @@ class ConicGradientPatternT : public Pattern {
  public:
   /// For constructor parameter description, see member data documentation.
   ConicGradientPatternT(const Point& aCenter, Float aAngle, Float aStartOffset,
-                        Float aEndOffset, RefPtr<GradientStops> aStops,
+                        Float aEndOffset, REF<GradientStops> aStops,
                         const Matrix& aMatrix = Matrix())
       : mCenter(aCenter),
         mAngle(aAngle),
@@ -473,7 +474,7 @@ class ConicGradientPatternT : public Pattern {
 
   Pattern* CloneWeak() const override {
     return new Weak(mCenter, mAngle, mStartOffset, mEndOffset,
-                    do_AddRef(mStops), mMatrix);
+                    ThreadSafeWeakPtr<GradientStops>{mStops}, mMatrix);
   }
 
   bool IsWeak() const override {
@@ -521,7 +522,7 @@ class SurfacePatternT : public Pattern {
 
  public:
   /// For constructor parameter description, see member data documentation.
-  SurfacePatternT(RefPtr<SourceSurface> aSourceSurface, ExtendMode aExtendMode,
+  SurfacePatternT(REF<SourceSurface> aSourceSurface, ExtendMode aExtendMode,
                   const Matrix& aMatrix = Matrix(),
                   SamplingFilter aSamplingFilter = SamplingFilter::GOOD,
                   const IntRect& aSamplingRect = IntRect())
@@ -534,8 +535,8 @@ class SurfacePatternT : public Pattern {
   PatternType GetType() const override { return PatternType::SURFACE; }
 
   Pattern* CloneWeak() const override {
-    return new Weak(do_AddRef(mSurface), mExtendMode, mMatrix, mSamplingFilter,
-                    mSamplingRect);
+    return new Weak(ThreadSafeWeakPtr<SourceSurface>{mSurface}, mExtendMode,
+                    mMatrix, mSamplingFilter, mSamplingRect);
   }
 
   bool IsWeak() const override {
@@ -1156,13 +1157,13 @@ class SharedFTFace;
 class SharedFTFaceData {
  public:
   /** Utility for creating a new face from this data. */
-  virtual already_AddRefed<SharedFTFace> CloneFace(int aFaceIndex = 0) {
-    return nullptr;
-  }
+  virtual already_AddRefed<SharedFTFace> CloneFace() { return nullptr; }
   /** Binds the data's lifetime to the face. */
   virtual void BindData() = 0;
   /** Signals that the data is no longer needed by a face. */
   virtual void ReleaseData() = 0;
+  virtual const char* GetFilename() const { return nullptr; }
+  virtual int GetFaceIndex() const { return 0; }
 };
 
 /** Wrapper class for ref-counted SharedFTFaceData that handles calling the
@@ -1171,8 +1172,8 @@ class SharedFTFaceData {
 template <class T>
 class SharedFTFaceRefCountedData : public SharedFTFaceData {
  public:
-  void BindData() { static_cast<T*>(this)->AddRef(); }
-  void ReleaseData() { static_cast<T*>(this)->Release(); }
+  void BindData() override { static_cast<T*>(this)->AddRef(); }
+  void ReleaseData() override { static_cast<T*>(this)->Release(); }
 };
 
 // Helper class used for clearing out user font data when FT font
@@ -1188,15 +1189,17 @@ class FTUserFontData final
  public:
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(FTUserFontData)
 
-  FTUserFontData(const uint8_t* aData, uint32_t aLength)
-      : mFontData(aData), mLength(aLength) {}
-  explicit FTUserFontData(const char* aFilename) : mFilename(aFilename) {}
+  FTUserFontData(const uint8_t* aData, uint32_t aLength, int aFaceIndex)
+      : mFontData(aData), mLength(aLength), mFaceIndex(aFaceIndex) {}
+  explicit FTUserFontData(const char* aFilename, int aFaceIndex)
+      : mFilename(aFilename), mFaceIndex(aFaceIndex) {}
 
   const uint8_t* FontData() const { return mFontData; }
   uint32_t FontDataLength() const { return mLength; }
+  const char* GetFilename() const override { return mFilename.c_str(); }
+  int GetFaceIndex() const override { return mFaceIndex; }
 
-  already_AddRefed<mozilla::gfx::SharedFTFace> CloneFace(
-      int aFaceIndex = 0) override;
+  already_AddRefed<mozilla::gfx::SharedFTFace> CloneFace() override;
 
  private:
   ~FTUserFontData() {
@@ -1208,6 +1211,7 @@ class FTUserFontData final
   std::string mFilename;
   const uint8_t* mFontData = nullptr;
   uint32_t mLength = 0;
+  int mFaceIndex = 0;
 };
 
 /** SharedFTFace is a shared wrapper around an FT_Face. It is ref-counted,
@@ -1259,6 +1263,24 @@ class SharedFTFace : public external::AtomicRefCounted<SharedFTFace> {
   // changed by the next time it is locked with the same owner.
   Atomic<const void*> mLastLockOwner;
 };
+
+class AutoLockSharedFTFace {
+ public:
+  explicit AutoLockSharedFTFace(SharedFTFace* aFace) : mFace(aFace) {
+    if (mFace) {
+      mFace->Lock();
+    }
+  }
+  ~AutoLockSharedFTFace() {
+    if (mFace) {
+      mFace->Unlock();
+    }
+  }
+
+ private:
+  SharedFTFace* mFace = nullptr;
+};
+
 #endif
 
 class UnscaledFont : public SupportsThreadSafeWeakPtr<UnscaledFont> {
@@ -2246,7 +2268,8 @@ class GFX2D_API Factory {
   /**
    * This creates a NativeFontResource from TrueType data.
    *
-   * @param aData Pointer to the data
+   * @param aData Pointer to the data. The data is copied, so the buffer only
+   *              needs to remain valid for the duration of this call.
    * @param aSize Size of the TrueType data
    * @param aFontType Type of NativeFontResource that should be created.
    * @param aFontContext Optional native font context to be used to create the

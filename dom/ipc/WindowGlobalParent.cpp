@@ -235,9 +235,6 @@ void WindowGlobalParent::Init() {
   if (!IsInProcess()) {
     cp = static_cast<ContentParent*>(Manager()->Manager());
     processId = cp->ChildID();
-
-    // Ensure the content process has permissions for this principal.
-    cp->TransmitPermissionsForPrincipal(mDocumentPrincipal);
   }
 
   MOZ_DIAGNOSTIC_ASSERT(
@@ -627,8 +624,9 @@ IPCResult WindowGlobalParent::RecvUpdateDocumentCspSettings(
 
 mozilla::ipc::IPCResult WindowGlobalParent::RecvSetClientInfo(
     const IPCClientInfo& aIPCClientInfo) {
-  if (!ClientIsValidPrincipalInfo(aIPCClientInfo.principalInfo(),
-                                  GetRemoteType())) {
+  if (!ClientIsValidPrincipalInfo(
+          aIPCClientInfo.principalInfo(),
+          GetContentParent() ? GetContentParent()->LoadedOrigins() : nullptr)) {
     return IPC_FAIL(this, "SetClientInfo principal not valid for remote type");
   }
   mClientInfo = Some(ClientInfo(aIPCClientInfo));
@@ -1998,17 +1996,19 @@ bool WindowGlobalParent::ShouldTrackSiteOriginTelemetry() {
   return DocumentPrincipal()->GetIsContentPrincipal();
 }
 
-void WindowGlobalParent::AddSecurityState(uint32_t aStateFlags) {
+mozilla::ipc::IPCResult WindowGlobalParent::RecvAddSecurityState(
+    uint32_t aStateFlags) {
+  if ((aStateFlags & kValidSecurityStateFlags) != aStateFlags) {
+    return IPC_FAIL(this, "Invalid security state flags");
+  }
+
+  AddSecurityState(aStateFlags);
+  return IPC_OK();
+}
+
+void WindowGlobalParent::ApplySecurityStateToTop(uint32_t aStateFlags) {
   MOZ_ASSERT(TopWindowContext() == this);
-  MOZ_ASSERT((aStateFlags &
-              (nsIWebProgressListener::STATE_LOADED_MIXED_DISPLAY_CONTENT |
-               nsIWebProgressListener::STATE_LOADED_MIXED_ACTIVE_CONTENT |
-               nsIWebProgressListener::STATE_BLOCKED_MIXED_DISPLAY_CONTENT |
-               nsIWebProgressListener::STATE_BLOCKED_MIXED_ACTIVE_CONTENT |
-               nsIWebProgressListener::STATE_HTTPS_ONLY_MODE_UPGRADED |
-               nsIWebProgressListener::STATE_HTTPS_ONLY_MODE_UPGRADE_FAILED |
-               nsIWebProgressListener::STATE_HTTPS_ONLY_MODE_UPGRADED_FIRST)) ==
-                 aStateFlags,
+  MOZ_ASSERT((aStateFlags & kValidSecurityStateFlags) == aStateFlags,
              "Invalid flags specified!");
 
   if ((mSecurityState & aStateFlags) == aStateFlags) {

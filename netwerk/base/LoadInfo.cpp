@@ -728,6 +728,7 @@ LoadInfo::LoadInfo(const LoadInfo& rhs)
       // mServiceWorkerTaintingSynthesized must be handled specially during
       // redirect
       mTainting(rhs.mTainting),
+      mTrustedPrincipalToInherit(rhs.mTrustedPrincipalToInherit),
 #define DEFINE_INIT(_t, name, _n, _d) m##name(rhs.m##name),
       LOADINFO_FOR_EACH_FIELD(DEFINE_INIT, LOADINFO_DUMMY_SETTER)
 #undef DEFINE_INIT
@@ -953,6 +954,7 @@ NS_IMETHODIMP
 LoadInfo::SetPrincipalToInherit(nsIPrincipal* aPrincipalToInherit) {
   MOZ_ASSERT(aPrincipalToInherit, "must be a valid principal to inherit");
   mPrincipalToInherit = aPrincipalToInherit;
+  mTrustedPrincipalToInherit = false;
   return NS_OK;
 }
 
@@ -970,6 +972,17 @@ nsIPrincipal* LoadInfo::FindPrincipalToInherit(nsIChannel* aChannel) {
 
   auto* prin = BasePrincipal::Cast(mTriggeringPrincipal);
   return prin->PrincipalToInherit(uri);
+}
+
+NS_IMETHODIMP
+LoadInfo::SetTrustedPrincipalToInherit(nsIPrincipal* aPrincipal) {
+  MOZ_ALWAYS_SUCCEEDS(SetPrincipalToInherit(aPrincipal));
+  mTrustedPrincipalToInherit = true;
+  return NS_OK;
+}
+
+bool LoadInfo::IsPrincipalToInheritTrusted() {
+  return mTrustedPrincipalToInherit;
 }
 
 const nsID& LoadInfo::GetSandboxedNullPrincipalID() {

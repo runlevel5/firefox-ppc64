@@ -52,6 +52,12 @@ interface nsIDOMProcessParent: nsISupports {
   [notxpcom, nostdcall] JSActorManagerPtr AsJSActorManager();
 
   /**
+   * Called when we are about to load an origin within a content process.
+   * e.g. due to loading a document or remote worker.
+   */
+  void aboutToLoadOrigin(in nsIPrincipal principal);
+
+  /**
    * Remote type of the process.
    */
   readonly attribute ACString remoteType;

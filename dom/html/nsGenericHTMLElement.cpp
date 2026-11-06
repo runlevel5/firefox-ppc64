@@ -3549,8 +3549,10 @@ bool nsGenericHTMLElement::CheckPopoverValidity(
   }
 
   // 3. If any of the following are true:
-  //   - element is not connected;
-  if (!IsInComposedDoc()) {
+  //   - expectedToBeShowing is false and element is not connected;
+  const bool expectedToBeShowing =
+      aExpectedState == PopoverVisibilityState::Showing;
+  if (!expectedToBeShowing && !IsInComposedDoc()) {
     // 1. If throwExceptions is true, then throw an "InvalidStateError"
     //    DOMException.
     aRv.ThrowInvalidStateError("Element is not connected");
@@ -3558,8 +3560,9 @@ bool nsGenericHTMLElement::CheckPopoverValidity(
     return false;
   }
 
-  //   - element's node document is not fully active;
-  if (!OwnerDoc()->IsFullyActive()) {
+  //   - expectedToBeShowing is false and element's node document is not fully
+  //     active;
+  if (!expectedToBeShowing && !OwnerDoc()->IsFullyActive()) {
     aRv.ThrowInvalidStateError("Element's document is not fully active");
     return false;
   }

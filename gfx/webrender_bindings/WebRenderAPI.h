@@ -120,6 +120,11 @@ class TransactionBuilder final {
 
   void RemovePipeline(PipelineId aPipelineId);
 
+  // Sets the namespaces of the pipelines that aPipelineId may embed with
+  // iframe items. Nothing() lets it embed any pipeline.
+  void SetEmbedPolicy(PipelineId aPipelineId,
+                      const Maybe<nsTArray<uint32_t>>& aNamespaces);
+
   // aIdNamespace is the namespace whose resources the display list is allowed
   // to reference. It must be supplied by the compositor-side owner of the
   // pipeline.

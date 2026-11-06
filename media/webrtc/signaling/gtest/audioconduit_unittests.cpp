@@ -723,6 +723,7 @@ TEST_F(AudioConduitTest, TestSetLocalRTPExtensions) {
     RtpExtList extensions;
     webrtc::RtpExtension extension;
     extension.uri = webrtc::RtpExtension::kAudioLevelUri;
+    extension.id = 1;
     extensions.emplace_back(extension);
     aControl.mLocalRecvRtpExtensions = extensions;
     aControl.mLocalSendRtpExtensions = extensions;
@@ -739,6 +740,7 @@ TEST_F(AudioConduitTest, TestSetLocalRTPExtensions) {
     RtpExtList extensions;
     webrtc::RtpExtension extension;
     extension.uri = webrtc::RtpExtension::kCsrcAudioLevelsUri;
+    extension.id = 1;
     extensions.emplace_back(extension);
     aControl.mLocalRecvRtpExtensions = extensions;
     aControl.mLocalSendRtpExtensions = extensions;
@@ -753,6 +755,7 @@ TEST_F(AudioConduitTest, TestSetLocalRTPExtensions) {
     RtpExtList extensions;
     webrtc::RtpExtension extension;
     extension.uri = webrtc::RtpExtension::kMidUri;
+    extension.id = 1;
     extensions.emplace_back(extension);
     aControl.mLocalRecvRtpExtensions = extensions;
     aControl.mLocalSendRtpExtensions = extensions;

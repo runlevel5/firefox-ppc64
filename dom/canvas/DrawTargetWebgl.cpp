@@ -4507,7 +4507,7 @@ inline bool PathCacheEntry::MatchesPath(
     const QuantizedPath& aPath, const Pattern* aPattern,
     const StrokeOptions* aStrokeOptions, AAStrokeMode aStrokeMode,
     const Matrix& aTransform, const IntRect& aBounds, const Point& aOrigin,
-    HashNumber aHash, float aSigma) {
+    const Point& aPatternOffset, HashNumber aHash, float aSigma) {
   return aHash == mHash && HasMatchingScale(aTransform, mTransform) &&
          // Ensure the clipped relative bounds fit inside those of the entry
          aBounds.x - aOrigin.x >= mBounds.x - mOrigin.x &&
@@ -4517,7 +4517,13 @@ inline bool PathCacheEntry::MatchesPath(
          (aBounds.y - aOrigin.y) + aBounds.height <=
              (mBounds.y - mOrigin.y) + mBounds.height &&
          aPath == mPath &&
-         (!aPattern ? !mPattern : mPattern && *aPattern == *mPattern) &&
+         // The path may move independently of the pattern, so a pattern
+         // rasterized into a texture is only reusable at the same offset
+         // relative to the path.
+         (!aPattern
+              ? !mPattern
+              : mPattern && *aPattern == *mPattern &&
+                    (!HasBakedTexture() || aPatternOffset == mPatternOffset)) &&
          (!aStrokeOptions
               ? !mStrokeOptions
               : mStrokeOptions && *aStrokeOptions == *mStrokeOptions &&
@@ -4547,12 +4553,13 @@ already_AddRefed<PathCacheEntry> PathCache::FindOrInsertEntry(
     QuantizedPath aPath, const Pattern* aPattern,
     const StrokeOptions* aStrokeOptions, AAStrokeMode aStrokeMode,
     const Matrix& aTransform, const IntRect& aBounds, const Point& aOrigin,
-    float aSigma) {
+    const Point& aPatternOffset, float aSigma) {
   HashNumber hash =
       PathCacheEntry::HashPath(aPath, aPattern, aTransform, aBounds, aOrigin);
   for (const RefPtr<PathCacheEntry>& entry : GetChain(hash)) {
     if (entry->MatchesPath(aPath, aPattern, aStrokeOptions, aStrokeMode,
-                           aTransform, aBounds, aOrigin, hash, aSigma)) {
+                           aTransform, aBounds, aOrigin, aPatternOffset, hash,
+                           aSigma)) {
       return do_AddRef(entry);
     }
   }
@@ -4583,12 +4590,13 @@ already_AddRefed<PathCacheEntry> PathCache::FindEntry(
     const QuantizedPath& aPath, const Pattern* aPattern,
     const StrokeOptions* aStrokeOptions, AAStrokeMode aStrokeMode,
     const Matrix& aTransform, const IntRect& aBounds, const Point& aOrigin,
-    float aSigma, bool aHasSecondaryHandle) {
+    const Point& aPatternOffset, float aSigma, bool aHasSecondaryHandle) {
   HashNumber hash =
       PathCacheEntry::HashPath(aPath, aPattern, aTransform, aBounds, aOrigin);
   for (const RefPtr<PathCacheEntry>& entry : GetChain(hash)) {
     if (entry->MatchesPath(aPath, aPattern, aStrokeOptions, aStrokeMode,
-                           aTransform, aBounds, aOrigin, hash, aSigma) &&
+                           aTransform, aBounds, aOrigin, aPatternOffset, hash,
+                           aSigma) &&
         (!aHasSecondaryHandle || (entry->GetSecondaryHandle() &&
                                   entry->GetSecondaryHandle()->IsValid()))) {
       return do_AddRef(entry);
@@ -5017,7 +5025,7 @@ bool SharedContextWebgl::DrawWGRPath(
     const Matrix& aPathXform, RefPtr<PathCacheEntry>& aEntry,
     const DrawOptions& aOptions, const StrokeOptions* aStrokeOptions,
     AAStrokeMode aAAStrokeMode, const Pattern& aPattern,
-    const Maybe<DeviceColor>& aColor) {
+    const Point& aPatternOffset, const Maybe<DeviceColor>& aColor) {
   const PathSkia* pathSkia = static_cast<const PathSkia*>(aPath);
   const Matrix& currentTransform = mCurrentTarget->GetTransform();
   if (aEntry->GetVertexRange().IsValid()) {
@@ -5158,7 +5166,7 @@ bool SharedContextWebgl::DrawWGRPath(
             DrawStrokeMask(vertexRange, aIntBounds.Size())) {
       // Finally, draw the rendered stroke mask.
       if (aEntry) {
-        aEntry->Link(handle);
+        aEntry->Link(handle, aPatternOffset);
       }
       mCurrentTarget->mProfile.OnCacheMiss();
       SurfacePattern maskPattern(nullptr, ExtendMode::CLAMP,
@@ -5242,6 +5250,11 @@ bool SharedContextWebgl::DrawPathAccel(
   }
   // Nudge the bounds to account for the quantization rounding.
   Rect quantBounds = Rect(intBounds) + (realOrigin - quantizedOrigin);
+  // Quantize the pattern offset relative to the path to increase the reuse of
+  // cache entries with baked patterns.
+  Point patternOffset = (currentTransform.GetTranslation() - realOrigin) * 4.0f;
+  patternOffset.Round();
+  patternOffset = patternOffset / 4.0f;
   // If the pattern is a solid color, then this will be used along with a path
   // mask to render the path, as opposed to baking the pattern into the cached
   // path texture.
@@ -5274,7 +5287,7 @@ bool SharedContextWebgl::DrawPathAccel(
     entry = mPathCache->FindOrInsertEntry(
         std::move(*qp), color ? nullptr : &aPattern, aStrokeOptions,
         aaStrokeMode, currentTransform, intBounds, quantizedOrigin,
-        aShadow ? aShadow->mSigma : -1.0f);
+        patternOffset, aShadow ? aShadow->mSigma : -1.0f);
     if (!entry) {
       return false;
     }
@@ -5322,14 +5335,14 @@ bool SharedContextWebgl::DrawPathAccel(
                                                       aPattern)) {
         if (DrawWGRPath(aPath, intBounds, quantBounds, pathXform, entry,
                         aOptions, aStrokeOptions, aaStrokeMode, gradient.ref(),
-                        color)) {
+                        patternOffset, color)) {
           return true;
         }
       }
     } else if (SupportsPattern(aPattern) &&
                DrawWGRPath(aPath, intBounds, quantBounds, pathXform, entry,
                            aOptions, aStrokeOptions, aaStrokeMode, aPattern,
-                           color)) {
+                           patternOffset, color)) {
       return true;
     }
   }
@@ -5356,7 +5369,7 @@ bool SharedContextWebgl::DrawPathAccel(
     if (RefPtr<PathCacheEntry> similarEntry = mPathCache->FindEntry(
             entry->GetPath(), color ? nullptr : &aPattern, aStrokeOptions,
             aaStrokeMode, currentTransform, intBounds, quantizedOrigin,
-            kIgnoreSigma, true)) {
+            patternOffset, kIgnoreSigma, true)) {
       if (RefPtr<TextureHandle> inputHandle =
               similarEntry->GetSecondaryHandle().get()) {
         if (inputHandle->IsValid() &&
@@ -5364,7 +5377,7 @@ bool SharedContextWebgl::DrawPathAccel(
                           nullptr, IntRect(), aOptions, shadowColor,
                           &inputHandle, &handle)) {
           if (entry) {
-            entry->Link(handle);
+            entry->Link(handle, patternOffset);
             entry->SetSecondaryHandle(WeakPtr(inputHandle));
           }
           return true;
@@ -5434,7 +5447,7 @@ bool SharedContextWebgl::DrawPathAccel(
                             pathSurface, IntRect(), aOptions, shadowColor,
                             &inputHandle, &handle)) {
             if (entry) {
-              entry->Link(handle);
+              entry->Link(handle, patternOffset);
               entry->SetSecondaryHandle(WeakPtr(inputHandle));
             }
           } else if (entry) {
@@ -5465,7 +5478,7 @@ bool SharedContextWebgl::DrawPathAccel(
                         &handle, false, true) &&
           handle) {
         if (entry) {
-          entry->Link(handle);
+          entry->Link(handle, patternOffset);
         }
       } else if (entry) {
         entry->Unlink();

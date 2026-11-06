@@ -7587,8 +7587,9 @@ void nsWindow::InsertEmoji(RefPtr<nsWindow> aToplevelWindow) {
   }
 
   if (IsTopLevelWidget()) {
-    if (nsIWidget* popup =
-            nsXULPopupManager::GetInstance()->GetRollupWidget()) {
+    // Only redirect to our own popup, not to an open popup of another window.
+    nsIWidget* popup = nsXULPopupManager::GetInstance()->GetRollupWidget();
+    if (popup && popup->GetTopLevelWidget() == this) {
       if (nsWindow* window = nsWindow::FromWidget(popup)) {
         LOG("nsWindow::InsertEmoji() - redirect to child popup [%p]", window);
         window->InsertEmoji(this);
@@ -7613,6 +7614,11 @@ void nsWindow::InsertEmoji(RefPtr<nsWindow> aToplevelWindow) {
   if (!entry) {
     entry = moz_container_entry_set(MOZ_CONTAINER(mContainer), gtk_entry_new());
     gtk_widget_show(entry);
+    // Keep aToplevelWindow alive as long as the entry can call the handler.
+    g_object_set_data_full(
+        G_OBJECT(entry), "nsWindow-emoji-target",
+        do_AddRef(aToplevelWindow).take(),
+        [](gpointer data) { static_cast<nsWindow*>(data)->Release(); });
     g_signal_connect(entry, "insert_text",
                      G_CALLBACK(+[](GtkWidget* entry, gchar* text, gint length,
                                     gint* position, gpointer data) {

@@ -605,6 +605,10 @@ class ContentChild::ShutdownCanary final {};
 ContentChild* ContentChild::sSingleton;
 StaticAutoPtr<ContentChild::ShutdownCanary> ContentChild::sShutdownCanary;
 
+static StaticMutex sLoadedOriginsMutex;
+static StaticRefPtr<LoadedOriginSet> sLoadedOrigins
+    MOZ_GUARDED_BY(sLoadedOriginsMutex);
+
 ContentChild::ContentChild()
     : mIsForBrowser(false), mIsAlive(true), mShuttingDown(false) {
   // This process is a content process, so it's clearly running in
@@ -636,6 +640,16 @@ ContentChild::ContentChild()
   if (!sShutdownCanary) {
     sShutdownCanary = new ShutdownCanary();
     ClearOnShutdown(&sShutdownCanary, ShutdownPhase::XPCOMShutdown);
+  }
+
+  {
+    StaticMutexAutoLock lock(sLoadedOriginsMutex);
+    MOZ_ASSERT(!sLoadedOrigins);
+    sLoadedOrigins = MakeRefPtr<LoadedOriginSet>(PREALLOC_REMOTE_TYPE);
+    RunOnShutdown([] {
+      StaticMutexAutoLock lock(sLoadedOriginsMutex);
+      sLoadedOrigins = nullptr;
+    });
   }
 }
 
@@ -2653,20 +2667,20 @@ mozilla::ipc::IPCResult ContentChild::RecvAppInfo(
   return IPC_OK();
 }
 
-static StaticMutex sCurrentRemoteTypeMutex;
-static StaticAutoPtr<nsCString> sCurrentRemoteType
-    MOZ_GUARDED_BY(sCurrentRemoteTypeMutex);
-
 nsCString CurrentRemoteType() {
   if (XRE_IsContentProcess()) {
-    StaticMutexAutoLock lock(sCurrentRemoteTypeMutex);
-    if (sCurrentRemoteType) {
-      return *sCurrentRemoteType;
+    if (RefPtr<LoadedOriginSet> loadedOrigins = CurrentLoadedOriginSet()) {
+      return loadedOrigins->GetRemoteType();
     }
     return PREALLOC_REMOTE_TYPE;
   }
 
   return NOT_REMOTE_TYPE;
+}
+
+already_AddRefed<LoadedOriginSet> CurrentLoadedOriginSet() {
+  StaticMutexAutoLock lock(sLoadedOriginsMutex);
+  return do_AddRef(sLoadedOrigins);
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvRemoteType(
@@ -2704,17 +2718,11 @@ mozilla::ipc::IPCResult ContentChild::RecvRemoteType(
   // Must do before SetProcessName
   mRemoteType.Assign(aRemoteType);
 
-  {
-    StaticMutexAutoLock lock(sCurrentRemoteTypeMutex);
-    if (!sCurrentRemoteType) {
-      sCurrentRemoteType = new nsCString();
-      RunOnShutdown([] {
-        StaticMutexAutoLock lock(sCurrentRemoteTypeMutex);
-        sCurrentRemoteType = nullptr;
-      });
-    }
-    sCurrentRemoteType->Assign(mRemoteType);
+  RefPtr<LoadedOriginSet> loadedOrigins = CurrentLoadedOriginSet();
+  if (!loadedOrigins) {
+    return IPC_FAIL(this, "Always initialized before this point");
   }
+  loadedOrigins->SetRemoteType(mRemoteType);
 
   // Update the process name so about:memory's process names are more obvious.
   if (aRemoteType == FILE_REMOTE_TYPE) {
@@ -2770,6 +2778,26 @@ mozilla::ipc::IPCResult ContentChild::RecvRemoteType(
   return IPC_OK();
 }
 
+mozilla::ipc::IPCResult ContentChild::RecvAddLoadedOrigin(
+    nsIPrincipal* aPrincipal) {
+  if (RefPtr<LoadedOriginSet> loadedOrigins = CurrentLoadedOriginSet()) {
+    (void)loadedOrigins->AddInternal(aPrincipal, /* aTentative */ false);
+
+    // Notify observers that we've received a new origin.
+    //
+    // Currently this is only used by `RemoteWorkerChild` to wait for this
+    // message before continuing with remote worker startup.
+    //
+    // NOTE: If this topic grows new observers, we should consider refactoring
+    // the observer code out of RemoteWorkerChild and into a common helper.
+    nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
+    if (obs) {
+      obs->NotifyObservers(aPrincipal, "content-loaded-origin-added", nullptr);
+    }
+  }
+  return IPC_OK();
+}
+
 // A method to initialize anything we need during the preallocation phase
 void ContentChild::PreallocInit() {
   EnsureNSSInitializedChromeOrContent();
@@ -2795,9 +2823,11 @@ mozilla::ipc::IPCResult ContentChild::RecvInitBlobURLs(
     nsTArray<BlobURLRegistrationData>&& aRegistrations) {
   for (uint32_t i = 0; i < aRegistrations.Length(); ++i) {
     BlobURLRegistrationData& registration = aRegistrations[i];
-    BlobURLProtocolHandler::AddDataEntryChild(registration.url(),
-                                              registration.principal(),
-                                              registration.partitionKey());
+    if (NS_FAILED(BlobURLProtocolHandler::AddDataEntryChild(
+            registration.url(), registration.principal(),
+            registration.partitionKey()))) {
+      return IPC_FAIL(this, "Conflicting Blob URL principal");
+    }
     // If we have received an already-revoked blobURL, we have to keep it alive
     // for a while (see BlobURLProtocolHandler) in order to support pending
     // operations such as navigation, download and so on.
@@ -3242,7 +3272,10 @@ mozilla::ipc::IPCResult ContentChild::RecvPWebBrowserPersistDocumentConstructor(
 mozilla::ipc::IPCResult ContentChild::RecvBlobURLRegistration(
     const nsCString& aURI, nsIPrincipal* aPrincipal,
     const nsCString& aPartitionKey) {
-  BlobURLProtocolHandler::AddDataEntryChild(aURI, aPrincipal, aPartitionKey);
+  if (NS_FAILED(BlobURLProtocolHandler::AddDataEntryChild(aURI, aPrincipal,
+                                                          aPartitionKey))) {
+    return IPC_FAIL(this, "Conflicting Blob URL principal");
+  }
   return IPC_OK();
 }
 
@@ -3479,6 +3512,13 @@ mozilla::ipc::IPCResult ContentChild::RecvCrossProcessRedirect(
   if (NS_FAILED(rv)) {
     MOZ_DIAGNOSTIC_CRASH("LoadInfoArgsToLoadInfo failed");
     return IPC_OK();
+  }
+
+  // The parent process has already validated this PrincipalToInherit.
+  if (nsCOMPtr<nsIPrincipal> principalToInherit =
+          loadInfo->PrincipalToInherit()) {
+    MOZ_ALWAYS_SUCCEEDS(
+        loadInfo->SetTrustedPrincipalToInherit(principalToInherit));
   }
 
   nsCOMPtr<nsIChannel> newChannel;

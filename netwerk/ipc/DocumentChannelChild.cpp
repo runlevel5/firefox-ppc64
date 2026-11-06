@@ -247,6 +247,13 @@ IPCResult DocumentChannelChild::RecvRedirectToRealChannel(
                                              cspToInheritLoadingDocument,
                                              getter_AddRefs(loadInfo)));
 
+  // The parent process has already validated this PrincipalToInherit.
+  if (nsCOMPtr<nsIPrincipal> principalToInherit =
+          loadInfo->PrincipalToInherit()) {
+    MOZ_ALWAYS_SUCCEEDS(
+        loadInfo->SetTrustedPrincipalToInherit(principalToInherit));
+  }
+
   mRedirectResolver = std::move(aResolve);
 
   nsCOMPtr<nsIChannel> newChannel;

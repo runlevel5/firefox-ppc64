@@ -5,6 +5,7 @@
 #include "xpcprivate.h"
 #include "WrapperFactory.h"
 #include "AccessCheck.h"
+#include "jsapi.h"
 #include "jsfriendapi.h"
 #include "js/CallAndConstruct.h"  // JS::IsConstructor, JS::Call, JS::Construct, JS::IsCallable
 #include "js/Exception.h"
@@ -501,13 +502,13 @@ bool ExportFunction(JSContext* cx, HandleValue vfunction, HandleValue vscope,
       if (!funName) {
         funName = JS_GetEmptyString(cx);
       }
-      JS_MarkCrossZoneIdValue(cx, StringValue(funName));
 
       if (!JS_StringToId(cx, funName, &id)) {
         return false;
       }
-    } else {
-      JS_MarkCrossZoneId(cx, id);
+    }
+    if (!JS_WrapId(cx, &id)) {
+      return false;
     }
 
     if (!id.isString()) {
@@ -576,7 +577,9 @@ bool CreateObjectIn(JSContext* cx, HandleValue vobj,
   RootedObject obj(cx);
   {
     JSAutoRealm ar(cx, scope);
-    JS_MarkCrossZoneId(cx, options.defineAs);
+    if (!JS_WrapId(cx, &options.defineAs)) {
+      return false;
+    }
 
     obj = JS_NewPlainObject(cx);
     if (!obj) {

@@ -110,8 +110,9 @@ bool ContentTriggeredURILoadIsAllowed(nsIURI* aURI,
     }
   }
 
-  return ValidatePrincipalCouldPotentiallyBeLoadedBy(principal,
-                                                     aEffectiveRemoteType, {});
+  return ValidatePrincipalCouldPotentiallyBeLoadedBy(
+      principal, aEffectiveRemoteType,
+      {ValidatePrincipalOptions::AllowNotLoadedOrigin});
 }
 
 }  // namespace mozilla::dom
@@ -265,17 +266,21 @@ nsDocShellLoadState::nsDocShellLoadState(
       return;
     }
 
+    // NOTE: Eventually this should probably be called on a LoadedOriginSet, but
+    // we don't track this on the load state yet.
     if (!ValidatePrincipalCouldPotentiallyBeLoadedBy(
             mTriggeringPrincipal, effectiveRemoteType,
             {ValidatePrincipalOptions::AllowExpanded,
-             ValidatePrincipalOptions::AllowSystem})) {
+             ValidatePrincipalOptions::AlwaysAllowSystem,
+             ValidatePrincipalOptions::AllowNotLoadedOrigin})) {
       aActor->FatalError(
           "nsDocShellLoadState with invalid triggering principal");
       return;
     }
     if (!ValidatePrincipalCouldPotentiallyBeLoadedBy(
             mPrincipalToInherit, effectiveRemoteType,
-            {ValidatePrincipalOptions::AllowNullPtr})) {
+            {ValidatePrincipalOptions::AllowNullPtr,
+             ValidatePrincipalOptions::AllowNotLoadedOrigin})) {
       aActor->FatalError("nsDocShellLoadState with invalid principalToInherit");
       return;
     }

@@ -86,8 +86,8 @@ CodeGeneratorShared::CodeGeneratorShared(MIRGenerator* gen, LIRGraph* graph,
 
 #ifdef ENABLE_WASM_SIMD
 #  if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_X86) || \
-      defined(JS_CODEGEN_ARM64)
-    // On X64/x86 and ARM64, we don't need alignment for Wasm SIMD at this time.
+      defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_PPC64)
+    // On X64/x86, ARM64, and PPC64, we don't need alignment for Wasm SIMD at this time.
 #  else
 #    error \
         "we may need padding so that local slots are SIMD-aligned and the stack must be kept SIMD-aligned too."
@@ -1074,7 +1074,7 @@ Label* CodeGeneratorShared::getJumpLabelForBranch(MBasicBlock* block) {
 // This function is not used for MIPS64/LOONG64/RISCV64. They have
 // branchToBlock.
 #if !defined(JS_CODEGEN_MIPS64) && !defined(JS_CODEGEN_LOONG64) && \
-    !defined(JS_CODEGEN_RISCV64)
+    !defined(JS_CODEGEN_RISCV64) && !defined(JS_CODEGEN_PPC64)
 void CodeGeneratorShared::jumpToBlock(MBasicBlock* mir,
                                       Assembler::Condition cond) {
   // Skip past trivial blocks.

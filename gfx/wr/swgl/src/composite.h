@@ -605,6 +605,9 @@ static inline V8<int16_t> addsat(V8<int16_t> x, V8<int16_t> y) {
   return _mm_adds_epi16(x, y);
 #elif USE_NEON
   return vqaddq_s16(x, y);
+#elif USE_ALTIVEC
+  return bit_cast<V8<int16_t>>(
+      vec_adds(bit_cast<av_i16x8>(x), bit_cast<av_i16x8>(y)));
 #else
   auto r = x + y;
   // An overflow occurred if the signs of both inputs x and y did not differ

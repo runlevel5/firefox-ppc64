@@ -492,6 +492,8 @@ prefs = ["browser.cache.disk.encryption.enabled=true"]
 
 ["test_cache2-35-racing-onCacheEntryCheck.js"]
 
+["test_cache2-42-no_cache_writer_hang.js"]
+
 ["test_cache2_clear_with_principal.js"]
 run-sequentially = ["true"] # httpd server
 
@@ -1649,6 +1651,11 @@ run-if = [
 ["test_simple.js"]
 
 ["test_simple_unknown_uris.js"]
+
+["test_socket_above_fd_setsize.js"]
+run-if = [
+  "os == 'mac'",
+]
 
 ["test_sockettransportsvc_available.js"]
 

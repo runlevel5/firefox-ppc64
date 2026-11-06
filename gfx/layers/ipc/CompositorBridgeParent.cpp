@@ -928,8 +928,12 @@ void CompositorBridgeParent::DisconnectApzcTreeManager(
 mozilla::ipc::IPCResult CompositorBridgeParent::RecvNotifyChildCreated(
     const LayersId& aChild, const LayersId& aEmbedderId,
     CompositorOptions* aOptions) {
-  StaticMonitorAutoLock lock(sIndirectLayerTreesLock);
-  NotifyChildCreated(aChild, aEmbedderId);
+  LayersId oldEmbedder;
+  {
+    StaticMonitorAutoLock lock(sIndirectLayerTreesLock);
+    oldEmbedder = NotifyChildCreated(aChild, aEmbedderId);
+  }
+  RefreshEmbedPolicies(aEmbedderId, oldEmbedder);
   *aOptions = mOptions;
   return IPC_OK();
 }
@@ -937,24 +941,68 @@ mozilla::ipc::IPCResult CompositorBridgeParent::RecvNotifyChildCreated(
 mozilla::ipc::IPCResult CompositorBridgeParent::RecvNotifyChildRecreated(
     const LayersId& aChild, const LayersId& aEmbedderId,
     CompositorOptions* aOptions) {
-  StaticMonitorAutoLock lock(sIndirectLayerTreesLock);
+  {
+    StaticMonitorAutoLock lock(sIndirectLayerTreesLock);
 
-  if (sIndirectLayerTrees.find(aChild) != sIndirectLayerTrees.end()) {
-    NS_WARNING("Invalid to register the same layer tree twice");
-    return IPC_FAIL_NO_REASON(this);
+    if (sIndirectLayerTrees.find(aChild) != sIndirectLayerTrees.end()) {
+      NS_WARNING("Invalid to register the same layer tree twice");
+      return IPC_FAIL_NO_REASON(this);
+    }
+
+    NotifyChildCreated(aChild, aEmbedderId);
   }
-
-  NotifyChildCreated(aChild, aEmbedderId);
+  RefreshEmbedPolicies(aEmbedderId, LayersId{});
   *aOptions = mOptions;
   return IPC_OK();
 }
 
-void CompositorBridgeParent::NotifyChildCreated(LayersId aChild,
-                                                LayersId aEmbedderId) {
+LayersId CompositorBridgeParent::NotifyChildCreated(LayersId aChild,
+                                                    LayersId aEmbedderId) {
   sIndirectLayerTreesLock.AssertCurrentThreadOwns();
   LayerTreeState& state = sIndirectLayerTrees.try_emplace(aChild).first->second;
+  LayersId oldEmbedder = state.mEmbedderLayersId;
   state.mParent = this;
   state.mEmbedderLayersId = aEmbedderId;
+  return oldEmbedder;
+}
+
+/* static */
+void CompositorBridgeParent::RefreshEmbedPolicies(LayersId aNewEmbedder,
+                                                  LayersId aOldEmbedder) {
+  if (!StaticPrefs::gfx_webrender_enforce_embed_policy_AtStartup()) {
+    return;
+  }
+  AutoTArray<RefPtr<WebRenderBridgeParent>, 2> bridges;
+  {
+    StaticMonitorAutoLock lock(sIndirectLayerTreesLock);
+    auto addBridge = [&](LayersId aEmbedder) {
+      LayerTreeState* state = GetLayerTreeStateUnderLock(aEmbedder, lock);
+      if (state && state->mWrBridge) {
+        bridges.AppendElement(state->mWrBridge);
+      }
+    };
+    addBridge(aNewEmbedder);
+    if (aOldEmbedder != aNewEmbedder) {
+      addBridge(aOldEmbedder);
+    }
+  }
+  for (const auto& bridge : bridges) {
+    bridge->RefreshEmbedPolicy();
+  }
+}
+
+/* static */
+void CompositorBridgeParent::CollectEmbeddedChildNamespaces(
+    LayersId aEmbedder, nsTArray<uint32_t>& aOut) {
+  if (!aEmbedder.IsValid()) {
+    return;
+  }
+  StaticMonitorAutoLock lock(sIndirectLayerTreesLock);
+  for (const auto& [layersId, state] : sIndirectLayerTrees) {
+    if (state.mEmbedderLayersId == aEmbedder) {
+      aOut.AppendElement(wr::AsPipelineId(layersId).mNamespace);
+    }
+  }
 }
 
 mozilla::ipc::IPCResult CompositorBridgeParent::RecvMapAndNotifyChildCreated(
@@ -966,8 +1014,12 @@ mozilla::ipc::IPCResult CompositorBridgeParent::RecvMapAndNotifyChildCreated(
 
   LayerTreeOwnerTracker::Get()->Map(aChild, aOwnerPid);
 
-  StaticMonitorAutoLock lock(sIndirectLayerTreesLock);
-  NotifyChildCreated(aChild, aEmbedderId);
+  LayersId oldEmbedder;
+  {
+    StaticMonitorAutoLock lock(sIndirectLayerTreesLock);
+    oldEmbedder = NotifyChildCreated(aChild, aEmbedderId);
+  }
+  RefreshEmbedPolicies(aEmbedderId, oldEmbedder);
   *aOptions = mOptions;
   return IPC_OK();
 }
@@ -1059,12 +1111,14 @@ mozilla::ipc::IPCResult CompositorBridgeParent::RecvAdoptChild(
                            now, now, now);
   }
 
+  LayersId oldEmbedder;
   {
     StaticMonitorAutoLock lock(sIndirectLayerTreesLock);
     // Update sIndirectLayerTrees[child].mParent after
     // WebRenderBridgeParent::UpdateWebRender().
-    NotifyChildCreated(child, embedderId);
+    oldEmbedder = NotifyChildCreated(child, embedderId);
   }
+  RefreshEmbedPolicies(embedderId, oldEmbedder);
 
   if (oldApzUpdater) {
     // If we are moving a child from an APZ-enabled window to an APZ-disabled
