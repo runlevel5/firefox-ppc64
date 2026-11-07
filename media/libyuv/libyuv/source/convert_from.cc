@@ -799,6 +799,14 @@ static int I4xxToPxxx(const uint8_t* src_y,
     Convert8To16Row = Convert8To16Row_RVV;
   }
 #endif
+#if defined(HAS_CONVERT8TO16ROW_VSX)
+  if (TestCpuFlag(kCpuHasVSX)) {
+    Convert8To16Row = Convert8To16Row_Any_VSX;
+    if (IS_ALIGNED(uv_width, 16)) {
+      Convert8To16Row = Convert8To16Row_VSX;
+    }
+  }
+#endif
 #if defined(HAS_CONVERT8TO16ROW_WASMSIMD)
   if (TestCpuFlag(kCpuHasWASMSIMD)) {
     Convert8To16Row = Convert8To16Row_Any_WASMSIMD;
@@ -826,6 +834,14 @@ static int I4xxToPxxx(const uint8_t* src_y,
 #if defined(HAS_MERGEUVROW_16_SME)
   if (TestCpuFlag(kCpuHasSME)) {
     MergeUVRow_16 = MergeUVRow_16_SME;
+  }
+#endif
+#if defined(HAS_MERGEUVROW_16_VSX)
+  if (TestCpuFlag(kCpuHasVSX)) {
+    MergeUVRow_16 = MergeUVRow_16_Any_VSX;
+    if (IS_ALIGNED(uv_width, 8)) {
+      MergeUVRow_16 = MergeUVRow_16_VSX;
+    }
   }
 #endif
 
