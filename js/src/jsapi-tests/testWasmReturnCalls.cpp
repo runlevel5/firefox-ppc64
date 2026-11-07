@@ -31,7 +31,10 @@ BEGIN_TEST(testWasmCheckSlowCallMarkerHit) {
 
   masm.bind(&check);
 #  ifdef JS_USE_LINK_REGISTER
-#    if !defined(JS_CODEGEN_LOONG64) && !defined(JS_CODEGEN_MIPS64) && \
+#    if defined(JS_CODEGEN_PPC64)
+  static constexpr Register ra = ABINonArgReg3;
+  masm.xs_mflr(ra);
+#    elif !defined(JS_CODEGEN_LOONG64) && !defined(JS_CODEGEN_MIPS64) && \
         !defined(JS_CODEGEN_RISCV64)
   static constexpr Register ra = lr;
 #    endif
@@ -69,7 +72,10 @@ BEGIN_TEST(testWasmCheckSlowCallMarkerMiss) {
 
   masm.bind(&check);
 #  ifdef JS_USE_LINK_REGISTER
-#    if !defined(JS_CODEGEN_LOONG64) && !defined(JS_CODEGEN_MIPS64) && \
+#    if defined(JS_CODEGEN_PPC64)
+  static constexpr Register ra = ABINonArgReg3;
+  masm.xs_mflr(ra);
+#    elif !defined(JS_CODEGEN_LOONG64) && !defined(JS_CODEGEN_MIPS64) && \
         !defined(JS_CODEGEN_RISCV64)
   static constexpr Register ra = lr;
 #    endif

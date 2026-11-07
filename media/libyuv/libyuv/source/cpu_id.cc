@@ -23,8 +23,13 @@
 #include <stdio.h>  // For fopen()
 #include <string.h>
 
-#if defined(__linux__) && (defined(__aarch64__) || defined(__loongarch__))
+#if defined(__linux__) && \
+    (defined(__aarch64__) || defined(__loongarch__) || defined(__powerpc__))
 #include <sys/auxv.h>  // For getauxval()
+#endif
+
+#if defined(__FreeBSD__) && defined(__powerpc__)
+#include <sys/auxv.h>  // For elf_aux_info()
 #endif
 
 #if defined(_WIN32) && defined(__aarch64__)
@@ -396,6 +401,36 @@ LIBYUV_API SAFEBUFFERS int LoongArchCpuCaps(void) {
 }
 #endif
 
+// Define hwcap values ourselves: building with an old auxv header where these
+// hwcap values are not defined should not prevent features from being enabled.
+#define YUV_PPC_FEATURE_HAS_ALTIVEC 0x10000000UL
+#define YUV_PPC_FEATURE_HAS_VSX 0x00000080UL
+#define YUV_PPC_FEATURE2_ARCH_2_07 0x80000000UL
+#define YUV_PPC_FEATURE2_ARCH_3_00 0x00800000UL
+#define YUV_PPC_FEATURE2_ARCH_3_1 0x00040000UL
+
+// For PowerPC, but public to allow testing on any CPU.
+LIBYUV_API SAFEBUFFERS int PowerPCCpuCaps(unsigned long hwcap,
+                                          unsigned long hwcap2) {
+  int features = 0;
+  if (!(hwcap & YUV_PPC_FEATURE_HAS_ALTIVEC)) {
+    return features;
+  }
+  features |= kCpuHasVMX;
+  if (!(hwcap & YUV_PPC_FEATURE_HAS_VSX) ||
+      !(hwcap2 & YUV_PPC_FEATURE2_ARCH_2_07)) {
+    return features;
+  }
+  features |= kCpuHasVSX;
+  if (hwcap2 & YUV_PPC_FEATURE2_ARCH_3_00) {
+    features |= kCpuHasPOWER9;
+    if (hwcap2 & YUV_PPC_FEATURE2_ARCH_3_1) {
+      features |= kCpuHasPOWER10;
+    }
+  }
+  return features;
+}
+
 static SAFEBUFFERS int GetCpuFlags(void) {
   int cpu_info = 0;
 #if !defined(__pnacl__) && !defined(__CLR_VER) &&                   \
@@ -498,6 +533,32 @@ static SAFEBUFFERS int GetCpuFlags(void) {
   cpu_info |= kCpuHasWASMSIMD;
 #endif
 #endif  // __wasm__
+#if defined(__powerpc__)
+#if defined(__linux__)
+  cpu_info = PowerPCCpuCaps(getauxval(AT_HWCAP), getauxval(AT_HWCAP2));
+#elif defined(__FreeBSD__)
+  unsigned long hwcap = 0;
+  unsigned long hwcap2 = 0;
+  elf_aux_info(AT_HWCAP, &hwcap, sizeof(hwcap));
+  elf_aux_info(AT_HWCAP2, &hwcap2, sizeof(hwcap2));
+  cpu_info = PowerPCCpuCaps(hwcap, hwcap2);
+#else
+  // Without a way to ask the OS, assume what the compiler targets.
+#if defined(__ALTIVEC__)
+  cpu_info |= kCpuHasVMX;
+#endif
+#if defined(__VSX__) && defined(_ARCH_PWR8)
+  cpu_info |= kCpuHasVSX;
+#endif
+#if defined(__VSX__) && defined(_ARCH_PWR9)
+  cpu_info |= kCpuHasPOWER9;
+#endif
+#if defined(__VSX__) && defined(_ARCH_PWR10)
+  cpu_info |= kCpuHasPOWER10;
+#endif
+#endif
+  cpu_info |= kCpuHasPPC;
+#endif  // __powerpc__
   cpu_info |= kCpuInitialized;
   return cpu_info;
 }

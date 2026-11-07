@@ -1824,3 +1824,10 @@ reduced-protection-infobar-reload-button = Reload
   .accesskey = R
 reduced-protection-infobar-never-show-button = Don’t show again
   .accesskey = D
+
+## Big-endian compatibility infobar ("BigEndianWarningParent.sys.mjs")
+
+# "Big-endian" is a property of the computer's processor. Most computers are little-endian, and some websites only work on those.
+big-endian-unsupported-infobar-message = This page uses code that does not support big-endian processors. Some features, such as signing in or decrypting data, may fail with misleading errors. See the Web Console for details.
+big-endian-unsupported-infobar-never-show-button = Don’t warn again
+  .accesskey = D

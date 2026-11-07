@@ -38,6 +38,9 @@ SOURCES += [
     "SwizzleGeneric.cpp",
 ]
 
+if CONFIG["TARGET_CPU"].startswith("ppc") and CONFIG["PPC_TARGET_HAS_VSX"]:
+    DEFINES["USE_VSX"] = True
+
 if CONFIG["OS_TARGET"] != "Android":
     UNIFIED_SOURCES += [
         "TestRect.cpp",

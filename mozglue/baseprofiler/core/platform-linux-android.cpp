@@ -132,6 +132,13 @@ static void PopulateRegsFromContext(Registers& aRegs, ucontext_t* aContext) {
   aRegs.mFP = reinterpret_cast<Address>(mcontext.__gregs[8]);
   aRegs.mRA = reinterpret_cast<Address>(mcontext.__gregs[1]);
   aRegs.mT3 = reinterpret_cast<Address>(mcontext.__gregs[28]);
+#elif defined(GP_PLAT_ppc64_linux)
+  // gp_regs[32] is the NIA (next instruction address); the ABI has no
+  // dedicated frame pointer, but the JITs use r31.
+  aRegs.mPC = reinterpret_cast<Address>(mcontext.gp_regs[32]);
+  aRegs.mSP = reinterpret_cast<Address>(mcontext.gp_regs[1]);
+  aRegs.mFP = reinterpret_cast<Address>(mcontext.gp_regs[31]);
+  aRegs.mLR = reinterpret_cast<Address>(mcontext.gp_regs[36]);
 
 #else
 #  error "bad platform"

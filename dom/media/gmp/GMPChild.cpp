@@ -46,6 +46,12 @@
 #include "nsXPCOMPrivate.h"  // for XUL_DLL
 #include "nsXULAppAPI.h"
 #include "prio.h"
+#if defined(XP_LINUX)
+#  include <sys/socket.h>
+
+#  include "base/process_util.h"
+#  include "prenv.h"
+#endif
 #ifdef XP_WIN
 #  include <stdlib.h>  // for _exit()
 
@@ -512,6 +518,51 @@ static auto ToCString(const nsTArray<std::pair<nsCString, nsCString>>& aPairs) {
   });
 }
 
+#if defined(XP_LINUX)
+// Starts the helper program a plugin ships as "gmp-helper" in its directory,
+// before the sandbox engages. The helper gets one end of a socketpair as its
+// only argument; the plugin finds the other end in MOZ_GMP_HELPER_FD. The
+// helper is as trusted as the plugin library itself and shares this process's
+// network and IPC namespaces, but not its seccomp filter or chroot.
+static void StartPluginHelper(const nsAString& aPluginPath) {
+  nsCOMPtr<nsIFile> helper;
+  if (NS_FAILED(NS_NewLocalFile(aPluginPath, getter_AddRefs(helper))) ||
+      NS_FAILED(helper->Append(u"gmp-helper"_ns))) {
+    return;
+  }
+  bool executable = false;
+  if (NS_FAILED(helper->IsExecutable(&executable)) || !executable) {
+    return;
+  }
+  nsAutoCString path;
+  if (NS_FAILED(helper->GetNativePath(path))) {
+    return;
+  }
+
+  int fds[2];
+  if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, fds) != 0) {
+    GMP_CHILD_LOG(LogLevel::Error, "{} socketpair failed: {}", __func__, errno);
+    return;
+  }
+  const int kHelperFd = 3;
+  base::LaunchOptions options;
+  options.fds_to_remap.push_back({fds[1], kHelperFd});
+  std::vector<std::string> argv{path.get(), std::to_string(kHelperFd)};
+  base::ProcessHandle pid = 0;
+  auto result = base::LaunchApp(argv, std::move(options), &pid);
+  close(fds[1]);
+  if (result.isErr()) {
+    GMP_CHILD_LOG(LogLevel::Error, "{} failed to start {}", __func__,
+                  path.get());
+    close(fds[0]);
+    return;
+  }
+  GMP_CHILD_LOG_DEBUG("{} started {} (pid {}) on fd {}", __func__, path.get(),
+                      pid, fds[0]);
+  PR_SetEnv(ToNewCString(nsPrintfCString("MOZ_GMP_HELPER_FD=%d", fds[0])));
+}
+#endif
+
 mozilla::ipc::IPCResult GMPChild::RecvStartPlugin(const nsString& aAdapter) {
   GMP_CHILD_LOG_DEBUG("{}", __FUNCTION__);
 
@@ -547,6 +598,10 @@ mozilla::ipc::IPCResult GMPChild::RecvStartPlugin(const nsString& aAdapter) {
                         ToCString(paths).get());
     adapter = new ChromiumCDMAdapter(std::move(paths));
   }
+
+#if defined(XP_LINUX)
+  StartPluginHelper(mPluginPath);
+#endif
 
   if (!mGMPLoader->Load(libPath.get(), libPath.Length(), platformAPI,
                         adapter)) {

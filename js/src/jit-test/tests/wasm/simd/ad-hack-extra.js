@@ -72,10 +72,10 @@ for ( let [ WideArray, NarrowArray ] of
       [ [ Int16Array, Int8Array ],
         [ Int32Array, Int16Array ],
         [ BigInt64Array, Int32Array ] ] ) {
-    let narrowMem = new NarrowArray(ins.exports.mem.buffer);
+    let narrowMem = memView(NarrowArray, ins.exports.mem.buffer);
     let narrowSrc0 = 16/NarrowArray.BYTES_PER_ELEMENT;
     let narrowSrc1 = 32/NarrowArray.BYTES_PER_ELEMENT;
-    let wideMem = new WideArray(ins.exports.mem.buffer);
+    let wideMem = memView(WideArray, ins.exports.mem.buffer);
     let wideElems = 16/WideArray.BYTES_PER_ELEMENT;
     let wideRes0 = 0;
     let wideRes1 = 48/WideArray.BYTES_PER_ELEMENT;
@@ -107,8 +107,8 @@ var ins = wasmEvalText(`
     (func (export "const_bitmask_i64x2") (result i32)
       (i64x2.bitmask (v128.const i64x2 0xff337f8012345678 0x0001984212345678))))`);
 
-var mem8 = new Uint8Array(ins.exports.mem.buffer);
-var mem64 = new BigUint64Array(ins.exports.mem.buffer);
+var mem8 = memView(Uint8Array, ins.exports.mem.buffer);
+var mem64 = memView(BigUint64Array, ins.exports.mem.buffer);
 
 set(mem8, 16, iota(16).map((_) => 0));
 assertEq(ins.exports.bitmask_i64x2(), 0);
@@ -142,9 +142,9 @@ var ins = wasmEvalText(`
     (func (export "extend_high_i32x4_u")
       (v128.store (i32.const 0) (i64x2.extend_high_i32x4_u (v128.load (i32.const 16))))))`);
 
-var mem32 = new Int32Array(ins.exports.mem.buffer);
-var mem64 = new BigInt64Array(ins.exports.mem.buffer);
-var mem64u = new BigUint64Array(ins.exports.mem.buffer);
+var mem32 = memView(Int32Array, ins.exports.mem.buffer);
+var mem64 = memView(BigInt64Array, ins.exports.mem.buffer);
+var mem64u = memView(BigUint64Array, ins.exports.mem.buffer);
 
 var as = [205, 1, 192, 3].map((x) => x << 24);
 set(mem32, 4, as);
@@ -170,7 +170,7 @@ var ins = wasmEvalText(`
     (func (export "q15mulr_sat_s")
       (v128.store (i32.const 0) (i16x8.q15mulr_sat_s (v128.load (i32.const 16)) (v128.load (i32.const 32))))))`);
 
-var mem16 = new Int16Array(ins.exports.mem.buffer);
+var mem16 = memView(Int16Array, ins.exports.mem.buffer);
 for ( let [as, bs] of cross(Int16Array.inputs) ) {
     set(mem16, 8, as);
     set(mem16, 16, bs);
@@ -188,7 +188,7 @@ var ins = wasmEvalText(`
     (func (export "i64_all_true") (result i32)
       (i64x2.all_true (v128.load (i32.const 16)) ) ) )`);
 
-var mem32 = new Int32Array(ins.exports.mem.buffer);
+var mem32 = memView(Int32Array, ins.exports.mem.buffer);
 
 set(mem32, 4, [0, 0, 0, 0]);
 assertEq(0, ins.exports.i64_all_true());
@@ -230,11 +230,11 @@ if (this.wasmSimdAnalysis && wasmCompileMode() == "ion") {
 
   for ( let inp of [[1n, 2n], [4n, 0n], [0n, 0n]]) {
       const all_true = inp.every(v => v != 0n)
-      let mem = new BigInt64Array(positive.exports.mem.buffer);
+      let mem = memView(BigInt64Array, positive.exports.mem.buffer);
       set(mem, 2, inp);
       assertEq(positive.exports.run(), all_true ? 42 : 37);
 
-      mem = new BigInt64Array(negative.exports.mem.buffer);
+      mem = memView(BigInt64Array, negative.exports.mem.buffer);
       set(mem, 2, inp);
       assertEq(negative.exports.run(), all_true ? 37 : 42);
   }
@@ -256,7 +256,7 @@ var ins = wasmEvalText(`
       (v128.store (i32.const 0)
          (i64x2.ne (v128.load (i32.const 16)) (v128.load (i32.const 32))) )) )`);
 
-var mem64 = new BigInt64Array(ins.exports.mem.buffer);
+var mem64 = memView(BigInt64Array, ins.exports.mem.buffer);
 
 set(mem64, 2, [0n, 1n, 0n, 1n]);
 ins.exports.i64_eq();
@@ -289,7 +289,7 @@ var ins = wasmEvalText(`
       (v128.store (i32.const 0)
         (i64x2.ge_s (v128.load (i32.const 16)) (v128.load (i32.const 32))) )) )`);
 
-var mem64 = new BigInt64Array(ins.exports.mem.buffer);
+var mem64 = memView(BigInt64Array, ins.exports.mem.buffer);
 
 set(mem64, 2, [0n, 1n, 1n, 0n]);
 ins.exports.i64_lt_s();
@@ -346,7 +346,7 @@ var ins = wasmEvalText(`
       (v128.store (i32.const 0)
         (i64x2.abs (v128.load (i32.const 16))) )) )`);
 
-var mem64 = new BigInt64Array(ins.exports.mem.buffer);
+var mem64 = memView(BigInt64Array, ins.exports.mem.buffer);
 
 set(mem64, 2, [-3n, 42n]);
 ins.exports.i64_abs();
@@ -386,9 +386,9 @@ var ins = wasmEvalText(`
       ))
   )`);
 
-var mem8 = new Int8Array(ins.exports.mem.buffer);
-var mem32 = new Int32Array(ins.exports.mem.buffer);
-var mem64 = new BigInt64Array(ins.exports.mem.buffer);
+var mem8 = memView(Int8Array, ins.exports.mem.buffer);
+var mem32 = memView(Int32Array, ins.exports.mem.buffer);
+var mem64 = memView(BigInt64Array, ins.exports.mem.buffer);
 
 var as = [0x12345678, 0x23456789, 0x3456789A, 0x456789AB];
 set(mem32, 4, as); set(mem8, 32, [0xC2]);
@@ -480,9 +480,9 @@ var ins = wasmEvalText(`
     ))`);
 
 
-var mem8 = new Int8Array(ins.exports.mem.buffer);
-var mem32 = new Int32Array(ins.exports.mem.buffer);
-var mem64 = new BigInt64Array(ins.exports.mem.buffer);
+var mem8 = memView(Int8Array, ins.exports.mem.buffer);
+var mem32 = memView(Int32Array, ins.exports.mem.buffer);
+var mem64 = memView(BigInt64Array, ins.exports.mem.buffer);
 
 var as = [0x12345678, 0x23456789, 0x3456789A, 0x456789AB];
 set(mem32, 4, as); set(mem32, 0, [0x7799AA00, 42, 3, 0]);
@@ -542,7 +542,7 @@ var ins = wasmEvalText(`
       (v128.store (i32.const 0) (i8x16.popcnt (v128.load (i32.const 16)) )))
   )`);
 
-var mem8 = new Int8Array(ins.exports.mem.buffer);
+var mem8 = memView(Int8Array, ins.exports.mem.buffer);
 
 set(mem8, 16, [0, 1, 2, 4, 8, 0x10, 0x20, 0x40, 0x80, 3, -1, 0xF0, 0x11, 0xFE, 0x0F, 0xE]);
 ins.exports.i8x16_popcnt();
@@ -572,10 +572,10 @@ var ins = wasmEvalText(`
       (v128.store (i32.const 0) (f64x2.promote_low_f32x4 (v128.load (i32.const 16)) )))
   )`);
 
-var mem32 = new Int32Array(ins.exports.mem.buffer);
-var memU32 = new Uint32Array(ins.exports.mem.buffer);
-var memF32 = new Float32Array(ins.exports.mem.buffer);
-var memF64 = new Float64Array(ins.exports.mem.buffer);
+var mem32 = memView(Int32Array, ins.exports.mem.buffer);
+var memU32 = memView(Uint32Array, ins.exports.mem.buffer);
+var memF32 = memView(Float32Array, ins.exports.mem.buffer);
+var memF64 = memView(Float64Array, ins.exports.mem.buffer);
 
 // f64x2.convert_low_i32x4_u / f64x2.convert_low_i32x4_s
 
@@ -667,12 +667,12 @@ var ins = wasmEvalText(`
       (v128.store (i32.const 0) (i32x4.extadd_pairwise_i16x8_u (v128.load (i32.const 16)) )))
   )`);
 
-var mem8 = new Int8Array(ins.exports.mem.buffer);
-var memU8 = new Uint8Array(ins.exports.mem.buffer);
-var mem16 = new Int16Array(ins.exports.mem.buffer);
-var memU16 = new Uint16Array(ins.exports.mem.buffer);
-var mem32 = new Int32Array(ins.exports.mem.buffer);
-var memU32 = new Uint32Array(ins.exports.mem.buffer);
+var mem8 = memView(Int8Array, ins.exports.mem.buffer);
+var memU8 = memView(Uint8Array, ins.exports.mem.buffer);
+var mem16 = memView(Int16Array, ins.exports.mem.buffer);
+var memU16 = memView(Uint16Array, ins.exports.mem.buffer);
+var mem32 = memView(Int32Array, ins.exports.mem.buffer);
+var memU32 = memView(Uint32Array, ins.exports.mem.buffer);
 
 set(mem8, 16, [0, 0, 1, 1, 2, -2, 0, 42, 1, -101, 101, -1, 127, 125, -1, -2]);
 ins.exports.i16x8_extadd_pairwise_i8x16_s();
