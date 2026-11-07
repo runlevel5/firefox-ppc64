@@ -73,6 +73,14 @@ static const int kCpuHasLASX = 0x200;
 static const int kCpuHasWASM = 0x40;
 static const int kCpuHasWASMSIMD = 0x100;
 
+// These flags are only valid on PowerPC processors.
+// kCpuHasVSX means VSX with the POWER8 (ISA 2.07) vector instructions.
+static const int kCpuHasPPC = 0x10;
+static const int kCpuHasVMX = 0x100;
+static const int kCpuHasVSX = 0x200;
+static const int kCpuHasPOWER9 = 0x400;
+static const int kCpuHasPOWER10 = 0x800;
+
 // Optional init function. TestCpuFlag does an auto-init.
 // Returns cpu_info flags.
 LIBYUV_API
@@ -96,6 +104,9 @@ LIBYUV_API
 int ArmCpuCaps(const char* cpuinfo_name);
 LIBYUV_API
 int RiscvCpuCaps(const char* cpuinfo_name);
+// Maps the Linux AT_HWCAP and AT_HWCAP2 bits for PowerPC to kCpuHas flags.
+LIBYUV_API
+int PowerPCCpuCaps(unsigned long hwcap, unsigned long hwcap2);
 
 #ifdef __linux__
 // On Linux, parse AArch64 features from getauxval(AT_HWCAP{,2}).

@@ -238,6 +238,14 @@ void RotatePlane180(const uint8_t* src,
     }
   }
 #endif
+#if defined(HAS_MIRRORROW_VSX)
+  if (TestCpuFlag(kCpuHasVSX)) {
+    MirrorRow = MirrorRow_Any_VSX;
+    if (IS_ALIGNED(width, 64)) {
+      MirrorRow = MirrorRow_VSX;
+    }
+  }
+#endif
 #if defined(HAS_MIRRORROW_WASMSIMD)
   if (TestCpuFlag(kCpuHasWASMSIMD)) {
     MirrorRow = MirrorRow_Any_WASMSIMD;
@@ -496,6 +504,11 @@ void SplitRotateUV180(const uint8_t* src,
 #if defined(HAS_MIRRORSPLITUVROW_LSX)
   if (TestCpuFlag(kCpuHasLSX) && IS_ALIGNED(width, 32)) {
     MirrorSplitUVRow = MirrorSplitUVRow_LSX;
+  }
+#endif
+#if defined(HAS_MIRRORSPLITUVROW_VSX)
+  if (TestCpuFlag(kCpuHasVSX) && IS_ALIGNED(width, 32)) {
+    MirrorSplitUVRow = MirrorSplitUVRow_VSX;
   }
 #endif
 #if defined(HAS_MIRRORSPLITUVROW_WASMSIMD)
