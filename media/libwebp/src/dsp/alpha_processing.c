@@ -434,6 +434,7 @@ extern void WebPInitAlphaProcessingMIPSdspR2(void);
 extern void WebPInitAlphaProcessingSSE2(void);
 extern void WebPInitAlphaProcessingSSE41(void);
 extern void WebPInitAlphaProcessingNEON(void);
+extern void WebPInitAlphaProcessingVSX(void);
 
 WEBP_DSP_INIT_FUNC(WebPInitAlphaProcessing) {
   WebPMultARGBRow = WebPMultARGBRow_C;
@@ -471,6 +472,11 @@ WEBP_DSP_INIT_FUNC(WebPInitAlphaProcessing) {
 #if defined(WEBP_USE_MIPS_DSP_R2)
     if (VP8GetCPUInfo(kMIPSdspR2)) {
       WebPInitAlphaProcessingMIPSdspR2();
+    }
+#endif
+#if defined(WEBP_HAVE_VSX)
+    if (VP8GetCPUInfo(kVSX)) {
+      WebPInitAlphaProcessingVSX();
     }
 #endif
   }

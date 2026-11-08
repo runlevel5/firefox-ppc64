@@ -7,6 +7,9 @@ static ALWAYS_INLINE HalfRGBA8 packRGBA8(I32 a, I32 b) {
   return _mm_packs_epi32(a, b);
 #elif USE_NEON
   return vcombine_u16(vqmovun_s32(a), vqmovun_s32(b));
+#elif USE_ALTIVEC
+  return bit_cast<HalfRGBA8>(
+      vec_packsu(bit_cast<av_i32x4>(a), bit_cast<av_i32x4>(b)));
 #else
   return CONVERT(combine(a, b), HalfRGBA8);
 #endif
@@ -59,6 +62,9 @@ static ALWAYS_INLINE WideR8 packR8(I32 a) {
   return lowHalf(bit_cast<V8<uint16_t>>(_mm_packs_epi32(a, a)));
 #elif USE_NEON
   return vqmovun_s32(a);
+#elif USE_ALTIVEC
+  auto m = bit_cast<av_i32x4>(a);
+  return lowHalf(bit_cast<V8<uint16_t>>(vec_packsu(m, m)));
 #else
   return CONVERT(a, WideR8);
 #endif
@@ -237,6 +243,9 @@ static ALWAYS_INLINE HalfRGBA8 min(HalfRGBA8 x, HalfRGBA8 y) {
       _mm_min_epi16(bit_cast<V8<int16_t>>(x), bit_cast<V8<int16_t>>(y)));
 #elif USE_NEON
   return vminq_u16(x, y);
+#elif USE_ALTIVEC
+  return bit_cast<HalfRGBA8>(
+      vec_min(bit_cast<av_u16x8>(x), bit_cast<av_u16x8>(y)));
 #else
   return if_then_else(x < y, x, y);
 #endif
@@ -254,6 +263,9 @@ static ALWAYS_INLINE HalfRGBA8 max(HalfRGBA8 x, HalfRGBA8 y) {
       _mm_max_epi16(bit_cast<V8<int16_t>>(x), bit_cast<V8<int16_t>>(y)));
 #elif USE_NEON
   return vmaxq_u16(x, y);
+#elif USE_ALTIVEC
+  return bit_cast<HalfRGBA8>(
+      vec_max(bit_cast<av_u16x8>(x), bit_cast<av_u16x8>(y)));
 #else
   return if_then_else(x > y, x, y);
 #endif

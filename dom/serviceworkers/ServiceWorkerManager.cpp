@@ -37,6 +37,8 @@
 #include "mozilla/StaticPrefs_extensions.h"
 #include "mozilla/StoragePrincipalHelper.h"
 #include "mozilla/dom/BindingUtils.h"
+#include "mozilla/dom/BrowsingContextGroup.h"
+#include "mozilla/dom/CanonicalBrowsingContext.h"
 #include "mozilla/dom/ClientHandle.h"
 #include "mozilla/dom/ClientManager.h"
 #include "mozilla/dom/ClientPrincipalUtils.h"
@@ -46,6 +48,7 @@
 #include "mozilla/dom/ErrorEvent.h"
 #include "mozilla/dom/Headers.h"
 #include "mozilla/dom/InternalHeaders.h"
+#include "mozilla/dom/JSWindowActorParent.h"
 #include "mozilla/dom/Navigator.h"
 #include "mozilla/dom/NotificationEvent.h"
 #include "mozilla/dom/Promise.h"
@@ -53,8 +56,10 @@
 #include "mozilla/dom/Request.h"
 #include "mozilla/dom/RootedDictionary.h"
 #include "mozilla/dom/ScriptLoader.h"
+#include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/dom/SharedWorker.h"
 #include "mozilla/dom/TypedArray.h"
+#include "mozilla/dom/WindowGlobalParent.h"
 #include "mozilla/dom/WorkerPrivate.h"
 #include "mozilla/dom/WorkerRunnable.h"
 #include "mozilla/dom/WorkerScope.h"
@@ -1598,6 +1603,56 @@ void ServiceWorkerManager::ReportToAllClients(
   ConsoleUtils::ReportForServiceWorkerScope(
       NS_ConvertUTF8toUTF16(aScope), aMessage, aFilename, aLineNumber,
       aColumnNumber, ConsoleUtils::eError);
+}
+
+void ServiceWorkerManager::NotifyBigEndianUnsupported(
+    const nsACString& aScope) {
+  MOZ_ASSERT(NS_IsMainThread());
+
+  nsTArray<nsID> clientIds;
+  for (const auto& entry : mControlledClients) {
+    if (entry.GetData()->mRegistrationInfo->Scope().Equals(aScope)) {
+      clientIds.AppendElement(entry.GetKey());
+    }
+  }
+  if (clientIds.IsEmpty()) {
+    return;
+  }
+
+  nsTArray<RefPtr<WindowGlobalParent>> windows;
+  nsTArray<RefPtr<BrowsingContextGroup>> groups;
+  BrowsingContextGroup::GetAllGroups(groups);
+  for (const auto& group : groups) {
+    for (const auto& toplevel : group->Toplevels()) {
+      toplevel->PreOrderWalk([&](BrowsingContext* aContext) {
+        WindowGlobalParent* window =
+            aContext->Canonical()->GetCurrentWindowGlobal();
+        Maybe<ClientInfo> info = window ? window->GetClientInfo() : Nothing();
+        if (info && clientIds.Contains(info->Id())) {
+          windows.AppendElement(window);
+        }
+      });
+    }
+  }
+
+  for (const auto& window : windows) {
+    AutoJSAPI jsapi;
+    jsapi.Init();
+    JSContext* cx = jsapi.cx();
+    RefPtr<JSWindowActorParent> actor =
+        window->GetActor(cx, "BigEndianWarning"_ns, IgnoreErrors());
+    if (!actor) {
+      continue;
+    }
+    JS::Rooted<JSObject*> obj(cx, actor->GetWrapper());
+    if (!obj) {
+      continue;
+    }
+    JSAutoRealm ar(cx, obj);
+    JS::Rooted<JS::Value> rval(cx);
+    (void)JS_CallFunctionName(cx, obj, "showNotification",
+                              JS::HandleValueArray::empty(), &rval);
+  }
 }
 
 /* static */

@@ -449,6 +449,12 @@ bin/libfreebl_64int_3.so
 ; media
 @RESPATH@/gmp-clearkey/0.1/@DLL_PREFIX@clearkey@DLL_SUFFIX@
 @RESPATH@/gmp-clearkey/0.1/manifest.json
+#ifdef MOZ_WIDEVINE_PROXY
+@BINPATH@/widevine-proxy/gmp-helper
+@BINPATH@/widevine-proxy/libwidevinecdm.so
+@BINPATH@/widevine-proxy/wvhost
+@BINPATH@/widevine-proxy/x64lib/libgcc_s.so.1
+#endif
 #if defined(MOZ_WMF_CDM) && defined(ENABLE_TESTS)
 @BINPATH@/@DLL_PREFIX@wmfclearkey@DLL_SUFFIX@
 #endif

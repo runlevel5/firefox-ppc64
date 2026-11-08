@@ -1,5 +1,11 @@
 [DEFAULT]
 
+["browser_big_endian_warning.js"]
+support-files = [
+  "big_endian_warning.html",
+  "big_endian_warning_worker.js",
+]
+
 ["browser_nested_link_clicks.js"]
 
 ["browser_untrusted_click_event.js"]

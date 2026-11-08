@@ -125,10 +125,27 @@ class SandboxPolicyBase : public sandbox::bpf_dsl::Policy {
 #  define CASES_FOR_lstat case __NR_lstat
 #  define CASES_FOR_fstatat case __NR_newfstatat
 #  define CASES_FOR_fstat case __NR_fstat
-#  define CASES_FOR_fstatfs case __NR_fstatfs
-#  define CASES_FOR_statfs case __NR_statfs
+// ppc64 keeps some of the 32-bit era variants beside the plain syscalls,
+// and glibc prefers _llseek wherever the headers define it.
+#  ifdef __NR_statfs64
+#    define CASES_FOR_statfs \
+      case __NR_statfs64:    \
+      case __NR_statfs
+#    define CASES_FOR_fstatfs \
+      case __NR_fstatfs64:    \
+      case __NR_fstatfs
+#  else
+#    define CASES_FOR_statfs case __NR_statfs
+#    define CASES_FOR_fstatfs case __NR_fstatfs
+#  endif
 #  define CASES_FOR_fcntl case __NR_fcntl
-#  define CASES_FOR_lseek case __NR_lseek
+#  ifdef __NR__llseek
+#    define CASES_FOR_lseek \
+      case __NR_lseek:      \
+      case __NR__llseek
+#  else
+#    define CASES_FOR_lseek case __NR_lseek
+#  endif
 #  define CASES_FOR_ftruncate case __NR_ftruncate
 #endif
 

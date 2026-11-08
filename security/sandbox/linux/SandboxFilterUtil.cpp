@@ -100,12 +100,16 @@ sandbox::bpf_dsl::ResultExpr SandboxPolicyBase::EvaluateSyscall(
       DISPATCH_SOCKETCALL(__NR_recvmmsg_time64, SYS_RECVMMSG);
 #  endif
 #undef DISPATCH_SOCKETCALL
-#ifndef __NR_socketcall
+// A platform with the ipc() multiplexer may have the direct System V IPC
+// syscalls as well, and glibc prefers those; ppc64 is one.
+#ifdef __NR_shmget
 #ifndef ANDROID
 #define DISPATCH_SYSVCALL(sysnum, ipcnum) \
   case sysnum:                            \
     return EvaluateIpcCall(ipcnum, 0).valueOr(InvalidSyscall())
+#ifdef __NR_semop
       DISPATCH_SYSVCALL(__NR_semop,       SEMOP);
+#endif
       DISPATCH_SYSVCALL(__NR_semget,      SEMGET);
       DISPATCH_SYSVCALL(__NR_semctl,      SEMCTL);
       DISPATCH_SYSVCALL(__NR_semtimedop,  SEMTIMEDOP);
@@ -119,7 +123,7 @@ sandbox::bpf_dsl::ResultExpr SandboxPolicyBase::EvaluateSyscall(
       DISPATCH_SYSVCALL(__NR_shmctl,      SHMCTL);
 #undef DISPATCH_SYSVCALL
 #endif  // ANDROID
-#endif  // __NR_socketcall
+#endif  // __NR_shmget
           // clang-format on
     default:
       return InvalidSyscall();

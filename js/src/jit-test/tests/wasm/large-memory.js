@@ -67,15 +67,16 @@ for ( let [pages,maxpages] of [[pages_vanilla, pages_vanilla+100],
     (memory.grow (i32.const 1)))
 )`);
 
-    let buf = new Int32Array(ins.exports.mem.buffer);
+    // Wasm memory is little-endian, so access it with explicit byte order.
+    let buf = new DataView(ins.exports.mem.buffer);
 
     let checkFlintstoneAt = function (addr) {
-        assertEq(buf[addr/4], 0x62626179)   // "yabb", little-endian
-        assertEq(buf[addr/4+1], 0x62616461) // "adab", ditto
-        assertEq(buf[addr/4+2], 0x6f646162) // "bado"
+        assertEq(buf.getInt32(addr, true), 0x62626179)   // "yabb", little-endian
+        assertEq(buf.getInt32(addr+4, true), 0x62616461) // "adab", ditto
+        assertEq(buf.getInt32(addr+8, true), 0x6f646162) // "bado"
     }
 
-    buf[pages*pagesz/4-1] = 0xdeadbeef;
+    buf.setInt32(pages*pagesz-4, 0xdeadbeef, true);
     assertEq(ins.exports.get_constaddr(), 0xdeadbeef|0);
     assertEq(ins.exports.get_varaddr(pages*pagesz-4), 0xdeadbeef|0);
 
@@ -86,22 +87,22 @@ for ( let [pages,maxpages] of [[pages_vanilla, pages_vanilla+100],
     assertEq(ins.exports.get_varaddr_small_offset((pages-1)*pagesz), 0xdeadbeef|0);
 
     ins.exports.set_constaddr(0xcafebab0);
-    assertEq(buf[pages*pagesz/4-2], 0xcafebab0|0);
+    assertEq(buf.getInt32(pages*pagesz-2*4, true), 0xcafebab0|0);
 
     ins.exports.set_varaddr(pages*pagesz-12, 0xcafebab1);
-    assertEq(buf[pages*pagesz/4-3], 0xcafebab1|0);
+    assertEq(buf.getInt32(pages*pagesz-3*4, true), 0xcafebab1|0);
 
     ins.exports.set_constaddr_large_offset(0xcafebab2);
-    assertEq(buf[pages*pagesz/4-4], 0xcafebab2|0);
+    assertEq(buf.getInt32(pages*pagesz-4*4, true), 0xcafebab2|0);
 
     ins.exports.set_varaddr_large_offset(pagesz*100, 0xcafebab3);
-    assertEq(buf[pages*pagesz/4-5], 0xcafebab3|0);
+    assertEq(buf.getInt32(pages*pagesz-5*4, true), 0xcafebab3|0);
 
     ins.exports.set_constaddr_small_offset(0xcafebab4);
-    assertEq(buf[pages*pagesz/4-6], 0xcafebab4|0);
+    assertEq(buf.getInt32(pages*pagesz-6*4, true), 0xcafebab4|0);
 
     ins.exports.set_varaddr_small_offset((pages-1)*pagesz, 0xcafebab5);
-    assertEq(buf[pages*pagesz/4-7], 0xcafebab5|0);
+    assertEq(buf.getInt32(pages*pagesz-7*4, true), 0xcafebab5|0);
 
     if (pages*pagesz < 0x1_0000_0000) {
         assertErrorMessage(() => ins.exports.get_varaddr(pages*pagesz),
@@ -169,7 +170,7 @@ for ( let [pages,maxpages] of [[pages_vanilla, pages_vanilla+100],
     let lastpg = (pages-1)*pagesz;
     ins.exports.fill(lastpg, 0x37, pagesz);
     for ( let i=0; i < pagesz/4; i++ )
-        assertEq(buf[lastpg/4+i], 0x37373737);
+        assertEq(buf.getInt32(lastpg+i*4, true), 0x37373737);
 
     assertErrorMessage(() => ins.exports.fill(lastpg, 0x42, pagesz+1),
                        WebAssembly.RuntimeError,
