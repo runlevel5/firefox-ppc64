@@ -100,6 +100,22 @@ gyp_vars["enable_sslkeylogfile"] = 1
 # Whether we're using system NSS or Rust nssckbi, we don't need
 # to build C nssckbi
 gyp_vars["disable_ckbi"] = 1
+
+# freebl adds -mcrypto -mvsx to several translation units whenever the target
+# is PowerPC, assuming a POWER8 baseline. Some of those units (sha512.c in
+# particular) are always executed and are not protected by a runtime check, so
+# the compiler is free to use those instructions in ordinary scalar code. That
+# aborts on a pre-VSX CPU such as POWER4/5/6 or a PowerMac G5. Only let freebl
+# use them when the target baseline really has them.
+# vpmsumd, vcipher and vshasigmaw are POWER8, a step beyond VSX, so the
+# translation units and assembly that use them need their own answer.
+if CONFIG["TARGET_CPU"].startswith("ppc"):
+    if not CONFIG["PPC_TARGET_HAS_VSX"]:
+        gyp_vars["disable_crypto_vsx"] = 1
+    if not CONFIG["PPC_TARGET_HAS_ALTIVEC"]:
+        gyp_vars["disable_altivec"] = 1
+    if not CONFIG["PPC_TARGET_HAS_CRYPTO"]:
+        gyp_vars["disable_vec_crypto"] = 1
 # pkg-config won't reliably find zlib on our builders, so just force it.
 # System zlib is only used for modutil and signtool unless
 # SSL zlib is enabled, which we are disabling immediately below this.

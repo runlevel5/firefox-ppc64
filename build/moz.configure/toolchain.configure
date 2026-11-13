@@ -2339,6 +2339,53 @@ set_config(
     when=depends(target.cpu)(lambda cpu: cpu.startswith("ppc")),
 )
 
+# The flags above only say how to *ask* for these instruction sets. Whether the
+# build's own baseline already has them is a different question, and the answer
+# depends on the user's CFLAGS (e.g. -mcpu=970 for a PowerMac G5), so probe with
+# those flags rather than with the bare compiler default.
+
+
+@depends("CFLAGS")
+def ppc_baseline_probe_flags(cflags):
+    flags = []
+    for f in cflags or ():
+        flags.extend(f.split())
+    return flags
+
+
+ppc_target_has_altivec = c_compiler.try_compile(
+    body="""
+        #ifndef __ALTIVEC__
+        #error No AltiVec in the target baseline.
+        #endif""",
+    flags=ppc_baseline_probe_flags,
+    check_msg="whether the target baseline has AltiVec",
+    when=depends(target.cpu)(lambda cpu: cpu.startswith("ppc")),
+)
+set_config("PPC_TARGET_HAS_ALTIVEC", ppc_target_has_altivec)
+
+ppc_target_has_vsx = c_compiler.try_compile(
+    body="""
+        #ifndef __VSX__
+        #error No VSX in the target baseline.
+        #endif""",
+    flags=ppc_baseline_probe_flags,
+    check_msg="whether the target baseline has VSX",
+    when=depends(target.cpu)(lambda cpu: cpu.startswith("ppc")),
+)
+set_config("PPC_TARGET_HAS_VSX", ppc_target_has_vsx)
+
+ppc_target_has_crypto = c_compiler.try_compile(
+    body="""
+        #ifndef __CRYPTO__
+        #error No POWER8 crypto instructions in the target baseline.
+        #endif""",
+    flags=ppc_baseline_probe_flags,
+    check_msg="whether the target baseline has the POWER8 crypto instructions",
+    when=depends(target.cpu)(lambda cpu: cpu.startswith("ppc")),
+)
+set_config("PPC_TARGET_HAS_CRYPTO", ppc_target_has_crypto)
+
 # TARGET_XPCOM_ABI
 # ==============================================================
 

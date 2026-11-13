@@ -142,6 +142,17 @@ class RegExpObject : public NativeObject {
     return getFixedSlotOffset(flagsSlot());
   }
 
+  // The flags are a boxed Int32Value; JIT code that reads them with a 32-bit
+  // load must address the payload word, which is at +sizeof(int32_t) within
+  // the 8-byte slot on big-endian and at +0 on little-endian.
+  static constexpr size_t offsetOfFlagsForJit32() {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    return offsetOfFlags() + sizeof(int32_t);
+#else
+    return offsetOfFlags();
+#endif
+  }
+
   static constexpr size_t offsetOfShared() {
     return getFixedSlotOffset(SHARED_SLOT);
   }

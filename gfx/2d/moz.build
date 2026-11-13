@@ -188,6 +188,15 @@ if CONFIG["TARGET_CPU"] == "aarch64" or CONFIG["BUILD_ARM_NEON"]:
     SOURCES["LuminanceNEON.cpp"].flags += CONFIG["NEON_FLAGS"]
     SOURCES["SwizzleNEON.cpp"].flags += CONFIG["NEON_FLAGS"]
 
+if CONFIG["TARGET_CPU"].startswith("ppc") and CONFIG["PPC_TARGET_HAS_ALTIVEC"]:
+    SOURCES += [
+        "ConvolutionFilterAltiVec.cpp",
+        "FilterProcessingAltiVec.cpp",
+        "LuminanceAltiVec.cpp",
+        "SwizzleAltiVec.cpp",
+    ]
+    DEFINES["USE_ALTIVEC"] = True
+
 include("/ipc/chromium/chromium-config.mozbuild")
 
 FINAL_LIBRARY = "xul"

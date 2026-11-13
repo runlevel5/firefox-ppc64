@@ -43,7 +43,8 @@ static const unsigned InterpFailInstanceReg = 0xbad;
 // The following thresholds were derived from a microbenchmark. If we begin to
 // ship this optimization for more platforms, we will need to extend this list.
 
-#if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM64)
+#if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM64) || \
+    defined(JS_CODEGEN_PPC64)
 static const uint32_t MaxInlineMemoryCopyLength = 64;
 static const uint32_t MaxInlineMemoryFillLength = 64;
 #elif defined(JS_CODEGEN_X86)

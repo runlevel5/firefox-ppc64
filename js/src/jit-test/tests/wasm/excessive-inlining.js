@@ -74,23 +74,30 @@ assertEq(tier2codeBytesUsed > 2000, true);
 
 // But not an excessive amount.  This is the assertion that checks that
 // the inlining-budget cutoff mechanism is working.
-assertEq(tier2codeBytesUsed < 15000, true);
+// PPC64 generates larger code due to fixed-width 4-byte instructions,
+// multi-instruction branch stanzas, and longer constant-loading sequences;
+// its debug builds also assert the canonical int32 form after every
+// Int32-producing operation (five more instructions each).
+let tier2limit = getBuildConfiguration("ppc64") ? 40000 : 15000;
+assertEq(tier2codeBytesUsed < tier2limit, true);
 
 // The thresholds above are based on the following measurements.
 //
 // tier1codeBytesUsed (baseline size)
 //
-//     x64      x32    arm64    arm32
+//     x64      x32    arm64    arm32    ppc64
 //
-//    1378     1010     1408     1008    --enable-debug build
-//    1218      866     1248      856    --disable-debug build
+//    1378     1010     1408     1008     9552    --enable-debug build
+//    1218      866     1248      856            --disable-debug build
 //
 // tier2codeBytesUsed (optimized size), with inline-size budgeting enabled
 //
-//     x64      x32    arm64    arm32
+//     x64      x32    arm64    arm32    ppc64
 //
-//    5186     6994     7136     5472    --enable-debug build
-//    3698     3730     5472     3888    --disable-debug build
+//    5186     6994     7136     5472    28224    --enable-debug build (ppc64:
+//                                                 28576 forced POWER8, 19600
+//                                                 with --less-debug-code)
+//    3698     3730     5472     3888            --disable-debug build
 //
 // tier2codeBytesUsed (optimized size), with inline-size budgeting disabled
 //
@@ -108,7 +115,7 @@ assertEq(tier2codeBytesUsed < 15000, true);
 // (2) the optimized size will be at least 2000 bytes
 //
 // (3) if the inline-budget mechanism is working as intended, the optimized
-//     size will be less than 15000 bytes
+//     size will be less than 15000 bytes (25000 on PPC64)
 //
 //
 // Note (for future testing): inline-size budgeting was disabled by changing

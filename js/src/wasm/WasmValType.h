@@ -44,32 +44,28 @@ union PackedTypeCode {
                     (sizeof(PackedRepr) * 8),
                 "enough bits");
 
+  // Explicit shift/mask field layout. This used to be a bitfield struct
+  // overlaid on bits_, but C++ bitfield bit-ordering is endian-dependent
+  // (fields are allocated from the MSB on big-endian), which mirrors every
+  // field within bits_ and corrupts the many consumers that treat bits() as a
+  // low-packed value (ResultType/BlockType tagging, serialization, ...).
+  // Explicit shifts keep bits_ identical on little- and big-endian hosts.
+  // typeDef_ stores the low TypeDefBits of a TypeDef* (see typeDef()).
+  static constexpr unsigned NullableShift = 0;
+  static constexpr unsigned TypeCodeShift = NullableBits;
+  static constexpr unsigned TypeDefShift = NullableBits + TypeCodeBits;
+  static constexpr PackedRepr NullableMask = (PackedRepr(1) << NullableBits) - 1;
+  static constexpr PackedRepr TypeCodeMask = (PackedRepr(1) << TypeCodeBits) - 1;
+  static constexpr PackedRepr TypeDefMask = (PackedRepr(1) << TypeDefBits) - 1;
+
   PackedRepr bits_;
-  struct {
-    PackedRepr nullable_ : NullableBits;
-    PackedRepr typeCode_ : TypeCodeBits;
-    // A pointer to the TypeDef this type references. We use 48-bits for this,
-    // and rely on system memory allocators not allocating outside of this
-    // range. This is also assumed by JS::Value, and so should be safe here.
-    PackedRepr typeDef_ : TypeDefBits;
-    // Reserve the bottom two bits for use as a tagging scheme for BlockType
-    // and ResultType, which can encode a ValType inside themselves in special
-    // cases.
-    PackedRepr pointerTag_ : PointerTagBits;
-    // The remaining bits are unused, but still need to be explicitly
-    // initialized to zero.
-    PackedRepr unused_ : UnusedBits;
-  };
 
   explicit constexpr PackedTypeCode(PackedRepr bits) : bits_(bits) {}
 
   constexpr PackedTypeCode(PackedRepr nullable, PackedRepr typeCode,
                            PackedRepr typeDef)
-      : nullable_(nullable),
-        typeCode_(typeCode),
-        typeDef_(typeDef),
-        pointerTag_(0),
-        unused_(0) {}
+      : bits_((nullable << NullableShift) | (typeCode << TypeCodeShift) |
+              (typeDef << TypeDefShift)) {}
 
  public:
   PackedTypeCode() = default;
@@ -109,13 +105,15 @@ union PackedTypeCode {
 
   static constexpr PackedTypeCode pack(TypeCode tc) { return pack(tc, false); }
 
-  constexpr bool isValid() const { return typeCode_ != NoTypeCode; }
+  constexpr bool isValid() const {
+    return ((bits_ >> TypeCodeShift) & TypeCodeMask) != NoTypeCode;
+  }
 
   PackedRepr bits() const { return bits_; }
 
   constexpr TypeCode typeCode() const {
     MOZ_ASSERT(isValid());
-    return TypeCode(typeCode_);
+    return TypeCode((bits_ >> TypeCodeShift) & TypeCodeMask);
   }
 
   // Return the TypeCode, but return AbstractReferenceTypeCode for any reference
@@ -149,18 +147,19 @@ union PackedTypeCode {
     // On a 64-bit target, this reconstitutes the pointer by zero-extending
     // the lowest TypeDefBits bits of `typeDef_`.  On a 32-bit target, the
     // pointer is stored exactly in the lowest 32 bits of `typeDef_`.
-    return (const TypeDef*)(uintptr_t)typeDef_;
+    return (const TypeDef*)(uintptr_t)((bits_ >> TypeDefShift) & TypeDefMask);
   }
 
   bool isNullable() const {
     MOZ_ASSERT(isValid());
-    return bool(nullable_);
+    return bool((bits_ >> NullableShift) & NullableMask);
   }
 
   PackedTypeCode withIsNullable(bool nullable) const {
     MOZ_ASSERT(isRefType());
     PackedTypeCode mutated = *this;
-    mutated.nullable_ = (PackedRepr)nullable;
+    mutated.bits_ = (mutated.bits_ & ~(NullableMask << NullableShift)) |
+                    (PackedRepr(nullable) << NullableShift);
     return mutated;
   }
 
