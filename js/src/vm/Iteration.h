@@ -633,6 +633,18 @@ struct NativeIterator : public NativeIteratorListNode {
     return offsetof(NativeIterator, flags_);
   }
 
+  // flags_ is a uint8_t, but JIT code accesses it with 32-bit operations
+  // (branchTest32/or32 on offsetOfFlags()). The byte is the low part of that
+  // 32-bit value on little-endian but the high part on big-endian, so flag
+  // constants used in such JIT accesses must be shifted accordingly.
+  static constexpr uint32_t flagForJit32(uint32_t flag) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    return flag << 24;
+#else
+    return flag;
+#endif
+  }
+
   static constexpr size_t offsetOfObjectShape() {
     return offsetof(NativeIterator, objShape_);
   }

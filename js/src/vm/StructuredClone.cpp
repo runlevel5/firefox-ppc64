@@ -3584,8 +3584,8 @@ bool JSStructuredCloneReader::readTransferMap() {
     return false;
   }
 
-  headerPos.write(
-      PairToUInt64(SCTAG_TRANSFER_MAP_HEADER, SCTAG_TM_TRANSFERRING));
+  headerPos.write(NativeEndian::swapToLittleEndian(
+      PairToUInt64(SCTAG_TRANSFER_MAP_HEADER, SCTAG_TM_TRANSFERRING)));
 
   uint64_t numTransferables;
   MOZ_ALWAYS_TRUE(in.readPair(&tag, &data));
@@ -3695,7 +3695,8 @@ bool JSStructuredCloneReader::readTransferMap() {
 
     // Mark the SCTAG_TRANSFER_MAP_* entry as no longer owned by the input
     // buffer.
-    pos.write(PairToUInt64(tag, JS::SCTAG_TMO_UNOWNED));
+    pos.write(NativeEndian::swapToLittleEndian(
+        PairToUInt64(tag, JS::SCTAG_TMO_UNOWNED)));
     MOZ_ASSERT(!pos.done());
 
     if (!allObjs.append(ObjectValue(*obj))) {
@@ -3709,8 +3710,8 @@ bool JSStructuredCloneReader::readTransferMap() {
   MOZ_ASSERT(tag == SCTAG_TRANSFER_MAP_HEADER);
   MOZ_ASSERT(TransferableMapHeader(data) == SCTAG_TM_TRANSFERRING);
 #endif
-  headerPos.write(
-      PairToUInt64(SCTAG_TRANSFER_MAP_HEADER, SCTAG_TM_TRANSFERRED));
+  headerPos.write(NativeEndian::swapToLittleEndian(
+      PairToUInt64(SCTAG_TRANSFER_MAP_HEADER, SCTAG_TM_TRANSFERRED)));
 
   return true;
 }

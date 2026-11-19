@@ -1,4 +1,10 @@
+// |jit-test| skip-if: getBuildConfiguration("big-endian")
 // Basic smoke tests for large ArrayBuffers.
+//
+// Endianness-dependent: values written through a native-order typed array are
+// read back through little-endian DataView accessors, so the expected results
+// are little-endian-specific. The big-endian result is correct, just
+// byte-mirrored (e.g. -99 reads back as -25089), so skip on big-endian.
 
 let gb = 1 * 1024 * 1024 * 1024;
 

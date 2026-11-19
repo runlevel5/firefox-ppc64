@@ -944,7 +944,25 @@ TEST(Jemalloc, BaseAllocMergeSplit)
 {
   // Test merging and splitting together, start with a large allocation then
   // free it, ensuring it lands in the free lists.
+  //
+  // The rest of the test expects the freed cell to stay at ptr1's address so
+  // that it can be found again by splitting.  That is not the case when the
+  // cell merges with a free neighbour on its left (or when it completes a free
+  // chunk, which is then released); the heap left behind by the earlier tests
+  // decides this, and differs with the page size.  Allocating the same size
+  // again right after the free returns ptr1 only if the cell did stay there,
+  // so repeat until it does.
   void* ptr1 = sBaseAlloc.alloc(4096);
+  for (unsigned i = 0;; i++) {
+    ASSERT_TRUE(ptr1);
+    ASSERT_LT(i, 100u);
+    sBaseAlloc.free(ptr1);
+    void* ptr = sBaseAlloc.alloc(4096);
+    if (ptr == ptr1) {
+      break;
+    }
+    ptr1 = ptr;
+  }
   size_t ptr1_size = sBaseAlloc.usable_size(ptr1);
   ASSERT_TRUE(4096 <= ptr1_size);
   sBaseAlloc.free(ptr1);

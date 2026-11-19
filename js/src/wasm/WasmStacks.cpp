@@ -427,6 +427,30 @@ static constexpr size_t ContStackMaxJitStackSize = 10 * 1024 * 1024;
 // or stack snapshots utilities.
 static constexpr size_t ContStackRedZoneSize = 0x8000;
 
+// Effective red-zone size used when laying out a continuation stack.
+//
+// The jit stack (and therefore the bottom guard page) must start on a page
+// boundary; otherwise gc::ProtectPages trips MOZ_RELEASE_ASSERT(length %
+// pageSize == 0). The red zone sits between the top guard page and the jit
+// stack, so its size has to be a page multiple to keep that start aligned.
+//
+// Rounding the red zone up to a page is correct on every platform and would
+// also cover any configuration whose page size exceeds ContStackRedZoneSize
+// (32K) -- e.g. a 64K-page AArch64 kernel -- but ContStackRedZoneSize is
+// already a multiple of the 4K/16K pages used on the tier-1 platforms, so the
+// round-up is a no-op there today. We deliberately gate it to PPC64 (64K
+// pages, where the round-up is load-bearing) so this patch cannot alter
+// continuation stack layout on any tier-1 platform. Drop the gate if the
+// general case is ever wanted.
+static inline size_t ContStackEffectiveRedZoneSize(
+    [[maybe_unused]] size_t pageSize) {
+#ifdef JS_CODEGEN_PPC64
+  return RoundUp(ContStackRedZoneSize, pageSize);
+#else
+  return ContStackRedZoneSize;
+#endif
+}
+
 // Number of guard pages at the top and bottom of each continuation stack slot.
 static constexpr size_t ContStackTopGuardPages = 1;
 static constexpr size_t ContStackBottomGuardPages = 1;
@@ -445,8 +469,8 @@ void ContStackSize::compute() {
                          ContStackMinJitStackSize, ContStackMaxJitStackSize),
               pageSize);
   headerSize = RoundUp(sizeof(ContStack), pageSize);
-  totalSize = topGuardSize + ContStackRedZoneSize + jitStackSize +
-              bottomGuardSize + headerSize;
+  totalSize = topGuardSize + ContStackEffectiveRedZoneSize(pageSize) +
+              jitStackSize + bottomGuardSize + headerSize;
 
   // Assert we can't overflow when multiplying our size by capacity. Assume
   // 32-bit integers to be conservative.
@@ -468,7 +492,8 @@ void ContStack::init(ContStackArena* arena, uintptr_t allocationBase,
   uintptr_t topGuardPagePhysicalStart = allocationBase;
   uintptr_t topGuardPagePhysicalEnd = allocationBase + topGuardPageSize;
   uintptr_t redZonePhysicalStart = topGuardPagePhysicalEnd;
-  uintptr_t jitStackPhysicalStart = redZonePhysicalStart + ContStackRedZoneSize;
+  uintptr_t jitStackPhysicalStart =
+      redZonePhysicalStart + ContStackEffectiveRedZoneSize(pageSize);
   uintptr_t jitStackPhysicalEnd = jitStackPhysicalStart + jitStackSize;
   uintptr_t bottomGuardPagePhysicalStart = jitStackPhysicalEnd;
   uintptr_t headerPhysicalStart =

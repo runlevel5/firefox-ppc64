@@ -1407,6 +1407,11 @@ inline LiveGeneralRegisterSet SavedNonVolatileRegisters(
 #elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
     defined(JS_CODEGEN_RISCV64)
   result.add(Register::FromCode(Registers::ra));
+#elif defined(JS_CODEGEN_PPC64)
+  // Constant pool loads and patched calls use SavedScratchRegister (r16) as
+  // their base, so generated code clobbers it although it is not allocatable
+  // and therefore never part of NonVolatile().
+  result.add(Register::FromCode(Registers::r16));
 #endif
 
   return result;

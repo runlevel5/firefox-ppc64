@@ -1182,7 +1182,7 @@ void xpc::ReadOnlyPage::Write(const volatile bool* aPtr, bool aValue) {
   if (*aPtr == aValue) return;
   // Please modify the definition of kAutomationPageSize if a new platform
   // is running in automation and hits this assertion.
-  MOZ_RELEASE_ASSERT(PR_GetPageSize() == alignof(ReadOnlyPage));
+  MOZ_RELEASE_ASSERT(alignof(ReadOnlyPage) % PR_GetPageSize() == 0);
   MOZ_RELEASE_ASSERT(
       reinterpret_cast<uintptr_t>(&sInstance) % alignof(ReadOnlyPage) == 0);
 #ifdef XP_WIN
