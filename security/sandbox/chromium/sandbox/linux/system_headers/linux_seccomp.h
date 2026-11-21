@@ -39,6 +39,9 @@
 #ifndef EM_AARCH64
 #define EM_AARCH64 183
 #endif
+#ifndef EM_PPC64
+#define EM_PPC64 21
+#endif
 
 #ifndef __AUDIT_ARCH_64BIT
 #define __AUDIT_ARCH_64BIT 0x80000000
@@ -70,6 +73,14 @@
 
 #ifndef AUDIT_ARCH_AARCH64
 #define AUDIT_ARCH_AARCH64 (EM_AARCH64 | __AUDIT_ARCH_64BIT | __AUDIT_ARCH_LE)
+#endif
+
+#ifndef AUDIT_ARCH_PPC64
+#define AUDIT_ARCH_PPC64 (EM_PPC64 | __AUDIT_ARCH_64BIT)
+#endif
+
+#ifndef AUDIT_ARCH_PPC64LE
+#define AUDIT_ARCH_PPC64LE (EM_PPC64 | __AUDIT_ARCH_64BIT | __AUDIT_ARCH_LE)
 #endif
 
 // For prctl.h

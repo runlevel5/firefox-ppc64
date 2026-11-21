@@ -273,6 +273,11 @@ class FaultingCodeRange {
   // that.  Same for the RiscV compressed-instruction extension.
   static constexpr uint32_t kMinInsnLength = 4;
   static constexpr uint32_t kMaxInsnLength = 4;
+#elif defined(JS_CODEGEN_PPC64)
+  // Instructions are 4 bytes, except POWER10 prefixed loads and stores, which
+  // are 8 bytes and can be trapping sites.
+  static constexpr uint32_t kMinInsnLength = 4;
+  static constexpr uint32_t kMaxInsnLength = 8;
 #elif defined(JS_CODEGEN_NONE)
   // Bogus, but it doesn't matter.
   static constexpr uint32_t kMinInsnLength = 1;
@@ -310,7 +315,8 @@ class FaultingCodeRange {
   // Constructors.
   inline FaultingCodeRange() { MOZ_ASSERT(!isValid()); }
 
-#if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)
+#if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64) || \
+    defined(JS_CODEGEN_PPC64)
   // Make a FaultingCodeRange from two offsets.  This is only valid on targets
   // with variable-length instructions.
   inline FaultingCodeRange(uint32_t startOffset, uint32_t endOffset)
@@ -322,12 +328,15 @@ class FaultingCodeRange {
     // tolerate that and later throw out any attempt to query the resulting
     // FaultingCodeRange.
   }
-#else
+#endif
+#if !defined(JS_CODEGEN_X86) && !defined(JS_CODEGEN_X64)
   // Make a FaultingCodeRange from one offset.  This is only valid on targets
-  // with fixed-length instructions.
+  // with fixed-length instructions, and for PPC64's 4-byte instructions.
   inline explicit FaultingCodeRange(uint32_t startOffset)
       : startOffset_(startOffset), endOffset_(startOffset + kMinInsnLength) {
+#  if !defined(JS_CODEGEN_PPC64)
     static_assert(kMinInsnLength == kMaxInsnLength);
+#  endif
     // Requirement on the caller
     MOZ_ASSERT(startOffset != INVALID_OFFSET);
   }

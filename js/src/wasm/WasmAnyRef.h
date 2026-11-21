@@ -209,7 +209,7 @@ class AnyRef {
     // Truncate the value to the 31-bit value size.
     uintptr_t wideValue = uintptr_t(value & 0x7FFFFFFF);
 #elif defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_MIPS64) || \
-    defined(JS_CODEGEN_RISCV64)
+    defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
     // Sign extend the value to the native pointer size.
     uintptr_t wideValue = uintptr_t(int64_t((uint64_t(value) << 33)) >> 33);
 #elif !defined(JS_64BIT)
@@ -234,6 +234,11 @@ class AnyRef {
 #  ifdef DEBUG
 #    if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM64)
     MOZ_ASSERT(value <= UINT32_MAX);
+#    elif defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_MIPS64) || \
+        defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
+    // On sign-extending platforms, a canonical i32 must be the sign
+    // extension of its low 32 bits.
+    MOZ_ASSERT(value == uintptr_t(int64_t(int32_t(value))));
 #    endif
 #  endif
   }

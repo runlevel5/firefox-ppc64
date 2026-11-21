@@ -21,6 +21,10 @@
 #  include "mozilla/arm.h"
 #endif
 
+#ifdef USE_VSX
+#  include "mozilla/ppc.h"
+#endif
+
 #include <bit>
 #include <new>
 
@@ -252,6 +256,76 @@ void SwizzleCmykRow_NEON(const uint8_t*, uint8_t*, int32_t);
                                         ShouldInvert(aSrcFormat)>)
 #endif
 
+#ifdef USE_VSX
+/**
+ * PowerPC VSX optimizations
+ */
+
+template <bool aSwapRB, bool aOpaqueAlpha>
+void Premultiply_VSX(const uint8_t*, int32_t, uint8_t*, int32_t, IntSize);
+
+#  define PREMULTIPLY_VSX(aSrcFormat, aDstFormat)                     \
+    FORMAT_CASE(aSrcFormat, aDstFormat,                               \
+                Premultiply_VSX<ShouldSwapRB(aSrcFormat, aDstFormat), \
+                                ShouldForceOpaque(aSrcFormat, aDstFormat)>)
+
+template <bool aSwapRB, bool aOpaqueAlpha>
+void PremultiplyRow_VSX(const uint8_t*, uint8_t*, int32_t);
+
+#  define PREMULTIPLY_ROW_VSX(aSrcFormat, aDstFormat)            \
+    FORMAT_CASE_ROW(                                             \
+        aSrcFormat, aDstFormat,                                  \
+        PremultiplyRow_VSX<ShouldSwapRB(aSrcFormat, aDstFormat), \
+                           ShouldForceOpaque(aSrcFormat, aDstFormat)>)
+
+template <bool aSwapRB>
+void Unpremultiply_VSX(const uint8_t*, int32_t, uint8_t*, int32_t, IntSize);
+
+#  define UNPREMULTIPLY_VSX(aSrcFormat, aDstFormat) \
+    FORMAT_CASE(aSrcFormat, aDstFormat,             \
+                Unpremultiply_VSX<ShouldSwapRB(aSrcFormat, aDstFormat)>)
+
+template <bool aSwapRB>
+void UnpremultiplyRow_VSX(const uint8_t*, uint8_t*, int32_t);
+
+#  define UNPREMULTIPLY_ROW_VSX(aSrcFormat, aDstFormat) \
+    FORMAT_CASE_ROW(                                    \
+        aSrcFormat, aDstFormat,                         \
+        UnpremultiplyRow_VSX<ShouldSwapRB(aSrcFormat, aDstFormat)>)
+
+template <bool aSwapRB, bool aOpaqueAlpha>
+void Swizzle_VSX(const uint8_t*, int32_t, uint8_t*, int32_t, IntSize);
+
+#  define SWIZZLE_VSX(aSrcFormat, aDstFormat)                     \
+    FORMAT_CASE(aSrcFormat, aDstFormat,                           \
+                Swizzle_VSX<ShouldSwapRB(aSrcFormat, aDstFormat), \
+                            ShouldForceOpaque(aSrcFormat, aDstFormat)>)
+
+template <bool aSwapRB, bool aOpaqueAlpha>
+void SwizzleRow_VSX(const uint8_t*, uint8_t*, int32_t);
+
+#  define SWIZZLE_ROW_VSX(aSrcFormat, aDstFormat)                        \
+    FORMAT_CASE_ROW(aSrcFormat, aDstFormat,                              \
+                    SwizzleRow_VSX<ShouldSwapRB(aSrcFormat, aDstFormat), \
+                                   ShouldForceOpaque(aSrcFormat, aDstFormat)>)
+
+template <bool aSwapRB>
+void UnpackRowRGB24_VSX(const uint8_t*, uint8_t*, int32_t);
+
+#  define UNPACK_ROW_RGB_VSX(aDstFormat)   \
+    FORMAT_CASE_ROW(                       \
+        SurfaceFormat::R8G8B8, aDstFormat, \
+        UnpackRowRGB24_VSX<ShouldSwapRB(SurfaceFormat::R8G8B8, aDstFormat)>)
+
+template <bool aSwapRB, bool aInverted>
+void SwizzleCmykRow_VSX(const uint8_t*, uint8_t*, int32_t);
+
+#  define SWIZZLE_CMYK_ROW_VSX(aSrcFormat, aDstFormat)                       \
+    FORMAT_CASE_ROW(aSrcFormat, aDstFormat,                                  \
+                    SwizzleCmykRow_VSX<ShouldSwapRB(aSrcFormat, aDstFormat), \
+                                       ShouldInvert(aSrcFormat)>)
+#endif
+
 /**
  * Premultiplying
  */
@@ -446,6 +520,22 @@ bool PremultiplyData(const uint8_t* aSrc, int32_t aSrcStride,
     }
 #endif
 
+#ifdef USE_VSX
+  if (aArch & SwizzleArch::eVSX && mozilla::supports_vsx())
+    switch (FORMAT_KEY(aSrcFormat, aDstFormat)) {
+      PREMULTIPLY_VSX(SurfaceFormat::B8G8R8A8, SurfaceFormat::B8G8R8A8)
+      PREMULTIPLY_VSX(SurfaceFormat::B8G8R8A8, SurfaceFormat::B8G8R8X8)
+      PREMULTIPLY_VSX(SurfaceFormat::B8G8R8A8, SurfaceFormat::R8G8B8A8)
+      PREMULTIPLY_VSX(SurfaceFormat::B8G8R8A8, SurfaceFormat::R8G8B8X8)
+      PREMULTIPLY_VSX(SurfaceFormat::R8G8B8A8, SurfaceFormat::R8G8B8A8)
+      PREMULTIPLY_VSX(SurfaceFormat::R8G8B8A8, SurfaceFormat::R8G8B8X8)
+      PREMULTIPLY_VSX(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8A8)
+      PREMULTIPLY_VSX(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8X8)
+      default:
+        break;
+    }
+#endif
+
   if (!(aArch & SwizzleArch::eFallback)) {
     return false;
   }
@@ -507,6 +597,22 @@ SwizzleRowFn PremultiplyRow(SurfaceFormat aSrcFormat, SurfaceFormat aDstFormat,
       PREMULTIPLY_ROW_NEON(SurfaceFormat::R8G8B8A8, SurfaceFormat::R8G8B8X8)
       PREMULTIPLY_ROW_NEON(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8A8)
       PREMULTIPLY_ROW_NEON(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8X8)
+      default:
+        break;
+    }
+#endif
+
+#ifdef USE_VSX
+  if (aArch & SwizzleArch::eVSX && mozilla::supports_vsx())
+    switch (FORMAT_KEY(aSrcFormat, aDstFormat)) {
+      PREMULTIPLY_ROW_VSX(SurfaceFormat::B8G8R8A8, SurfaceFormat::B8G8R8A8)
+      PREMULTIPLY_ROW_VSX(SurfaceFormat::B8G8R8A8, SurfaceFormat::B8G8R8X8)
+      PREMULTIPLY_ROW_VSX(SurfaceFormat::B8G8R8A8, SurfaceFormat::R8G8B8A8)
+      PREMULTIPLY_ROW_VSX(SurfaceFormat::B8G8R8A8, SurfaceFormat::R8G8B8X8)
+      PREMULTIPLY_ROW_VSX(SurfaceFormat::R8G8B8A8, SurfaceFormat::R8G8B8A8)
+      PREMULTIPLY_ROW_VSX(SurfaceFormat::R8G8B8A8, SurfaceFormat::R8G8B8X8)
+      PREMULTIPLY_ROW_VSX(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8A8)
+      PREMULTIPLY_ROW_VSX(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8X8)
       default:
         break;
     }
@@ -695,6 +801,18 @@ bool UnpremultiplyData(const uint8_t* aSrc, int32_t aSrcStride,
     }
 #endif
 
+#ifdef USE_VSX
+  if (aArch & SwizzleArch::eVSX && mozilla::supports_vsx())
+    switch (FORMAT_KEY(aSrcFormat, aDstFormat)) {
+      UNPREMULTIPLY_VSX(SurfaceFormat::B8G8R8A8, SurfaceFormat::B8G8R8A8)
+      UNPREMULTIPLY_VSX(SurfaceFormat::B8G8R8A8, SurfaceFormat::R8G8B8A8)
+      UNPREMULTIPLY_VSX(SurfaceFormat::R8G8B8A8, SurfaceFormat::R8G8B8A8)
+      UNPREMULTIPLY_VSX(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8A8)
+      default:
+        break;
+    }
+#endif
+
   if (!(aArch & SwizzleArch::eFallback)) {
     return false;
   }
@@ -745,6 +863,18 @@ SwizzleRowFn UnpremultiplyRow(SurfaceFormat aSrcFormat,
       UNPREMULTIPLY_ROW_NEON(SurfaceFormat::B8G8R8A8, SurfaceFormat::R8G8B8A8)
       UNPREMULTIPLY_ROW_NEON(SurfaceFormat::R8G8B8A8, SurfaceFormat::R8G8B8A8)
       UNPREMULTIPLY_ROW_NEON(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8A8)
+      default:
+        break;
+    }
+#endif
+
+#ifdef USE_VSX
+  if (aArch & SwizzleArch::eVSX && mozilla::supports_vsx())
+    switch (FORMAT_KEY(aSrcFormat, aDstFormat)) {
+      UNPREMULTIPLY_ROW_VSX(SurfaceFormat::B8G8R8A8, SurfaceFormat::B8G8R8A8)
+      UNPREMULTIPLY_ROW_VSX(SurfaceFormat::B8G8R8A8, SurfaceFormat::R8G8B8A8)
+      UNPREMULTIPLY_ROW_VSX(SurfaceFormat::R8G8B8A8, SurfaceFormat::R8G8B8A8)
+      UNPREMULTIPLY_ROW_VSX(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8A8)
       default:
         break;
     }
@@ -1337,6 +1467,22 @@ bool SwizzleData(const uint8_t* aSrc, int32_t aSrcStride,
     }
 #endif
 
+#ifdef USE_VSX
+  if (aArch & SwizzleArch::eVSX && mozilla::supports_vsx())
+    switch (FORMAT_KEY(aSrcFormat, aDstFormat)) {
+      SWIZZLE_VSX(SurfaceFormat::B8G8R8A8, SurfaceFormat::R8G8B8A8)
+      SWIZZLE_VSX(SurfaceFormat::B8G8R8X8, SurfaceFormat::R8G8B8X8)
+      SWIZZLE_VSX(SurfaceFormat::B8G8R8A8, SurfaceFormat::R8G8B8X8)
+      SWIZZLE_VSX(SurfaceFormat::B8G8R8X8, SurfaceFormat::R8G8B8A8)
+      SWIZZLE_VSX(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8A8)
+      SWIZZLE_VSX(SurfaceFormat::R8G8B8X8, SurfaceFormat::B8G8R8X8)
+      SWIZZLE_VSX(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8X8)
+      SWIZZLE_VSX(SurfaceFormat::R8G8B8X8, SurfaceFormat::B8G8R8A8)
+      default:
+        break;
+    }
+#endif
+
   if (!(aArch & SwizzleArch::eFallback)) {
     return false;
   }
@@ -1574,6 +1720,30 @@ SwizzleRowFn SwizzleRow(SurfaceFormat aSrcFormat, SurfaceFormat aDstFormat,
                             SurfaceFormat::B8G8R8X8)
       SWIZZLE_CMYK_ROW_NEON(SurfaceFormat::InvertedCMYK,
                             SurfaceFormat::B8G8R8A8)
+      default:
+        break;
+    }
+#endif
+
+#ifdef USE_VSX
+  if (aArch & SwizzleArch::eVSX && mozilla::supports_vsx())
+    switch (FORMAT_KEY(aSrcFormat, aDstFormat)) {
+      UNPACK_ROW_RGB_VSX(SurfaceFormat::R8G8B8X8)
+      UNPACK_ROW_RGB_VSX(SurfaceFormat::R8G8B8A8)
+      UNPACK_ROW_RGB_VSX(SurfaceFormat::B8G8R8X8)
+      UNPACK_ROW_RGB_VSX(SurfaceFormat::B8G8R8A8)
+      SWIZZLE_ROW_VSX(SurfaceFormat::B8G8R8A8, SurfaceFormat::R8G8B8A8)
+      SWIZZLE_ROW_VSX(SurfaceFormat::B8G8R8X8, SurfaceFormat::R8G8B8X8)
+      SWIZZLE_ROW_VSX(SurfaceFormat::B8G8R8A8, SurfaceFormat::R8G8B8X8)
+      SWIZZLE_ROW_VSX(SurfaceFormat::B8G8R8X8, SurfaceFormat::R8G8B8A8)
+      SWIZZLE_ROW_VSX(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8A8)
+      SWIZZLE_ROW_VSX(SurfaceFormat::R8G8B8X8, SurfaceFormat::B8G8R8X8)
+      SWIZZLE_ROW_VSX(SurfaceFormat::R8G8B8A8, SurfaceFormat::B8G8R8X8)
+      SWIZZLE_ROW_VSX(SurfaceFormat::R8G8B8X8, SurfaceFormat::B8G8R8A8)
+      SWIZZLE_CMYK_ROW_VSX(SurfaceFormat::CMYK, SurfaceFormat::B8G8R8X8)
+      SWIZZLE_CMYK_ROW_VSX(SurfaceFormat::CMYK, SurfaceFormat::B8G8R8A8)
+      SWIZZLE_CMYK_ROW_VSX(SurfaceFormat::InvertedCMYK, SurfaceFormat::B8G8R8X8)
+      SWIZZLE_CMYK_ROW_VSX(SurfaceFormat::InvertedCMYK, SurfaceFormat::B8G8R8A8)
       default:
         break;
     }

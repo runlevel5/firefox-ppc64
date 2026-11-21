@@ -33,6 +33,7 @@ all_architecture_names = set([
     "arm64",
     "loong64",
     "riscv64",
+    "ppc64",
     "wasm32",
 ])
 all_shared_architecture_names = set([
@@ -41,6 +42,7 @@ all_shared_architecture_names = set([
     "arm64",
     "loong64",
     "riscv64",
+    "ppc64",
     "wasm32",
 ])
 

@@ -498,7 +498,7 @@ GMPWrapper.prototype = {
         this._log.info(
           "onPrefEnabledChanged() - adding gmp directory " + this._gmpPath
         );
-        lazy.gmpService.addPluginDirectory(this._gmpPath);
+        this.addPluginDirectory();
       } else {
         this._log.info(
           "onPrefEnabledChanged() - removing gmp directory " + this._gmpPath
@@ -612,7 +612,7 @@ GMPWrapper.prototype = {
       this._log.info(
         "onPrefVersionChanged() - registering gmp directory " + this._gmpPath
       );
-      lazy.gmpService.addPluginDirectory(this._gmpPath);
+      this.addPluginDirectory();
     }
     lazy.AddonManagerPrivate.callAddonListeners("onInstalled", this);
   },
@@ -694,6 +694,27 @@ GMPWrapper.prototype = {
     );
   },
 
+  /**
+   * Registers the installed plugin directory with the GMP service, unless the
+   * plugin is a proxy CDM whose helper cannot be started, in which case the
+   * plugin stays unregistered and the reason is logged.
+   */
+  addPluginDirectory() {
+    if (GMPUtils._usesProxyCdm(this._plugin)) {
+      let problem = GMPUtils.proxyCdmProblem(this.gmpPath);
+      if (problem) {
+        this._log.error(
+          "addPluginDirectory() - not registering " +
+            this._plugin.id +
+            ", its helper cannot start: " +
+            problem
+        );
+        return;
+      }
+    }
+    lazy.gmpService.addPluginDirectory(this.gmpPath);
+  },
+
   validate() {
     if (!this.isInstalled) {
       // Not installed -> Valid.
@@ -772,7 +793,7 @@ var GMPProvider = {
         }
         this._log.info("startup - adding gmp directory " + gmpPath);
         try {
-          lazy.gmpService.addPluginDirectory(gmpPath);
+          wrapper.addPluginDirectory();
         } catch (e) {
           if (e.name != "NS_ERROR_NOT_AVAILABLE") {
             throw e;

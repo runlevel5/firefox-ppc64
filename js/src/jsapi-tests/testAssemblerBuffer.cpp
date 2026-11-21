@@ -441,7 +441,8 @@ struct TestAssembler {
     *load = Instr::PoolLoadIndex(index);
   }
 
-  static void PatchConstantPoolLoad(void* loadAddr, void* constPoolAddr) {
+  static void PatchConstantPoolLoad(void* loadAddr, void* constPoolAddr,
+                                    size_t loadOffset) {
     uint32_t* load = reinterpret_cast<uint32_t*>(loadAddr);
     uint32_t index = *load & 0xffff;
     MOZ_ASSERT(*load == Instr::PoolLoadIndex(index),
@@ -1079,7 +1080,8 @@ struct LongVeneerTestAssembler {
     MOZ_CRASH("constant pool not used");
   }
 
-  static void PatchConstantPoolLoad(void* loadAddr, void* constPoolAddr) {
+  static void PatchConstantPoolLoad(void* loadAddr, void* constPoolAddr,
+                                    size_t loadOffset) {
     MOZ_CRASH("constant pool not used");
   }
 

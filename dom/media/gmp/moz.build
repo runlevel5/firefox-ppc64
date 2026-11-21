@@ -105,6 +105,9 @@ DIRS += [
     "widevine-adapter",
 ]
 
+if CONFIG["MOZ_WIDEVINE_PROXY"]:
+    DIRS += ["widevine-proxy"]
+
 IPDL_SOURCES += [
     "GMPTypes.ipdlh",
     "PChromiumCDM.ipdl",
