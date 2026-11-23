@@ -1687,8 +1687,10 @@ class ArenaCollection {
 
     arena_t* Next() {
       arena_t* result = Tree::Iterator::Next();
-      if (!result && mSecondTree) {
-        new (this) Iterator(mSecondTree, mThirdTree);
+      while (!result && mSecondTree) {
+        Tree::Iterator::operator=(Tree::Iterator(mSecondTree));
+        mSecondTree = mThirdTree;
+        mThirdTree = nullptr;
         result = *Tree::Iterator::begin();
       }
       return result;

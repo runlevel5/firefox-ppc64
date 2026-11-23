@@ -243,7 +243,7 @@ bool wasm::ThreadsAvailable(JSContext* cx) {
 }
 
 bool wasm::HasPlatformSupport() {
-#if !MOZ_LITTLE_ENDIAN()
+#if !MOZ_LITTLE_ENDIAN() && !defined(JS_CODEGEN_PPC64)
   return false;
 #else
 

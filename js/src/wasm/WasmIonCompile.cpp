@@ -1463,6 +1463,17 @@ class FunctionCompiler {
             : (Instance::offsetInData(
                   codeMeta().offsetOfMemoryInstanceData(memoryIndex) +
                   offsetof(MemoryInstanceData, boundsCheckLimit)));
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // boundsCheckLimit is a pointer-sized (uintptr_t) instance field. A 32-bit
+    // load of it must read the low 32 bits, which live at offset+4 on
+    // big-endian; loading at the field offset would read the always-zero high
+    // word, making every access look out-of-bounds (asm.js, which uses explicit
+    // bounds checks rather than huge-memory guard pages, then returns 0 and
+    // drops stores).
+    if (type == MIRType::Int32) {
+      offset += sizeof(uint32_t);
+    }
+#endif
     AliasSet aliases = !codeMeta().memories[memoryIndex].canMovingGrow()
                            ? AliasSet::None()
                            : AliasSet::Load(AliasSet::WasmHeapMeta);
@@ -10843,7 +10854,7 @@ bool js::wasm::IonPlatformSupport() {
 #if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_X86) ||       \
     defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS64) ||    \
     defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_LOONG64) || \
-    defined(JS_CODEGEN_RISCV64)
+    defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
   return true;
 #else
   return false;
