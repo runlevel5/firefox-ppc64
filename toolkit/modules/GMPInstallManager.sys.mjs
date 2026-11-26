@@ -48,6 +48,12 @@ const LOCAL_GMP_SOURCES = [
   },
 ];
 
+// Installs in flight, keyed by addon id and version. Overlapping update checks
+// (a version change and a due check can run together at startup) must not
+// extract into a directory that a plugin started by the first install is
+// already using.
+const gInstallsInFlight = new Map();
+
 function getLocalSources() {
   if (GMPPrefs.getBool(GMPPrefs.KEY_ALLOW_LOCAL_SOURCES, true)) {
     return LOCAL_GMP_SOURCES;
@@ -346,10 +352,12 @@ GMPInstallManager.prototype = {
     // server configuration.
     try {
       let forcedSources = localSources.filter(function (gmpSource) {
-        return GMPPrefs.getBool(
-          GMPPrefs.KEY_PLUGIN_FORCE_INSTALL,
-          false,
-          gmpSource.id
+        return (
+          GMPPrefs.getBool(
+            GMPPrefs.KEY_PLUGIN_FORCE_INSTALL,
+            false,
+            gmpSource.id
+          ) || GMPUtils._usesProxyCdm(gmpSource)
         );
       });
 
@@ -513,8 +521,17 @@ GMPInstallManager.prototype = {
       log.error("previous error encountered");
       return Promise.reject({ type: "previouserrorencountered" });
     }
+    let key = `${gmpAddon.id}/${gmpAddon.version}`;
+    let inFlight = gInstallsInFlight.get(key);
+    if (inFlight) {
+      return inFlight;
+    }
     this.gmpDownloader = new GMPDownloader(gmpAddon);
-    return this.gmpDownloader.start();
+    let install = this.gmpDownloader.start().finally(() => {
+      gInstallsInFlight.delete(key);
+    });
+    gInstallsInFlight.set(key, install);
+    return install;
   },
   _getTimeSinceLastCheck() {
     let now = Math.round(Date.now() / 1000);
@@ -836,6 +853,65 @@ GMPExtractor.prototype = {
 };
 
 /**
+ * Completes the install of a CDM that runs through a proxy CDM (see
+ * GMPUtils._usesProxyCdm): moves the downloaded library aside as
+ * libwidevinecdm-x86_64.so and copies the proxy library, its helper, the
+ * gmp-helper launcher and the x64lib runtime into the plugin directory. They
+ * are taken from the directory named by the plugin's proxy-dir pref, or by
+ * default from widevine-proxy under the application directory. box64 itself
+ * is not part of the bundle; it is packaged separately and found on PATH.
+ * The install fails, with the reason recorded in the plugin's
+ * last-install-fail-reason pref, when the helper could not be started from
+ * the result, so a missing box64 leaves Widevine uninstalled instead of
+ * crashing the plugin process on first use.
+ *
+ * @param gmpAddon The addon that was just extracted.
+ */
+async function installProxyCdm(gmpAddon) {
+  let log = getScopedLogger("GMPInstallManager.installProxyCdm");
+  let source = GMPPrefs.getString(
+    GMPPrefs.KEY_PLUGIN_PROXY_DIR,
+    "",
+    gmpAddon.id
+  );
+  if (!source) {
+    source = PathUtils.join(
+      Services.dirsvc.get("GreD", Ci.nsIFile).path,
+      "widevine-proxy"
+    );
+  }
+  let installDir = PathUtils.join(
+    Services.dirsvc.get("ProfD", Ci.nsIFile).path,
+    gmpAddon.id,
+    gmpAddon.version
+  );
+  const lib = "libwidevinecdm.so";
+  if (!(await IOUtils.exists(PathUtils.join(source, lib)))) {
+    throw new Error(`Proxy CDM not found in ${source}`);
+  }
+  log.info(`Installing proxy CDM from ${source} into ${installDir}`);
+  await IOUtils.move(
+    PathUtils.join(installDir, lib),
+    PathUtils.join(installDir, "libwidevinecdm-x86_64.so")
+  );
+  for (let name of [lib, "wvhost", "gmp-helper"]) {
+    let dest = PathUtils.join(installDir, name);
+    await IOUtils.copy(PathUtils.join(source, name), dest);
+    await IOUtils.setPermissions(dest, 0o755);
+  }
+  await IOUtils.copy(
+    PathUtils.join(source, "x64lib"),
+    PathUtils.join(installDir, "x64lib"),
+    { recursive: true }
+  );
+  let problem = GMPUtils.proxyCdmProblem(installDir);
+  if (problem) {
+    log.error(`Proxy CDM cannot start its helper: ${problem}`);
+    throw new Error(`Proxy CDM cannot start its helper: ${problem}`);
+  }
+}
+
+/**
  * Constructs an object which downloads and initiates an install of
  * the specified GMPAddon object.
  *
@@ -876,7 +952,14 @@ GMPDownloader.prototype = {
           gmpAddon.id,
           gmpAddon.version,
         ]);
-        let installPromise = gmpInstaller.install();
+        let installPromise = gmpInstaller
+          .install()
+          .then(async extractedPaths => {
+            if (GMPUtils._usesProxyCdm(gmpAddon)) {
+              await installProxyCdm(gmpAddon);
+            }
+            return extractedPaths;
+          });
         return installPromise
           .then(
             extractedPaths => {

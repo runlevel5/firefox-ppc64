@@ -81,6 +81,7 @@ extern void WebPInitSamplersSSE2(void);
 extern void WebPInitSamplersSSE41(void);
 extern void WebPInitSamplersMIPS32(void);
 extern void WebPInitSamplersMIPSdspR2(void);
+extern void WebPInitSamplersVSX(void);
 
 WEBP_DSP_INIT_FUNC(WebPInitSamplers) {
   WebPSamplers[MODE_RGB]       = YuvToRgbRow;
@@ -117,6 +118,11 @@ WEBP_DSP_INIT_FUNC(WebPInitSamplers) {
       WebPInitSamplersMIPSdspR2();
     }
 #endif  // WEBP_USE_MIPS_DSP_R2
+#if defined(WEBP_HAVE_VSX)
+    if (VP8GetCPUInfo(kVSX)) {
+      WebPInitSamplersVSX();
+    }
+#endif
   }
 }
 

@@ -8,7 +8,11 @@
 const DEBUG = 0;
 
 // The longer we run, the better, really, but we don't want to time out.
-const ITERATIONS = 100000;
+// Real PPC64 hardware retries lwarx/stwcx. reservation loops under
+// contention, which makes the default count exceed jit-test's 150 s
+// budget on POWER8 and (less so) POWER9/POWER10. Quarter the count
+// there to keep coverage while fitting the default budget.
+const ITERATIONS = getBuildConfiguration("ppc64") ? 25000 : 100000;
 
 // If you change NUMWORKERS you must also change the tables for INIT, VAL, and
 // RESULT for all the operations, below, by adding or removing bits.
@@ -39,7 +43,7 @@ if (getCoreCount() < NUMAGENTS) {
 
 if (getBuildConfiguration("arm-simulator") || getBuildConfiguration("arm64-simulator") ||
     getBuildConfiguration("mips64-simulator") || getBuildConfiguration("riscv64-simulator") ||
-    getBuildConfiguration("loong64-simulator"))
+    getBuildConfiguration("loong64-simulator") || getBuildConfiguration("ppc64-simulator"))
 {
     if (DEBUG > 0)
         print("Atomicity test disabled on simulator");

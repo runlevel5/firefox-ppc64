@@ -35,6 +35,9 @@
         "Linux_x86_64-gcc3-asan": {
           "alias": "Linux_x86_64-gcc3"
         },
+        "Linux_ppc64-gcc3": {
+          "alias": "Linux_x86_64-gcc3"
+        },
         "WINNT_aarch64-msvc-aarch64": {
           "fileUrl": "https://edgedl.me.gvt1.com/edgedl/release2/chrome_component/mubkn7mn6cy5fk3644kmxgyueu_4.10.3050.0/oimompecagnajdejgnnjijobebaeigek_4.10.3050.0_win_arm64_fyramdylknoqrjqvzyqaipdjki.crx3",
           "mirrorUrls": [

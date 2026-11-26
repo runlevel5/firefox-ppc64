@@ -26,6 +26,9 @@ SI PackedRGBA8 pack(WideRGBA8 p) {
 #elif USE_NEON
   return vcombine_u8(vqmovun_s16(bit_cast<V8<int16_t>>(lowHalf(p))),
                      vqmovun_s16(bit_cast<V8<int16_t>>(highHalf(p))));
+#elif USE_ALTIVEC
+  return bit_cast<PackedRGBA8>(vec_packsu(bit_cast<av_i16x8>(lowHalf(p)),
+                                          bit_cast<av_i16x8>(highHalf(p))));
 #else
   return genericPackWide(p);
 #endif
@@ -44,6 +47,10 @@ SI PackedR8 pack(WideR8 p) {
 #elif USE_NEON
   return lowHalf(
       bit_cast<V8<uint8_t>>(vqmovun_s16(bit_cast<V8<int16_t>>(expand(p)))));
+#elif USE_ALTIVEC
+  auto m = bit_cast<av_i16x8>(expand(p));
+  auto r = bit_cast<V16<uint8_t>>(vec_packsu(m, m));
+  return SHUFFLE(r, r, 0, 1, 2, 3);
 #else
   return genericPackWide(p);
 #endif
@@ -57,6 +64,9 @@ SI PackedRG8 pack(WideRG8 p) {
   return lowHalf(bit_cast<V16<uint8_t>>(_mm_packus_epi16(p, p)));
 #elif USE_NEON
   return bit_cast<V8<uint8_t>>(vqmovun_s16(bit_cast<V8<int16_t>>(p)));
+#elif USE_ALTIVEC
+  auto m = bit_cast<av_i16x8>(p);
+  return lowHalf(bit_cast<V16<uint8_t>>(vec_packsu(m, m)));
 #else
   return genericPackWide(p);
 #endif
@@ -693,6 +703,11 @@ static inline I16 textureLinearUnpackedR16(S sampler, ivec2 i) {
   // NEON has a convenient instruction that does both the multiply and the
   // doubling, so doesn't need an extra shift.
   abcd0 += bit_cast<V8<int16_t>>(vqrdmulhq_s16(abcd1 - abcd0, fracy.xxyyzzww));
+#elif USE_ALTIVEC
+  // vec_mradds is the same rounding multiply-high as vqrdmulhq_s16.
+  abcd0 += bit_cast<V8<int16_t>>(vec_mradds(bit_cast<av_i16x8>(abcd1 - abcd0),
+                                            bit_cast<av_i16x8>(fracy.xxyyzzww),
+                                            av_i16x8{}));
 #else
   abcd0 += CONVERT((CONVERT(abcd1 - abcd0, V8<int32_t>) *
                     CONVERT(fracy.xxyyzzww, V8<int32_t>)) >>
@@ -710,6 +725,10 @@ static inline I16 textureLinearUnpackedR16(S sampler, ivec2 i) {
            << 1;
 #elif USE_NEON
   abcdl += bit_cast<V4<int16_t>>(vqrdmulh_s16(abcdh - abcdl, fracx));
+#elif USE_ALTIVEC
+  abcdl += lowHalf(bit_cast<V8<int16_t>>(
+      vec_mradds(bit_cast<av_i16x8>(expand(abcdh - abcdl)),
+                 bit_cast<av_i16x8>(expand(fracx)), av_i16x8{})));
 #else
   abcdl += CONVERT((CONVERT(abcdh - abcdl, V4<int32_t>) *
                     CONVERT(fracx, V4<int32_t>)) >>
@@ -777,6 +796,13 @@ static inline V8<int16_t> textureLinearUnpackedRG16(S sampler, ivec2 i) {
   // doubling, so doesn't need an extra shift.
   ab0 += bit_cast<V8<int16_t>>(vqrdmulhq_s16(ab1 - ab0, fracy.xxxxyyyy));
   cd0 += bit_cast<V8<int16_t>>(vqrdmulhq_s16(cd1 - cd0, fracy.zzzzwwww));
+#elif USE_ALTIVEC
+  ab0 += bit_cast<V8<int16_t>>(vec_mradds(bit_cast<av_i16x8>(ab1 - ab0),
+                                          bit_cast<av_i16x8>(fracy.xxxxyyyy),
+                                          av_i16x8{}));
+  cd0 += bit_cast<V8<int16_t>>(vec_mradds(bit_cast<av_i16x8>(cd1 - cd0),
+                                          bit_cast<av_i16x8>(fracy.zzzzwwww),
+                                          av_i16x8{}));
 #else
   ab0 += CONVERT((CONVERT(ab1 - ab0, V8<int32_t>) *
                   CONVERT(fracy.xxxxyyyy, V8<int32_t>)) >>
@@ -806,6 +832,10 @@ static inline V8<int16_t> textureLinearUnpackedRG16(S sampler, ivec2 i) {
            << 1;
 #elif USE_NEON
   abcdl += bit_cast<V8<int16_t>>(vqrdmulhq_s16(abcdh - abcdl, fracx.xxyyzzww));
+#elif USE_ALTIVEC
+  abcdl += bit_cast<V8<int16_t>>(vec_mradds(bit_cast<av_i16x8>(abcdh - abcdl),
+                                            bit_cast<av_i16x8>(fracx.xxyyzzww),
+                                            av_i16x8{}));
 #else
   abcdl += CONVERT((CONVERT(abcdh - abcdl, V8<int32_t>) *
                     CONVERT(fracx.xxyyzzww, V8<int32_t>)) >>
@@ -1157,6 +1187,9 @@ static inline V8<uint16_t> addsat(V8<uint16_t> x, V8<uint16_t> y) {
   return _mm_adds_epu16(x, y);
 #elif USE_NEON
   return vqaddq_u16(x, y);
+#elif USE_ALTIVEC
+  return bit_cast<V8<uint16_t>>(
+      vec_adds(bit_cast<av_u16x8>(x), bit_cast<av_u16x8>(y)));
 #else
   auto r = x + y;
   return r | (r < x);
